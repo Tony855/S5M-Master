@@ -40,25 +40,24 @@ func (a *App) ensureAdmin() error {
 func (a *App) Router(static fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
-	// 无需鉴权的公共接口
+	// ================= 公共接口（无需鉴权） =================
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
-	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
+	
+	// 核心新增：Agent 自动注册接口
+	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 
-	// 需要 JWT 鉴权的管理接口
+	// ================= 管理接口（需 JWT 鉴权） =================
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/auth/me":          a.handleMe,
 		"PUT /api/v1/auth/password":    a.handlePassword,
 		"GET /api/v1/settings":         a.handleGetSettings,
 		"PUT /api/v1/settings":         a.handleUpdateSettings,
 		"GET /api/v1/proxies":          a.handleListProxies,
-		"GET /api/v1/instances":        a.handleListInstances,
-		"POST /api/v1/instances":       a.handleCreateInstance,
-		"DELETE /api/v1/instances/{id}": a.handleDeleteInstance,
 		"POST /api/v1/proxies":         a.handleCreateProxy,
 		"POST /api/v1/proxies/import":  a.handleImportProxies,
 		"PUT /api/v1/proxies/{id}":     a.handleUpdateProxy,
@@ -77,11 +76,14 @@ func (a *App) Router(static fs.FS) http.Handler {
 		mux.HandleFunc(pat, a.auth(h))
 	}
 
+	// ================= 静态资源 =================
 	mux.Handle("/", http.FileServer(http.FS(static)))
+
 	return withRecover(mux)
 }
 
-// 包装 ResponseWriter 以捕获 HTTP 状态码
+// ================= 错误日志与崩溃捕获中间件 =================
+
 type statusResponseWriter struct {
 	http.ResponseWriter
 	status int
@@ -92,7 +94,6 @@ func (w *statusResponseWriter) WriteHeader(status int) {
 	w.ResponseWriter.WriteHeader(status)
 }
 
-// 捕获所有请求的中间件，记录错误日志和 Panic
 func withRecover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -105,7 +106,7 @@ func withRecover(next http.Handler) http.Handler {
 		sw := &statusResponseWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
 
-		// 如果是 4xx 或 5xx 请求，记录到系统日志中
+		// 记录 4xx / 5xx 异常请求
 		if sw.status >= 400 {
 			slog.Warn("HTTP 请求异常",
 				"method", r.Method,

@@ -35,6 +35,7 @@ func decode(r *http.Request, v any) error {
 	return json.NewDecoder(r.Body).Decode(v)
 }
 
+// ================= 认证相关 =================
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
@@ -77,6 +78,7 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"message": "密码已更新"})
 }
 
+// ================= 设置与节点 =================
 func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	settings, _ := a.store.GetSettings()
 	writeJSON(w, 200, settings)
@@ -166,6 +168,7 @@ func (a *App) handleDeleteProxy(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
 
+// ================= 配置版本 =================
 func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
 	yml, _ := a.BuildConfig()
 	writeJSON(w, 200, map[string]string{"yaml": yml})
@@ -201,264 +204,16 @@ func (a *App) handleRollback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "message": "回滚成功", "version": cv})
 }
 
+// ================= 监控与内核 =================
 func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 	list, _ := a.store.ListProxies()
 	enabled := 0
 	for _, p := range list {
-		if p.Enabled {
-			enabled++
-		}
+		if p.Enabled { enabled++ }
 	}
 	writeJSON(w, 200, map[string]any{"mihomo": a.MihomoInfo(), "proxy_total": len(list), "proxy_enabled": enabled})
 }
 
-// ================= 更新内核逻辑 =================
-func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
-	out, _ := exec.Command("/opt/mihomo/mihomo", "-v").Output()
-	re := regexp.MustCompile(`Mihomo Meta (v[0-9]+\.[0-9]+\.[0-9]+)`)
-	matches := re.FindStringSubmatch(string(out))
-	currentVersion := "unknown"
-	if len(matches) > 1 {
-		currentVersion = matches[1]
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
-	req.Header.Set("User-Agent", "S5M-Next")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		writeErr(w, 500, "检查更新失败(网络异常): "+err.Error())
-		return
-	}
-	defer resp.Body.Close()
-
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		writeErr(w, 500, "解析 GitHub 版本信息失败")
-		return
-	}
-	latestVersion := release.TagName
-
-	if currentVersion == latestVersion {
-		writeJSON(w, 200, map[string]string{"message": "当前已是最新版本 " + latestVersion + "，无需更新", "status": "latest"})
-		return
-	}
-
-	var downloadURL string
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") {
-			downloadURL = "https://ghproxy.net/" + asset.BrowserDownloadURL
-			break
-		}
-	}
-	if downloadURL == "" {
-		writeErr(w, 500, "未找到适配的 linux-amd64 安装包")
-		return
-	}
-
-	tmp := "/tmp/mihomo_update.gz"
-	if err := exec.Command("curl", "-fL", "-o", tmp, downloadURL).Run(); err != nil {
-		writeErr(w, 500, "下载更新包失败，可能网络被阻断")
-		return
-	}
-
-	exec.Command("systemctl", "stop", "mihomo").Run()
-	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
-	data, _ := exec.Command("gunzip", "-c", tmp).Output()
-	os.WriteFile("/opt/mihomo/mihomo", data, 0755)
-	exec.Command("systemctl", "start", "mihomo").Run()
-
-	writeJSON(w, 200, map[string]string{"message": "已成功更新至最新版本 " + latestVersion, "status": "updated"})
-}
-
-// ================= 批量导入解析器 =================
-func parseProxyLine(line string) (*Proxy, error) {
-	p := &Proxy{Mode: "proxy", SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{}}
-	if idx := strings.Index(line, "#"); idx != -1 {
-		if unescaped, err := url.QueryUnescape(line[idx+1:]); err == nil {
-			p.Name = unescaped
-		} else {
-			p.Name = line[idx+1:]
-		}
-		line = line[:idx]
-	}
-	schemeIdx := strings.Index(line, "://")
-	if schemeIdx == -1 {
-		return nil, fmt.Errorf("缺少协议前缀")
-	}
-	p.Type = line[:schemeIdx]
-	line = line[schemeIdx+3:]
-
-	var hostport string
-	if atIdx := strings.LastIndex(line, "@"); atIdx != -1 {
-		auth := line[:atIdx]
-		hostport = line[atIdx+1:]
-		if auth != ":" && auth != "" {
-			parts := strings.SplitN(auth, ":", 2)
-			if len(parts) > 0 && parts[0] != "" {
-				p.Extra["username"] = parts[0]
-			}
-			if len(parts) > 1 && parts[1] != "" {
-				p.Extra["password"] = parts[1]
-			}
-		}
-	} else {
-		hostport = line
-	}
-
-	host, portStr, err := net.SplitHostPort(hostport)
-	if err != nil {
-		if lastColon := strings.LastIndex(hostport, ":"); lastColon != -1 {
-			host = hostport[:lastColon]
-			portStr = hostport[lastColon+1:]
-		} else {
-			return nil, fmt.Errorf("无法解析主机和端口: %s", err)
-		}
-	}
-
-	p.Server = host
-	p.Port, err = strconv.Atoi(portStr)
-	if err != nil {
-		return nil, fmt.Errorf("端口不合法: %s", portStr)
-	}
-
-	if p.Name == "" {
-		p.Name = fmt.Sprintf("%s-%s:%d", p.Type, p.Server, p.Port)
-	}
-	if p.Type == "vless" || p.Type == "vmess" || p.Type == "trojan" || p.Type == "socks5" {
-		p.Extra["udp"] = true
-	}
-	return p, nil
-}
-
-func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Content string `json:"content"`
-	}
-	if err := decode(r, &in); err != nil {
-		writeErr(w, 400, "参数错误")
-		return
-	}
-
-	successCount := 0
-	var failReasons []string
-	content := strings.TrimSpace(in.Content)
-
-	type jsonImportServer struct {
-		Server   string `json:"server"`
-		Port     int    `json:"port"`
-		Username string `json:"username"`
-		Password string `json:"password"`
-		UDP      bool   `json:"udp"`
-	}
-	type jsonImportConfig struct {
-		Protocol string             `json:"protocol"`
-		Servers  []jsonImportServer `json:"servers"`
-	}
-	var jsonCfg jsonImportConfig
-
-	if err := json.Unmarshal([]byte(content), &jsonCfg); err == nil && len(jsonCfg.Servers) > 0 {
-		for _, s := range jsonCfg.Servers {
-			p := Proxy{Name: fmt.Sprintf("%s-%d", s.Server, s.Port), Mode: "proxy", Type: "socks5", Server: s.Server, Port: s.Port, SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{"udp": s.UDP}}
-			if s.Username != "" {
-				p.Extra["username"] = s.Username
-			}
-			if s.Password != "" {
-				p.Extra["password"] = s.Password
-			}
-			if err := a.store.CreateProxy(&p); err != nil {
-				p.Name = fmt.Sprintf("%s-%d-%d", s.Server, s.Port, time.Now().UnixNano())
-				if err := a.store.CreateProxy(&p); err != nil {
-					failReasons = append(failReasons, fmt.Sprintf("节点 %s 存入失败: %v", p.Name, err))
-					continue
-				}
-			}
-			successCount++
-		}
-	} else {
-		lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-		for i, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" || strings.HasPrefix(line, "//") {
-				continue
-			}
-			p, err := parseProxyLine(line)
-			if err != nil {
-				failReasons = append(failReasons, fmt.Sprintf("第 %d 行解析失败: %v", i+1, err))
-				continue
-			}
-			if err := a.store.CreateProxy(p); err != nil {
-				p.Name = p.Name + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-				if err := a.store.CreateProxy(p); err != nil {
-					failReasons = append(failReasons, fmt.Sprintf("节点 %s 存入失败: %v", p.Name, err))
-					continue
-				}
-			}
-			successCount++
-		}
-	}
-
-	msg := "导入完成"
-	if len(failReasons) > 0 {
-		msg = strings.Join(failReasons, "; ")
-	}
-	writeJSON(w, 200, map[string]any{"success": successCount, "fail": len(failReasons), "message": msg})
-}
-
-// ================= 系统日志 =================
-
-
-// ================= 客户端订阅 =================
-func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	settings, _ := a.store.GetSettings()
-	expectedToken := settings["sub_token"]
-
-	if expectedToken == "" || token != expectedToken {
-		writeErr(w, 403, "无效的订阅 token")
-		return
-	}
-
-	proxies, err := a.store.ListProxies()
-	if err != nil {
-		writeErr(w, 500, "获取节点失败")
-		return
-	}
-
-	var outs []proxyOut
-	for _, p := range proxies {
-		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
-			continue
-		}
-		ex := map[string]any{}
-		for k, v := range p.Extra {
-			switch k {
-			case "name", "type", "server", "port":
-				continue
-			}
-			ex[k] = v
-		}
-		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
-	}
-
-	res := map[string]any{
-		"proxies": outs,
-		"rules":   []string{"MATCH,DIRECT"},
-	}
-	b, _ := yaml.Marshal(res)
-	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-	w.WriteHeader(200)
-	w.Write(b)
-}
-
-// ================= 实时流量监控 =================
 var lastUp, lastDown uint64
 var lastTime time.Time
 
@@ -484,37 +239,97 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
 	if !lastTime.IsZero() {
 		diff := now.Sub(lastTime).Seconds()
 		if diff > 0 {
-			if data.UploadTotal >= lastUp {
-				upSpeed = uint64(float64(data.UploadTotal-lastUp) / diff)
-			}
-			if data.DownloadTotal >= lastDown {
-				downSpeed = uint64(float64(data.DownloadTotal-lastDown) / diff)
-			}
+			if data.UploadTotal >= lastUp { upSpeed = uint64(float64(data.UploadTotal-lastUp) / diff) }
+			if data.DownloadTotal >= lastDown { downSpeed = uint64(float64(data.DownloadTotal-lastDown) / diff) }
 		}
 	}
 	lastUp = data.UploadTotal
 	lastDown = data.DownloadTotal
 	lastTime = now
 
-	writeJSON(w, 200, map[string]any{
-		"up":    upSpeed,
-		"down":  downSpeed,
-		"conns": len(data.Connections),
-	})
+	writeJSON(w, 200, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
 }
 
-// ================= 数据库备份与恢复 =================
+func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
+	out, _ := exec.Command("/opt/mihomo/mihomo", "-v").Output()
+	re := regexp.MustCompile(`Mihomo Meta (v[0-9]+\.[0-9]+\.[0-9]+)`)
+	matches := re.FindStringSubmatch(string(out))
+	currentVersion := "unknown"
+	if len(matches) > 1 { currentVersion = matches[1] }
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	req.Header.Set("User-Agent", "S5M-Next")
+
+	resp, err := client.Do(req)
+	if err != nil { writeErr(w, 500, "检查更新失败(网络异常): "+err.Error()); return }
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil { writeErr(w, 500, "解析 GitHub 版本信息失败"); return }
+	latestVersion := release.TagName
+
+	if currentVersion == latestVersion {
+		writeJSON(w, 200, map[string]string{"message": "当前已是最新版本 " + latestVersion + "，无需更新", "status": "latest"})
+		return
+	}
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") {
+			downloadURL = "https://ghproxy.net/" + asset.BrowserDownloadURL
+			break
+		}
+	}
+	if downloadURL == "" { writeErr(w, 500, "未找到适配的 linux-amd64 安装包"); return }
+
+	tmp := "/tmp/mihomo_update.gz"
+	if err := exec.Command("curl", "-fL", "-o", tmp, downloadURL).Run(); err != nil { writeErr(w, 500, "下载更新包失败，可能网络被阻断"); return }
+
+	exec.Command("systemctl", "stop", "mihomo").Run()
+	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
+	data, _ := exec.Command("gunzip", "-c", tmp).Output()
+	os.WriteFile("/opt/mihomo/mihomo", data, 0755)
+	exec.Command("systemctl", "start", "mihomo").Run()
+
+	writeJSON(w, 200, map[string]string{"message": "已成功更新至最新版本 " + latestVersion, "status": "updated"})
+}
+
+// ================= 日志与备份 =================
+func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+	cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso")
+	output, _ := cmd.CombinedOutput()
+
+	lines := strings.Split(string(output), "\n")
+	var result []string
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" { continue }
+		reHost := regexp.MustCompile(`\s+[a-zA-Z0-9.-]+\.bytevirt\.com\s+`)
+		line = reHost.ReplaceAllString(line, " ")
+		line = strings.ReplaceAll(line, " systemd[1]: ", " ")
+		line = strings.ReplaceAll(line, "s5m-next.service:", "S5M:")
+		reTime := regexp.MustCompile(`time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?\s*`)
+		line = reTime.ReplaceAllString(line, "")
+		if len(line) >= 25 && line[10] == 'T' {
+			timeStr := strings.Replace(line[:19], "T", " ", 1)
+			line = timeStr + " " + strings.TrimSpace(line[25:])
+		}
+		result = append(result, line)
+	}
+	writeJSON(w, 200, map[string]string{"logs": strings.Join(result, "\n")})
+}
+
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	tokenStr := r.URL.Query().Get("token")
-	if tokenStr == "" {
-		writeErr(w, 401, "未登录")
-		return
-	}
+	if tokenStr == "" { writeErr(w, 401, "未登录"); return }
 	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || !t.Valid {
-		writeErr(w, 401, "登录已失效")
-		return
-	}
+	if err != nil || !t.Valid { writeErr(w, 401, "登录已失效"); return }
 
 	w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -523,110 +338,180 @@ func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	file, _, err := r.FormFile("file")
-	if err != nil {
-		writeErr(w, 400, "上传文件失败: "+err.Error())
-		return
-	}
+	if err != nil { writeErr(w, 400, "上传文件失败: "+err.Error()); return }
 	defer file.Close()
 
 	tmp := "/tmp/restore.db"
 	out, err := os.Create(tmp)
-	if err != nil {
-		writeErr(w, 500, "创建临时文件失败")
-		return
-	}
+	if err != nil { writeErr(w, 500, "创建临时文件失败"); return }
 	defer out.Close()
 	io.Copy(out, file)
 
 	a.store.db.Close()
-	if err := os.Rename(tmp, a.cfg.DBPath); err != nil {
-		writeErr(w, 500, "覆盖数据库失败，请检查权限")
-		return
-	}
+	if err := os.Rename(tmp, a.cfg.DBPath); err != nil { writeErr(w, 500, "覆盖数据库失败，请检查权限"); return }
 
 	writeJSON(w, 200, map[string]string{"message": "数据库已成功覆盖，请手动重启 S5M 服务以生效！"})
 }
 
-func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
-cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso")
-output, _ := cmd.CombinedOutput()
+// ================= 客户端订阅 =================
+func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	settings, _ := a.store.GetSettings()
+	expectedToken := settings["sub_token"]
 
-lines := strings.Split(string(output), "\n")
-var result []string
+	if expectedToken == "" || token != expectedToken { writeErr(w, 403, "无效的订阅 token"); return }
 
-for _, line := range lines {
-if strings.TrimSpace(line) == "" { continue }
+	proxies, err := a.store.ListProxies()
+	if err != nil { writeErr(w, 500, "获取节点失败"); return }
 
-// 1. 清理服务器主机名
-reHost := regexp.MustCompile(`\s+[a-zA-Z0-9.-]+\.bytevirt\.com\s+`)
-line = reHost.ReplaceAllString(line, " ")
+	var outs []proxyOut
+	for _, p := range proxies {
+		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" { continue }
+		ex := map[string]any{}
+		for k, v := range p.Extra {
+			switch k {
+			case "name", "type", "server", "port": continue
+			}
+			ex[k] = v
+		}
+		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
+	}
 
-// 2. 清理 systemd 的冗余信息
-line = strings.ReplaceAll(line, " systemd[1]: ", " ")
-line = strings.ReplaceAll(line, "s5m-next.service:", "S5M:")
-
-// 3. 关键修复：强制删除日志内部的 time=2026-10-21T07:47:15.966Z 格式
-reTime := regexp.MustCompile(`time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?\s*`)
-line = reTime.ReplaceAllString(line, "")
-
-// 4. 整理最前面的系统时间格式
-if len(line) >= 25 && line[10] == 'T' {
-timeStr := line[:19]
-timeStr = strings.Replace(timeStr, "T", " ", 1)
-rest := line[25:]
-line = timeStr + " " + strings.TrimSpace(rest)
+	res := map[string]any{
+		"proxies": outs,
+		"rules":   []string{"MATCH,DIRECT"},
+	}
+	b, _ := yaml.Marshal(res)
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	w.WriteHeader(200)
+	w.Write(b)
 }
 
-result = append(result, line)
+// ================= 代理导入 =================
+func parseProxyLine(line string) (*Proxy, error) {
+	p := &Proxy{Mode: "proxy", SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{}}
+	if idx := strings.Index(line, "#"); idx != -1 {
+		if unescaped, err := url.QueryUnescape(line[idx+1:]); err == nil { p.Name = unescaped } else { p.Name = line[idx+1:] }
+		line = line[:idx]
+	}
+	schemeIdx := strings.Index(line, "://")
+	if schemeIdx == -1 { return nil, fmt.Errorf("缺少协议前缀") }
+	p.Type = line[:schemeIdx]
+	line = line[schemeIdx+3:]
+
+	var hostport string
+	if atIdx := strings.LastIndex(line, "@"); atIdx != -1 {
+		auth := line[:atIdx]
+		hostport = line[atIdx+1:]
+		if auth != ":" && auth != "" {
+			parts := strings.SplitN(auth, ":", 2)
+			if len(parts) > 0 && parts[0] != "" { p.Extra["username"] = parts[0] }
+			if len(parts) > 1 && parts[1] != "" { p.Extra["password"] = parts[1] }
+		}
+	} else { hostport = line }
+
+	host, portStr, err := net.SplitHostPort(hostport)
+	if err != nil {
+		if lastColon := strings.LastIndex(hostport, ":"); lastColon != -1 {
+			host = hostport[:lastColon]
+			portStr = hostport[lastColon+1:]
+		} else { return nil, fmt.Errorf("无法解析主机和端口: %s", err) }
+	}
+
+	p.Server = host
+	p.Port, err = strconv.Atoi(portStr)
+	if err != nil { return nil, fmt.Errorf("端口不合法: %s", portStr) }
+	if p.Name == "" { p.Name = fmt.Sprintf("%s-%s:%d", p.Type, p.Server, p.Port) }
+	if p.Type == "vless" || p.Type == "vmess" || p.Type == "trojan" || p.Type == "socks5" { p.Extra["udp"] = true }
+	return p, nil
 }
 
-writeJSON(w, 200, map[string]string{"logs": strings.Join(result, "\n")})
+func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
+	var in struct { Content string `json:"content"` }
+	if err := decode(r, &in); err != nil { writeErr(w, 400, "参数错误"); return }
+
+	successCount := 0
+	var failReasons []string
+	content := strings.TrimSpace(in.Content)
+
+	type jsonImportServer struct {
+		Server   string `json:"server"`
+		Port     int    `json:"port"`
+		Username string `json:"username"`
+		Password string `json:"password"`
+		UDP      bool   `json:"udp"`
+	}
+	type jsonImportConfig struct {
+		Protocol string             `json:"protocol"`
+		Servers  []jsonImportServer `json:"servers"`
+	}
+	var jsonCfg jsonImportConfig
+
+	if err := json.Unmarshal([]byte(content), &jsonCfg); err == nil && len(jsonCfg.Servers) > 0 {
+		for _, s := range jsonCfg.Servers {
+			p := Proxy{Name: fmt.Sprintf("%s-%d", s.Server, s.Port), Mode: "proxy", Type: "socks5", Server: s.Server, Port: s.Port, SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{"udp": s.UDP}}
+			if s.Username != "" { p.Extra["username"] = s.Username }
+			if s.Password != "" { p.Extra["password"] = s.Password }
+			if err := a.store.CreateProxy(&p); err != nil {
+				p.Name = fmt.Sprintf("%s-%d-%d", s.Server, s.Port, time.Now().UnixNano())
+				if err := a.store.CreateProxy(&p); err != nil { failReasons = append(failReasons, fmt.Sprintf("节点 %s 存入失败: %v", p.Name, err)); continue }
+			}
+			successCount++
+		}
+	} else {
+		lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+		for i, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "//") { continue }
+			p, err := parseProxyLine(line)
+			if err != nil { failReasons = append(failReasons, fmt.Sprintf("第 %d 行解析失败: %v", i+1, err)); continue }
+			if err := a.store.CreateProxy(p); err != nil {
+				p.Name = p.Name + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+				if err := a.store.CreateProxy(p); err != nil { failReasons = append(failReasons, fmt.Sprintf("节点 %s 存入失败: %v", p.Name, err)); continue }
+			}
+			successCount++
+		}
+	}
+
+	msg := "导入完成"
+	if len(failReasons) > 0 { msg = strings.Join(failReasons, "; ") }
+	writeJSON(w, 200, map[string]any{"success": successCount, "fail": len(failReasons), "message": msg})
 }
 
-func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {
-list, _ := a.store.ListInstances()
-writeJSON(w, 200, list)
-}
-func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
-var in Instance
-if err := decode(r, &in); err != nil { writeErr(w, 400, "参数错误"); return }
-if in.Name == "" || in.APIURL == "" { writeErr(w, 400, "名称和API地址不能为空"); return }
-if err := a.store.CreateInstance(&in); err != nil { writeErr(w, 409, err.Error()); return }
-writeJSON(w, 200, in)
-}
-func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request) {
-id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-a.store.DeleteInstance(id)
-writeJSON(w, 200, map[string]string{"message": "已删除"})
-}
-
+// ================= Agent 自动注册 =================
 func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
-var in struct {
-MachineCode string `json:"machine_code"`
-}
-if err := decode(r, &in); err != nil || in.MachineCode == "" {
-writeErr(w, 400, "机器码不能为空")
-return
-}
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		Secret      string `json:"secret"`
+	}
+	if err := decode(r, &in); err != nil || in.MachineCode == "" {
+		writeErr(w, 400, "机器码不能为空")
+		return
+	}
 
-// 生成专属的 JWT Token，有效期为永久 (或者你在以后设置过期时间)
-claims := jwt.MapClaims{
-"sub":  in.MachineCode,
-"role": "agent",
-}
-token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
-if err != nil {
-writeErr(w, 500, "生成 Token 失败")
-return
-}
+	settings, _ := a.store.GetSettings()
+	expectedSecret := settings["agent_token"]
+	if expectedSecret == "" || in.Secret != expectedSecret {
+		writeErr(w, 403, "注册密钥错误，拒绝接入！")
+		return
+	}
 
-// 保存机器码到数据库（后续可以建表存，这里先用简单的设置表或日志记录）
-a.store.UpdateSettings(map[string]string{
-"agent_machine_" + in.MachineCode: token,
-})
+	claims := jwt.MapClaims{
+		"sub":  in.MachineCode,
+		"role": "agent",
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
+	if err != nil {
+		writeErr(w, 500, "生成 Token 失败")
+		return
+	}
 
-writeJSON(w, 200, map[string]string{
-"message": "注册成功",
-"token":   token,
-})
+	a.store.UpdateSettings(map[string]string{
+		"agent_machine_" + in.MachineCode: token,
+	})
+
+	writeJSON(w, 200, map[string]string{
+		"message": "注册成功",
+		"token":   token,
+	})
 }

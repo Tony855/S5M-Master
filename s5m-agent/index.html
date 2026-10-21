@@ -6,58 +6,24 @@
 <title>S5M Agent 节点注册</title>
 <style>
   * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    display: flex; justify-content: center; align-items: center;
-    height: 100vh; margin: 0; color: #e2e8f0;
-  }
-  .card {
-    background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    padding: 40px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    width: 100%; max-width: 420px; animation: fadeIn 0.5s ease-out;
-  }
-  @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-  .logo { width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 14px; background: linear-gradient(135deg, #4361ee, #4cc9f0); display: flex; justify-content: center; align-items: center; font-size: 24px; font-weight: 800; color: #fff; box-shadow: 0 8px 20px rgba(67, 97, 238, 0.4); }
+  body { font-family: -apple-system, sans-serif; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; color: #e2e8f0; }
+  .card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); padding: 40px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 100%; max-width: 420px; }
+  .logo { width: 56px; height: 56px; margin: 0 auto 20px; border-radius: 14px; background: linear-gradient(135deg, #4361ee, #4cc9f0); display: flex; justify-content: center; align-items: center; font-size: 24px; font-weight: 800; color: #fff; }
   h2 { text-align: center; margin: 0 0 20px; font-size: 22px; font-weight: 600; }
   label { display: block; margin-bottom: 8px; color: #cbd5e1; font-size: 13px; font-weight: 500; }
-  input {
-    width: 100%; padding: 12px 16px; margin-bottom: 20px;
-    background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px; color: #fff; font-size: 14px; transition: all 0.2s;
-  }
-  input:focus { outline: none; border-color: #4361ee; box-shadow: 0 0 0 2px rgba(67, 97, 238, 0.2); }
-  .btn-group { display: flex; gap: 10px; }
-  button {
-    flex: 1; padding: 12px; border: none; border-radius: 8px;
-    background: linear-gradient(135deg, #4361ee, #4cc9f0); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
-    transition: all 0.2s; box-shadow: 0 4px 12px rgba(67, 97, 238, 0.3);
-  }
-  button:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(67, 97, 238, 0.4); }
-  button:disabled { opacity: 0.7; cursor: not-allowed; transform: none; }
-  button.outline { background: transparent; border: 1px solid rgba(255,255,255,0.2); box-shadow: none; }
-  button.outline:hover { background: rgba(255,255,255,0.1); }
+  input { width: 100%; padding: 12px 16px; margin-bottom: 20px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #fff; font-size: 14px; }
+  input:focus { outline: none; border-color: #4361ee; }
+  button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: linear-gradient(135deg, #4361ee, #4cc9f0); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
   #msg { text-align: center; margin-top: 16px; font-size: 13px; padding: 10px; border-radius: 6px; display: none; }
-  .msg-success { background: rgba(16, 185, 129, 0.1); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.2); }
-  .msg-error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+  .msg-success { background: rgba(16, 185, 129, 0.1); color: #34d399; }
+  .msg-error { background: rgba(239, 68, 68, 0.1); color: #f87171; }
   .status { margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); text-align: center; font-size: 13px; color: #cbd5e1; display: flex; align-items: center; justify-content: center; gap: 8px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: #64748b; }
-  .dot.active { background: #10b981; box-shadow: 0 0 10px #10b981; }
-  .dot.error { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
-  
-  .machine-box {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    background: rgba(0, 0, 0, 0.3); padding: 8px 12px; border-radius: 8px; margin-bottom: 20px;
-    border: 1px solid rgba(255,255,255,0.05);
-  }
+  .dot.active { background: #10b981; }
+  .dot.error { background: #ef4444; }
+  .machine-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(0, 0, 0, 0.3); padding: 8px 12px; border-radius: 8px; margin-bottom: 20px; }
   .machine-text { font-size: 12px; color: #94a3b8; font-family: monospace; word-break: break-all; flex: 1; }
-  .btn-copy {
-    flex: none; padding: 4px 10px; font-size: 12px; font-weight: normal;
-    background: rgba(76, 201, 240, 0.2); color: #4cc9f0; border: 1px solid rgba(76, 201, 240, 0.4);
-    border-radius: 4px; cursor: pointer; transition: all 0.2s; box-shadow: none;
-  }
-  .btn-copy:hover { background: rgba(76, 201, 240, 0.3); transform: none; box-shadow: none;}
+  .btn-copy { padding: 4px 10px; font-size: 12px; background: rgba(76, 201, 240, 0.2); color: #4cc9f0; border: 1px solid rgba(76, 201, 240, 0.4); border-radius: 4px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -66,18 +32,17 @@
   <h2>节点设备注册</h2>
   
   <div class="machine-box">
-    <span class="machine-text" id="machineId">获取机器码中...</span>
+    <span class="machine-text" id="machineId">获取中...</span>
     <button class="btn-copy" onclick="copyMachineId()">复制</button>
   </div>
   
   <label>控制台服务器地址</label>
-  <input type="text" id="url" placeholder="例如: http://1.2.3.4">
+  <input type="text" id="url" placeholder="例如: https://yourdomain.com">
   
-  <div class="btn-group">
-    <button id="btn" onclick="save()">一键绑定设备</button>
-    <button id="btnReset" class="outline" onclick="resetConfig()" style="display: none;">解除绑定</button>
-  </div>
-  
+  <label>注册密钥</label>
+  <input type="password" id="secret" placeholder="默认: s5m-agent-secret">
+
+  <button id="btn" onclick="save()">一键绑定设备</button>
   <div id="msg"></div>
   
   <div class="status">
@@ -88,7 +53,6 @@
 
 <script>
   let currentMachineID = '';
-
   window.onload = async () => {
     try {
       const idRes = await fetch('/api/machine-id');
@@ -98,85 +62,52 @@
 
       const res = await fetch('/api/config');
       const data = await res.json();
-      
-      if (data.central_url) {
-        document.getElementById('url').value = data.central_url;
-      }
+      if (data.central_url) document.getElementById('url').value = data.central_url;
       
       if (data.has_token) {
-        document.getElementById('btnReset').style.display = 'block';
         document.getElementById('btn').innerText = '重新绑定';
-        if (data.connected) {
-          setStatus('active', '设备已绑定，连接正常');
-        } else {
-          setStatus('error', '连接已断开，请检查网络');
-        }
+        if (data.connected) setStatus('active', '连接正常');
+        else setStatus('error', '连接已断开');
       } else {
         setStatus('', '等待连接');
       }
-    } catch(e) {
-      document.getElementById('machineId').innerText = '获取失败';
-      setStatus('error', 'Agent 内部错误');
-    }
+    } catch(e) { setStatus('error', 'Agent 内部错误'); }
   };
 
   function copyMachineId() {
     if (!currentMachineID) return;
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(currentMachineID).then(() => {
-        showMsg('机器码已复制到剪贴板', true);
-        setTimeout(() => { document.getElementById('msg').style.display = 'none'; }, 2000);
-      }).catch(() => {
-        showMsg('复制失败，请手动选择复制', false);
-      });
-    } else {
-      const textArea = document.createElement("textarea");
-      textArea.value = currentMachineID;
-      document.body.appendChild(textArea);
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        showMsg('机器码已复制到剪贴板', true);
-        setTimeout(() => { document.getElementById('msg').style.display = 'none'; }, 2000);
-      } catch (err) {
-        showMsg('复制失败，请手动选择复制', false);
-      }
-      document.body.removeChild(textArea);
-    }
+    navigator.clipboard.writeText(currentMachineID).then(() => {
+      showMsg('机器码已复制', true);
+    });
   }
 
   function setStatus(state, text) {
-    const dot = document.getElementById('statusDot');
-    dot.className = 'dot ' + state;
+    document.getElementById('statusDot').className = 'dot ' + state;
     document.getElementById('statusText').innerText = text;
   }
 
   async function save() {
     let url = document.getElementById('url').value.trim().replace(/\/$/, '');
-    const msg = document.getElementById('msg');
-    const btn = document.getElementById('btn');
-    
+    const secret = document.getElementById('secret').value;
     if (!url) return showMsg('请输入控制台地址', false);
 
-    // 核心修复：如果没有协议前缀，自动补全 http://
     if (!/^https?:\/\//i.test(url)) {
-      url = 'https://' + url;
-      document.getElementById('url').value = url; // 回显给用户
+      url = 'http://' + url; // 默认 http，除非你自己打 https
+      document.getElementById('url').value = url;
     }
 
+    const btn = document.getElementById('btn');
     btn.innerText = '正在绑定...';
     btn.disabled = true;
-    msg.style.display = 'none';
     setStatus('', '正在与控制台通信...');
 
     try {
       const res = await fetch('/api/config', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({central_url: url})
+        body: JSON.stringify({central_url: url, secret: secret})
       });
       
-      // 核心修复：兼容纯文本报错，防止 Safari 的 json 解析崩溃
       const text = await res.text();
       let data = {};
       try { data = JSON.parse(text); } catch { data = { message: text }; }
@@ -185,24 +116,13 @@
       
       showMsg(data.message, true);
       btn.innerText = '重新绑定';
-      setStatus('active', '设备已绑定，连接正常');
-      document.getElementById('btnReset').style.display = 'block';
+      setStatus('active', '连接正常');
     } catch (e) {
       showMsg(e.message, false);
       btn.innerText = '重试绑定';
       btn.disabled = false;
       setStatus('error', '绑定失败');
     }
-  }
-
-  async function resetConfig() {
-    if (!confirm('确定要解除绑定吗？')) return;
-    document.getElementById('url').value = '';
-    document.getElementById('btnReset').style.display = 'none';
-    document.getElementById('btn').innerText = '一键绑定设备';
-    document.getElementById('btn').disabled = false;
-    document.getElementById('msg').style.display = 'none';
-    setStatus('', '等待连接');
   }
 
   function showMsg(text, isSuccess) {
