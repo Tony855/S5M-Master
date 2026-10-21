@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os/exec"
 "encoding/json"
 "fmt"
 "net"
@@ -202,4 +203,14 @@ successCount++
 msg := "导入完成"
 if len(failReasons) > 0 { msg = strings.Join(failReasons, "; ") }
 writeJSON(w, 200, map[string]any{ "success": successCount, "fail": len(failReasons), "message": msg })
+}
+
+func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager")
+output, err := cmd.CombinedOutput()
+if err != nil {
+writeJSON(w, 200, map[string]string{"logs": "读取日志失败: " + err.Error() + "\n" + string(output)})
+return
+}
+writeJSON(w, 200, map[string]string{"logs": string(output)})
 }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>S5M Next · 代理管理控制台</title>
+<title>S5M Proxy Service · 代理管理控制台</title>
 <link rel="stylesheet" href="/vendor/element-plus.css">
 <style>
   :root{--brand:#4361ee;--brand-2:#4cc9f0;}
@@ -80,7 +80,7 @@
   <div v-if="!token" class="login-wrap">
     <div class="login-card">
       <div class="login-logo">S5</div>
-      <h2 class="login-title">S5M Next 控制台</h2>
+      <h2 class="login-title">S5M Proxy Service 控制台</h2>
       <p class="login-sub">多协议代理 · IP 分流 · Mihomo 集中管理</p>
       <el-form label-position="top">
         <el-form-item label="用户名"><el-input v-model="loginForm.username" size="large" placeholder="admin" /></el-form-item>
@@ -92,11 +92,12 @@
 
   <el-container v-else class="layout">
     <el-aside width="230px" class="aside">
-      <div class="brand"><div class="dot">S5</div><span>S5M Next</span></div>
+      <div class="brand"><div class="dot">S5</div><span>S5M Proxy Service</span></div>
       <el-menu :default-active="page" @select="v => page = v">
         <el-menu-item index="dashboard"><el-icon><Odometer/></el-icon><span>仪表盘</span></el-menu-item>
         <el-menu-item index="proxies"><el-icon><Connection/></el-icon><span>代理规则</span></el-menu-item>
         <el-menu-item index="config"><el-icon><Document/></el-icon><span>配置管理</span></el-menu-item>
+        <el-menu-item index="logs"><el-icon><Tickets/></el-icon><span>系统日志</span></el-menu-item>
         <el-menu-item index="settings"><el-icon><Setting/></el-icon><span>系统设置</span></el-menu-item>
       </el-menu>
     </el-aside>
@@ -117,8 +118,15 @@
             <div class="stat-card">
               <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
               <div style="flex: 1; min-width: 0;">
-                <div class="stat-val">{{ overview.mihomo && overview.mihomo.online ? '在线' : '离线' }}</div>
-                <div class="stat-lbl" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px;">
+                <!-- 顶部：大字名称 + 状态 -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                  <div style="font-size: 20px; font-weight: 700; color: #1e293b;">Mihomo 内核</div>
+                  <div style="font-size: 13px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
+                    {{ overview.mihomo && overview.mihomo.online ? '🟢 运行中' : '🔴 已停止' }}
+                  </div>
+                </div>
+                <!-- 底部：版本 + 更新 -->
+                <div class="stat-lbl" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                   <span style="white-space: nowrap;">版本: <span v-if="overview.mihomo && overview.mihomo.version" style="font-weight: bold; color: #4361ee;">{{ overview.mihomo.version.version }}</span><span v-else>--</span></span>
                   <el-button type="primary" size="small" :loading="updating" @click="updateMihomo" style="padding: 5px 12px;">更新</el-button>
                 </div>
@@ -133,10 +141,7 @@
               <div><div class="stat-val">{{ (versions || []).length }}</div><div class="stat-lbl">历史配置版本</div></div>
             </div>
           </div>
-          <div class="panel">
-            <h3 style="margin:0 0 12px">Mihomo 信息</h3>
-            <pre class="yaml-box">{{ JSON.stringify(overview.mihomo || {}, null, 2) }}</pre>
-          </div>
+          
         </div>
 
         <!-- 代理规则 -->
@@ -207,7 +212,16 @@
           </div>
         </div>
 
-        <!-- 系统设置 -->
+        
+        <!-- 系统日志 -->
+        <div v-if="page === 'logs'" class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <h3 style="margin:0">S5M Proxy Service 实时日志</h3>
+            <el-button size="small" @click="loadLogs">刷新日志</el-button>
+          </div>
+          <pre class="yaml-box" style="background:#000;color:#0f0;max-height:600px;min-height:300px;" ref="logBox">{{ logText || '等待日志加载...' }}</pre>
+        </div>
+<!-- 系统设置 -->
         <div v-if="page === 'settings'" class="panel" style="max-width:520px">
           <h3 style="margin:0 0 18px">修改密码</h3>
           <el-form label-position="top">

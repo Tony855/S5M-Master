@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, onMounted, computed } = Vue;
+const { createApp, ref, reactive, onMounted, computed, watch } = Vue;
 const { ElMessage, ElMessageBox } = ElementPlus;
 const TOKEN_KEY = 's5m_next_token';
 
@@ -119,9 +119,34 @@ const App = {
       return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0') + ' ' + String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0') + ':' + String(date.getSeconds()).padStart(2, '0');
     }
 
+    
+    const logText = ref('');
+    const logBox = ref(null);
+    let logTimer = null;
+
+    async function loadLogs() {
+      try {
+        const r = await api.get('/logs');
+        logText.value = r.logs || '';
+        // 自动滚动到底部
+        if (logBox.value) {
+          setTimeout(() => { logBox.value.scrollTop = logBox.value.scrollHeight; }, 100);
+        }
+      } catch (e) { console.warn('获取日志失败', e); }
+    }
+
     async function refreshAll() { await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings()]); }
     onMounted(async () => { if (token.value) { const ok = await loadMe(); if (ok) await refreshAll(); } });
 
+    watch(page, (newVal) => {
+      if (newVal === 'logs') {
+        loadLogs();
+        logTimer = setInterval(loadLogs, 3000);
+      } else {
+        if (logTimer) { clearInterval(logTimer); logTimer = null; }
+      }
+    });
+    
     const menuTitle = computed(() => ({ dashboard: '仪表盘', proxies: '代理规则', config: '配置管理', settings: '系统设置' }[page.value] || ''));
 
     return {
@@ -130,7 +155,7 @@ const App = {
       openCreate, openEdit, saveProxy, removeProxy,
       importDialog, importContent, importing, handleFileUpload, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
-      pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime
+      pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime, logText, loadLogs, logBox
     };
   }
 };
