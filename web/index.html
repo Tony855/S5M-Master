@@ -52,8 +52,66 @@
     .panel { padding: 15px !important; margin-top: 15px !important; }
     .yaml-box { max-height: 300px; }
   }
+
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 10px;
+  }
+  .table-wrapper .el-table {
+    min-width: 600px;
+  }
+  .el-table .cell {
+    white-space: nowrap;
+  }
+</style>
+
+
+
+<style>
+  .proxy-card, .version-card {
+    background: #fff;
+    border: 1px solid #eef1f7;
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px dashed #eee;
+  }
+  .card-title {
+    font-weight: 600;
+    font-size: 16px;
+    color: #1e293b;
+  }
+  .card-row {
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 6px;
+    line-height: 1.5;
+    word-break: break-all;
+  }
+  .card-row span {
+    color: #1e293b;
+    font-weight: 500;
+  }
+  .card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+  }
 </style>
 </head>
+
+
 <body>
 <div id="app" v-cloak>
   <!-- 登录页 -->
@@ -101,7 +159,15 @@
           <div class="stat-grid">
             <div class="stat-card">
               <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
-              <div><div class="stat-val">{{ overview.mihomo && overview.mihomo.online ? '在线' : '离线' }}</div><div class="stat-lbl">Mihomo 内核</div></div>
+              <div style="flex: 1; min-width: 0;">
+                <div class="stat-val">{{ overview.mihomo && overview.mihomo.online ? '在线' : '离线' }}</div>
+                <div class="stat-lbl" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px;">
+                  <span style="white-space: nowrap;">
+                    版本: <span v-if="overview.mihomo && overview.mihomo.version" style="font-weight: bold; color: #4361ee;">{{ overview.mihomo.version.version }}</span><span v-else>--</span>
+                  </span>
+                  <el-button type="primary" size="small" :loading="updating" @click="updateMihomo" style="padding: 5px 12px;">更新</el-button>
+                </div>
+              </div>
             </div>
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#10b981,#34d399)"><el-icon><Connection/></el-icon></div>
@@ -124,24 +190,26 @@
             <h3 style="margin:0">代理节点</h3>
             <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
           </div>
-          <el-table :data="proxies || []" style="width:100%">
-            <el-table-column prop="name" label="名称" width="120" />
-            <el-table-column prop="type" label="类型" width="90" />
-            <el-table-column prop="server" label="服务器" />
-            <el-table-column prop="port" label="端口" width="70" />
-            <el-table-column prop="source_cidr" label="源 IP" width="150" />
-            <el-table-column label="启用" width="70">
-              <template #default="{ row }">
-                <el-tag :type="row.enabled ? 'success':'info'">{{ row.enabled ? '是':'否' }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
-              <template #default="{ row }">
+          <div class="table-wrapper"><div class="table-container">
+            <div style="width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+            <div>
+            <div v-for="row in proxies" :key="row.id" class="proxy-card">
+              <div class="card-header">
+                <span class="card-title">{{ row.name }}</span>
+                <el-tag :type="row.enabled ? 'success':'info'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
+              </div>
+              <div class="card-row">类型: <span>{{ row.type.toUpperCase() }}</span></div>
+              <div class="card-row">服务器: <span>{{ row.server }}:{{ row.port }}</span></div>
+              <div class="card-row">源 IP: <span>{{ row.source_cidr }}</span></div>
+              <div class="card-actions">
                 <el-button size="small" @click="openEdit(row)">编辑</el-button>
                 <el-button size="small" type="danger" @click="removeProxy(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+              </div>
+            </div>
+            <div v-if="!proxies || proxies.length === 0" style="text-align:center;color:#999;padding:20px;">暂无代理节点</div>
+          </div>
+          </div>
+          </div></div>
         </div>
 
         <!-- 配置管理 -->
@@ -162,17 +230,24 @@
           </div>
           <div class="panel">
             <h3 style="margin:0 0 12px">历史版本</h3>
-            <el-table :data="versions || []" style="width:100%">
-              <el-table-column prop="version" label="版本" width="70" />
-              <el-table-column prop="sha256" label="SHA256" />
-              <el-table-column prop="status" label="状态" width="150" />
-              <el-table-column prop="created_at" label="时间" width="180" />
-              <el-table-column label="操作" width="100" fixed="right">
-                <template #default="{ row }">
-                  <el-button size="small" type="warning" @click="rollback(row)">回滚</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+            <div class="table-wrapper"><div class="table-container">
+            <div style="width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;">
+            <div>
+            <div v-for="row in versions" :key="row.id" class="version-card">
+              <div class="card-header">
+                <span class="card-title">版本 v{{ row.version }}</span>
+                <span style="font-size:12px;color:#999;">{{ formatTime(row.created_at) }}</span>
+              </div>
+              <div class="card-row">SHA256: <span style="font-family:monospace;">{{ row.sha256.substring(0, 16) }}...</span></div>
+              <div class="card-row">状态: <span>{{ row.status }}</span></div>
+              <div class="card-actions">
+                <el-button size="small" type="warning" @click="rollback(row)">回滚到此版本</el-button>
+              </div>
+            </div>
+            <div v-if="!versions || versions.length === 0" style="text-align:center;color:#999;padding:20px;">暂无历史版本</div>
+          </div>
+          </div>
+          </div></div>
           </div>
         </div>
 

@@ -4,7 +4,12 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
+	"os/exec"
+	"regexp"
 	"strconv"
+	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -227,5 +232,80 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"mihomo":        a.MihomoInfo(),
 		"proxy_total":   len(list),
 		"proxy_enabled": enabled,
+	})
+}
+
+func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
+	out, _ := exec.Command("/opt/mihomo/mihomo", "-v").Output()
+	re := regexp.MustCompile(`Mihomo Meta (v[0-9]+\.[0-9]+\.[0-9]+)`)
+	matches := re.FindStringSubmatch(string(out))
+	currentVersion := "unknown"
+	if len(matches) > 1 {
+		currentVersion = matches[1]
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	req.Header.Set("User-Agent", "S5M-Next")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		writeErr(w, 500, "检查更新失败(网络异常): "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		writeErr(w, 500, "解析 GitHub 版本信息失败")
+		return
+	}
+	latestVersion := release.TagName
+
+	if currentVersion == latestVersion {
+		writeJSON(w, 200, map[string]string{
+			"message": "当前已是最新版本 " + latestVersion + "，无需更新",
+			"status":  "latest",
+		})
+		return
+	}
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") {
+			downloadURL = "https://ghproxy.net/" + asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		writeErr(w, 500, "未找到适配的 linux-amd64 安装包")
+		return
+	}
+
+	tmp := "/tmp/mihomo_update.gz"
+	if err := exec.Command("curl", "-fL", "-o", tmp, downloadURL).Run(); err != nil {
+		writeErr(w, 500, "下载更新包失败，可能网络被阻断")
+		return
+	}
+
+	exec.Command("systemctl", "stop", "mihomo").Run()
+	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
+
+	data, err := exec.Command("gunzip", "-c", tmp).Output()
+	if err == nil {
+		os.WriteFile("/opt/mihomo/mihomo", data, 0755)
+	}
+
+	exec.Command("systemctl", "start", "mihomo").Run()
+	writeJSON(w, 200, map[string]string{
+		"message": "已成功更新至最新版本 " + latestVersion,
+		"status":  "updated",
 	})
 }

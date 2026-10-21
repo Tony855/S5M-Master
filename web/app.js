@@ -142,6 +142,20 @@ const App = {
     const yamlText = ref('');
     const versions = ref([]);
     const publishing = ref(false);
+    const updating = ref(false);
+    async function updateMihomo() {
+      updating.value = true;
+      try {
+        const r = await api.post('/mihomo/update');
+        if (r.status === 'latest') {
+          ElMessage.info(r.message);
+        } else {
+          ElMessage.success(r.message);
+        }
+        await loadOverview();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { updating.value = false; }
+    }
     const previewing = ref(false);
 
     async function loadPreview() {
@@ -190,6 +204,19 @@ const App = {
       } catch (e) { ElMessage.error(e.message); }
     }
 
+    function formatTime(timeStr) {
+      if (!timeStr) return '';
+      const date = new Date(timeStr);
+      if (isNaN(date.getTime())) return timeStr;
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      const h = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      const s = String(date.getSeconds()).padStart(2, '0');
+      return `${y}-${m}-${d} ${h}:${min}:${s}`;
+    }
+
     async function refreshAll() {
       await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings()]);
     }
@@ -209,7 +236,7 @@ const App = {
       overview, proxies, proxyDialog, proxySaving, proxyForm,
       openCreate, openEdit, saveProxy, removeProxy,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
-      pwdForm, changePwd, menuTitle, settings, saveSettings
+      pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime
     };
   }
 };
