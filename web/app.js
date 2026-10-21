@@ -267,11 +267,72 @@ const App = {
       return y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s;
     }
 
+    
+    const themeIcon = ref(localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
+    
+    function toggleTheme() {
+      if (themeIcon.value === 'dark') {
+        document.body.classList.remove('dark');
+        themeIcon.value = 'light';
+        localStorage.setItem('theme', 'light');
+      } else {
+        document.body.classList.add('dark');
+        themeIcon.value = 'dark';
+        localStorage.setItem('theme', 'dark');
+      }
+    }
+
+    function initTheme() {
+      if (localStorage.getItem('theme') === 'dark') {
+        document.body.classList.add('dark');
+        themeIcon.value = 'dark';
+      }
+    }
+
+    
+    async function downloadBackup() {
+      try {
+        const res = await fetch('/api/v1/backup?token=' + token.value);
+        if (!res.ok) throw new Error('下载失败');
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 's5m_backup_' + new Date().getTime() + '.db';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        ElMessage.success('备份文件已开始下载');
+      } catch (e) {
+        ElMessage.error('下载失败，请重试');
+      }
+    }
+    
+    async function handleRestoreUpload(file) {
+      try {
+        await ElMessageBox.confirm('警告：恢复数据库将覆盖当前所有节点和设置！确认继续吗？', '危险操作', { type: 'error' });
+        const formData = new FormData();
+        formData.append('file', file.raw);
+        const res = await fetch('/api/v1/restore?token=' + token.value, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + token.value },
+          body: formData
+        });
+        const data = await res.json();
+        if (res.ok) ElMessage.success(data.message);
+        else throw new Error(data.error);
+      } catch (e) {
+        if (e !== 'cancel') ElMessage.error(e.message || '恢复失败');
+      }
+    }
+
     async function refreshAll() {
       await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings(), loadTraffic()]);
     }
 
     onMounted(async () => {
+      initTheme();
       if (token.value) {
         const ok = await loadMe();
         if (ok) {
@@ -301,7 +362,7 @@ const App = {
       importDialog, importContent, importing, handleFileUpload, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime,
-      logText, logBox, loadLogs, formatSpeed
+      logText, logBox, loadLogs, formatSpeed, themeIcon, toggleTheme, downloadBackup, handleRestoreUpload
     };
   }
 };

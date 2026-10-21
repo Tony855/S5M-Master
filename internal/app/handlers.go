@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 	"gopkg.in/yaml.v3"
 )
@@ -414,7 +416,7 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 
 // ================= 系统日志 =================
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager")
+	cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-precise")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		writeJSON(w, 200, map[string]string{"logs": "读取日志失败: " + err.Error() + "\n" + string(output)})
@@ -509,4 +511,48 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
 		"down":  downSpeed,
 		"conns": len(data.Connections),
 	})
+}
+
+func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
+// 从 URL 参数获取 token 进行鉴权
+tokenStr := r.URL.Query().Get("token")
+if tokenStr == "" {
+writeErr(w, 401, "未登录")
+return
+}
+t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
+if err != nil || !t.Valid {
+writeErr(w, 401, "登录已失效")
+return
+}
+
+w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
+w.Header().Set("Content-Type", "application/octet-stream")
+http.ServeFile(w, r, a.cfg.DBPath)
+}
+
+func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+file, _, err := r.FormFile("file")
+if err != nil {
+writeErr(w, 400, "上传文件失败: "+err.Error())
+return
+}
+defer file.Close()
+
+tmp := "/tmp/restore.db"
+out, err := os.Create(tmp)
+if err != nil {
+writeErr(w, 500, "创建临时文件失败")
+return
+}
+defer out.Close()
+io.Copy(out, file)
+
+a.store.db.Close()
+if err := os.Rename(tmp, a.cfg.DBPath); err != nil {
+writeErr(w, 500, "覆盖数据库失败，请检查权限")
+return
+}
+
+writeJSON(w, 200, map[string]string{"message": "数据库已成功覆盖，请手动重启 S5M 服务以生效！"})
 }

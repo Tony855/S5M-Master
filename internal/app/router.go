@@ -30,6 +30,9 @@ func (a *App) Router(static fs.FS) http.Handler {
 mux := http.NewServeMux()
 mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
+	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
+	
+	mux.HandleFunc("POST /api/v1/restore", a.auth(a.handleRestoreBackup))
 
 authed := map[string]http.HandlerFunc{
 "GET /api/v1/auth/me":          a.handleMe,
@@ -48,6 +51,7 @@ authed := map[string]http.HandlerFunc{
 "GET /api/v1/monitor/overview": a.handleOverview,
 		"GET /api/v1/monitor/traffic":  a.handleMonitorTraffic,
 		"GET /api/v1/logs":             a.handleGetLogs,
+		
 }
 for pat, h := range authed { mux.HandleFunc(pat, a.auth(h)) }
 
