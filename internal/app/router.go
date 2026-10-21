@@ -64,6 +64,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"PUT /api/v1/proxies/{id}":      a.handleUpdateProxy,
 		"DELETE /api/v1/proxies/{id}":   a.handleDeleteProxy,
 		"GET /api/v1/config/preview":    a.handlePreview,
+		"POST /api/v1/config/save":      a.handleSaveConfig,
 		"POST /api/v1/config/publish":   a.handlePublish,
 		"GET /api/v1/config/versions":   a.handleVersions,
 		"POST /api/v1/config/rollback":  a.handleRollback,

@@ -107,9 +107,14 @@
     <div v-if="page === 'config'">
       <div class="card">
         <div class="card-title">客户端订阅链接</div>
-        <el-input v-model="subUrl" readonly>
+        <el-input v-model="subUrl" readonly style="margin-bottom: 20px;">
           <template #prepend>订阅地址</template>
         </el-input>
+      </div>
+      <div class="card">
+        <div class="card-title">发布全局配置 (YAML)</div>
+        <el-input v-model="configYaml" type="textarea" :rows="12" placeholder="在此粘贴或编写 Mihomo 配置..."></el-input>
+        <el-button type="primary" style="margin-top: 15px; width: 100%;" @click="publishConfig">保存并下发配置</el-button>
       </div>
     </div>
 
@@ -131,6 +136,7 @@
       const loggingIn = ref(false);
       const newMachineCode = ref('');
       const generatedToken = ref('');
+      const configYaml = ref('');
 
       const switchPage = (v) => {
         page.value = v;
@@ -288,9 +294,32 @@
         if(token.value) switchPage('instances');
       });
 
+
+      const publishConfig = async () => {
+        if (!configYaml.value) return alert('配置不能为空');
+        try {
+          const res = await fetch('/api/v1/config/save', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + token.value
+            },
+            body: JSON.stringify({ config_yaml: configYaml.value })
+          });
+          const data = await res.json();
+          if (res.ok) {
+            alert(data.message || '发布成功！');
+          } else {
+            alert(data.error || '发布失败');
+          }
+        } catch (e) {
+          alert('网络错误');
+        }
+      };
+
       return {
         page, subUrl, token, loginUser, loginPass, loggingIn, 
-        newMachineCode, generatedToken, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, safeCopy
+        newMachineCode, generatedToken, configYaml, publishConfig, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, safeCopy
       };
     }
   }).use(ElementPlus).mount('#app');

@@ -554,18 +554,16 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. 返回配置给 Agent
-	// (假设你原本是通过 a.store.GetSettings 读取配置并返回，如果逻辑不同请根据实际修改)
+	// 4. 返回真实的配置给 Agent
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, 500, "读取配置失败")
 		return
 	}
 
-	// 假设全局配置存在 settings["config_yaml"] 里，或者返回空配置
 	yamlContent := settings["config_yaml"]
 	if yamlContent == "" {
-		yamlContent = "proxies:\n  - name: dummy\n    type: socks5\n    server: 1.2.3.4\n    port: 1080"
+		yamlContent = "proxies: []\nmode: rule\n"
 	}
 
 	w.Header().Set("Content-Type", "text/yaml")
@@ -646,4 +644,21 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 		"message": "生成成功",
 		"token":   token,
 	})
+}
+
+// 保存全局配置并下发给 Agent
+func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ConfigYaml string `json:"config_yaml"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	err := a.store.UpdateSettings(map[string]string{"config_yaml": in.ConfigYaml})
+	if err != nil {
+		writeErr(w, 500, "保存配置失败")
+		return
+	}
+	writeJSON(w, 200, map[string]string{"message": "配置已保存，Agent 将在 30 秒内拉取更新"})
 }
