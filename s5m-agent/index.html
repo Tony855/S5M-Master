@@ -160,7 +160,7 @@
 
     // 核心修复：如果没有协议前缀，自动补全 http://
     if (!/^https?:\/\//i.test(url)) {
-      url = 'http://' + url;
+      url = 'https://' + url;
       document.getElementById('url').value = url; // 回显给用户
     }
 
