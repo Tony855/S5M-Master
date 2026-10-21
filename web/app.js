@@ -135,6 +135,25 @@ const App = {
       } catch (e) { console.warn('获取日志失败', e); }
     }
 
+    
+    const traffic = ref({ up: 0, down: 0, conns: 0 });
+    let trafficTimer = null;
+
+    function formatSpeed(bytes) {
+      if (!bytes) return '0 B/s';
+      const k = 1024;
+      const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    async function loadTraffic() {
+      try {
+        const res = await api.get('/monitor/traffic');
+        traffic.value = res;
+      } catch (e) {}
+    }
+
     async function refreshAll() { await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings()]); }
     onMounted(async () => { if (token.value) { const ok = await loadMe(); if (ok) await refreshAll(); } });
 

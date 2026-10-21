@@ -116,6 +116,18 @@
         <div v-if="page === 'dashboard'">
           <div class="stat-grid">
             <div class="stat-card">
+              <div class="stat-ico" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa)"><el-icon><Top/></el-icon></div>
+              <div><div class="stat-val">{{ formatSpeed(traffic.up) }}</div><div class="stat-lbl">实时上传</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-ico" style="background:linear-gradient(135deg,#ec4899,#f472b6)"><el-icon><Bottom/></el-icon></div>
+              <div><div class="stat-val">{{ formatSpeed(traffic.down) }}</div><div class="stat-lbl">实时下载</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-ico" style="background:linear-gradient(135deg,#06b6d4,#22d3ee)"><el-icon><Link/></el-icon></div>
+              <div><div class="stat-val">{{ traffic.conns || 0 }}</div><div class="stat-lbl">活跃连接</div></div>
+            </div>
+            <div class="stat-card">
               <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
               <div style="flex: 1; min-width: 0;">
                 <!-- 顶部：大字名称 + 状态 -->

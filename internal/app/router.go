@@ -46,6 +46,7 @@ authed := map[string]http.HandlerFunc{
 "GET /api/v1/config/versions":  a.handleVersions,
 "POST /api/v1/config/rollback": a.handleRollback,
 "GET /api/v1/monitor/overview": a.handleOverview,
+		"GET /api/v1/monitor/traffic":  a.handleMonitorTraffic,
 		"GET /api/v1/logs":             a.handleGetLogs,
 }
 for pat, h := range authed { mux.HandleFunc(pat, a.auth(h)) }
