@@ -46,6 +46,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 	})
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
+	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
 
 	// 需要 JWT 鉴权的管理接口

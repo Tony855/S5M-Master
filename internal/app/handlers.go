@@ -599,3 +599,34 @@ id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 a.store.DeleteInstance(id)
 writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
+
+func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
+var in struct {
+MachineCode string `json:"machine_code"`
+}
+if err := decode(r, &in); err != nil || in.MachineCode == "" {
+writeErr(w, 400, "机器码不能为空")
+return
+}
+
+// 生成专属的 JWT Token，有效期为永久 (或者你在以后设置过期时间)
+claims := jwt.MapClaims{
+"sub":  in.MachineCode,
+"role": "agent",
+}
+token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
+if err != nil {
+writeErr(w, 500, "生成 Token 失败")
+return
+}
+
+// 保存机器码到数据库（后续可以建表存，这里先用简单的设置表或日志记录）
+a.store.UpdateSettings(map[string]string{
+"agent_machine_" + in.MachineCode: token,
+})
+
+writeJSON(w, 200, map[string]string{
+"message": "注册成功",
+"token":   token,
+})
+}

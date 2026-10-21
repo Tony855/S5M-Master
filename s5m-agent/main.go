@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -53,7 +56,17 @@ func decrypt(ciphertextBase64 string) (string, error) {
 	return string(plaintext), nil
 }
 
-// 测试控制台连通性
+func getMachineID() string {
+	data, err := os.ReadFile("/etc/machine-id")
+	if err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	hostname, _ := os.Hostname()
+	h := sha256.New()
+	h.Write([]byte("s5m-agent-fallback-" + hostname))
+	return base64.URLEncoding.EncodeToString(h.Sum(nil))
+}
+
 func testConnection(url, token string) bool {
 	client := &http.Client{Timeout: 3 * time.Second}
 	req, err := http.NewRequest("GET", url+"/api/v1/auth/me", nil)
@@ -70,6 +83,13 @@ func main() {
 		http.ServeFile(w, r, "index.html")
 	})
 
+	http.HandleFunc("/api/machine-id", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"machine_id": getMachineID(),
+		})
+	})
+
 	http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
 			data, _ := os.ReadFile("/data/agent.json")
@@ -79,8 +99,7 @@ func main() {
 			}
 			var cfg Config
 			json.Unmarshal(data, &cfg)
-			
-			// 解密 Token 并测试连通性
+
 			connected := false
 			if cfg.Token != "" {
 				decToken, err := decrypt(cfg.Token)
@@ -101,40 +120,44 @@ func main() {
 		if r.Method == "POST" {
 			var in struct {
 				CentralURL string `json:"central_url"`
-				Token      string `json:"token"`
 			}
 			json.NewDecoder(r.Body).Decode(&in)
-			if injson.CentralURL == "" {
-				http.Error.Un(w, "控制台地址不能mars为空", 400)
-				returnhal
-			}
-
-			var existingC(oldfg Config
-			oldData, _ := os.ReadFileData("/data/agent.json")
-			, &existingCfg)
-
-			finalToken := in.Token
-			if finalToken == "" && existingCfg.Token != "" {
-				decrypted, _ := decrypt(existingCfg.Token)
-				finalToken = decrypted
-			}
-
-			if finalToken == "" {
-				http.Error(w, "Token 不能为空", 400)
+			if in.CentralURL == "" {
+				http.Error(w, "控制台地址不能为空", 400)
 				return
 			}
 
-			if !testConnection(in.CentralURL, finalToken) {
-				http.Error(w, "连接失败：请检查地址是否正确或 Token 是否有效", 500)
+			machineID := getMachineID()
+			reqBody, _ := json.Marshal(map[string]string{"machine_code": machineID})
+			resp, err := http.Post(in.CentralURL+"/api/v1/agent/register", "application/json", bytes.NewBuffer(reqBody))
+			if err != nil {
+				http.Error(w, "请求控制台失败: "+err.Error(), 500)
+				return
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != 200 {
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				http.Error(w, fmt.Sprintf("注册失败(HTTP %d): %s", resp.StatusCode, string(bodyBytes)), 500)
 				return
 			}
 
-			encToken, _ := encrypt(finalToken)
+			var result struct {
+				Token string `json:"token"`
+			}
+			json.NewDecoder(resp.Body).Decode(&result)
+
+			if !testConnection(in.CentralURL, result.Token) {
+				http.Error(w, "注册成功但验证 Token 失败，请检查控制台", 500)
+				return
+			}
+
+			encToken, _ := encrypt(result.Token)
 			newCfg := Config{CentralURL: in.CentralURL, Token: encToken}
 			newData, _ := json.Marshal(newCfg)
 			os.WriteFile("/data/agent.json", newData, 0600)
 
-			w.Write([]byte(`{"message":"连接成功，配置已加密保存"}`))
+			w.Write([]byte(`{"message":"设备已成功绑定"}`))
 			return
 		}
 	})
