@@ -115,45 +115,48 @@
         <!-- 仪表盘 -->
         <div v-if="page === 'dashboard'">
           <div class="stat-grid">
+            <!-- 实时上传 -->
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa)"><el-icon><Top/></el-icon></div>
               <div><div class="stat-val">{{ formatSpeed(traffic.up) }}</div><div class="stat-lbl">实时上传</div></div>
             </div>
+            <!-- 实时下载 -->
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#ec4899,#f472b6)"><el-icon><Bottom/></el-icon></div>
               <div><div class="stat-val">{{ formatSpeed(traffic.down) }}</div><div class="stat-lbl">实时下载</div></div>
             </div>
+            <!-- 活跃连接 -->
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#06b6d4,#22d3ee)"><el-icon><Link/></el-icon></div>
               <div><div class="stat-val">{{ traffic.conns || 0 }}</div><div class="stat-lbl">活跃连接</div></div>
             </div>
+            <!-- Mihomo 内核 -->
             <div class="stat-card">
               <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
               <div style="flex: 1; min-width: 0;">
-                <!-- 顶部：大字名称 + 状态 -->
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
                   <div style="font-size: 20px; font-weight: 700; color: #1e293b;">Mihomo 内核</div>
                   <div style="font-size: 13px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 4px 8px; border-radius: 6px;">
                     {{ overview.mihomo && overview.mihomo.online ? '🟢 运行中' : '🔴 已停止' }}
                   </div>
                 </div>
-                <!-- 底部：版本 + 更新 -->
                 <div class="stat-lbl" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                   <span style="white-space: nowrap;">版本: <span v-if="overview.mihomo && overview.mihomo.version" style="font-weight: bold; color: #4361ee;">{{ overview.mihomo.version.version }}</span><span v-else>--</span></span>
                   <el-button type="primary" size="small" :loading="updating" @click="updateMihomo" style="padding: 5px 12px;">更新</el-button>
                 </div>
               </div>
             </div>
+            <!-- 代理节点状态 -->
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#10b981,#34d399)"><el-icon><Connection/></el-icon></div>
               <div><div class="stat-val">{{ overview.proxy_enabled || 0 }} / {{ overview.proxy_total || 0 }}</div><div class="stat-lbl">启用 / 全部节点</div></div>
             </div>
+            <!-- 历史版本数量 -->
             <div class="stat-card">
               <div class="stat-ico" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><el-icon><Document/></el-icon></div>
               <div><div class="stat-val">{{ (versions || []).length }}</div><div class="stat-lbl">历史配置版本</div></div>
             </div>
           </div>
-          
         </div>
 
         <!-- 代理规则 -->
