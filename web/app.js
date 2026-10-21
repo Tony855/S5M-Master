@@ -68,64 +68,30 @@ const App = {
       } catch (e) { console.warn(e); }
     }
 
-    const settings = ref({ tun_enable: false, mode: 'direct' });
+    const settings = ref({ tun_enable: false, mode: 'rule' });
     async function loadSettings() {
       try {
         const res = await api.get('/settings');
         settings.value.tun_enable = res.tun_enable === 'true';
-        settings.value.mode = res.mode || 'direct';
+        settings.value.mode = res.mode || 'rule';
       } catch (e) { console.warn(e); }
     }
 
     async function saveSettings() {
       try {
         await api.put('/settings', { tun_enable: settings.value.tun_enable ? 'true' : 'false', mode: settings.value.mode });
-        ElMessage.success('TUN 状态已保存，请点击发布生效');
+        ElMessage.success('设置已保存，请点击发布生效');
         await loadPreview();
       } catch (e) { ElMessage.error(e.message); }
     }
 
     const proxies = ref([]);
-
-    const importDialog = ref(false);
-    const importContent = ref('');
-    const importing = ref(false);
-
-    
-    function handleFileUpload(file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        importContent.value = e.target.result;
-        ElMessage.success('文件内容已读取，请点击确认导入');
-      };
-      reader.readAsText(file.raw);
-    }
-
-    async function doImport() {
-      if (!importContent.value.trim()) return ElMessage.warning('请粘贴节点链接');
-      importing.value = true;
-      try {
-        const r = await api.post('/proxies/import', { content: importContent.value });
-        ElMessage.success(`导入完成：成功 ${r.success} 个，失败 ${r.fail} 个`);
-        importDialog.value = false;
-        importContent.value = '';
-        await loadProxies(); await loadOverview();
-      } catch (e) { ElMessage.error(e.message); }
-      finally { importing.value = false; }
-    }
-
     const proxyDialog = ref(false);
     const proxySaving = ref(false);
-    const proxyForm = reactive({
-      id: 0, name: '', type: 'vless', server: '', port: 443,
-      source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}'
-    });
+    const proxyForm = reactive({ id: 0, name: '', type: 'vless', server: '', port: 443, source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}' });
 
     async function loadProxies() {
-      try {
-        const res = await api.get('/proxies');
-        proxies.value = res || [];
-      } catch (e) { ElMessage.error(e.message); }
+      try { proxies.value = (await api.get('/proxies')) || []; } catch (e) { ElMessage.error(e.message); }
     }
 
     function openCreate() {
@@ -144,11 +110,7 @@ const App = {
       let extra;
       try { extra = JSON.parse(proxyForm.extraText || '{}'); }
       catch { return ElMessage.error('扩展参数不是合法 JSON'); }
-      const body = {
-        name: proxyForm.name, type: proxyForm.type, server: proxyForm.server,
-        port: Number(proxyForm.port), source_cidr: proxyForm.source_cidr,
-        enabled: proxyForm.enabled, extra
-      };
+      const body = { name: proxyForm.name, type: proxyForm.type, server: proxyForm.server, port: Number(proxyForm.port), source_cidr: proxyForm.source_cidr, enabled: proxyForm.enabled, extra };
       proxySaving.value = true;
       try {
         if (proxyForm.id) await api.put('/proxies/' + proxyForm.id, body);
@@ -168,40 +130,75 @@ const App = {
       } catch (e) { if (e && e !== 'cancel') ElMessage.error(e.message || '删除失败'); }
     }
 
+    const rules = ref([]);
+    const ruleDialog = ref(false);
+    const ruleSaving = ref(false);
+    const ruleForm = reactive({ rule_type: 'DOMAIN-SUFFIX', rule_value: '', target: 'DIRECT', enabled: true });
+
+    async function loadRules() {
+      try { rules.value = (await api.get('/rules')) || []; } catch (e) { console.warn(e); }
+    }
+    function openRuleCreate() {
+      Object.assign(ruleForm, { rule_type: 'DOMAIN-SUFFIX', rule_value: '', target: 'DIRECT', enabled: true });
+      ruleDialog.value = true;
+    }
+    async function saveRule() {
+      if (!ruleForm.rule_value) return ElMessage.warning('规则值不能为空');
+      ruleSaving.value = true;
+      try {
+        await api.post('/rules', ruleForm);
+        ElMessage.success('规则已保存');
+        ruleDialog.value = false;
+        await loadRules();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { ruleSaving.value = false; }
+    }
+    async function removeRule(row) {
+      try {
+        await ElMessageBox.confirm('确认删除该规则?', '提示', { type: 'warning' });
+        await api.del('/rules/' + row.id);
+        ElMessage.success('已删除');
+        await loadRules();
+      } catch (e) { if (e && e !== 'cancel') ElMessage.error(e.message || '删除失败'); }
+    }
+
+    const importDialog = ref(false);
+    const importContent = ref('');
+    const importing = ref(false);
+    function handleFileUpload(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        importContent.value = e.target.result;
+        ElMessage.success('文件内容已读取，请点击确认导入');
+      };
+      reader.readAsText(file.raw);
+    }
+    async function doImport() {
+      if (!importContent.value.trim()) return ElMessage.warning('请粘贴节点链接');
+      importing.value = true;
+      try {
+        const r = await api.post('/proxies/import', { content: importContent.value });
+        ElMessage.success('导入完成：成功 ' + r.success + ' 个，失败 ' + r.fail + ' 个');
+        importDialog.value = false;
+        importContent.value = '';
+        await loadProxies(); await loadOverview();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { importing.value = false; }
+    }
+
     const yamlText = ref('');
     const versions = ref([]);
     const publishing = ref(false);
-    const updating = ref(false);
-    async function updateMihomo() {
-      updating.value = true;
-      try {
-        const r = await api.post('/mihomo/update');
-        if (r.status === 'latest') {
-          ElMessage.info(r.message);
-        } else {
-          ElMessage.success(r.message);
-        }
-        await loadOverview();
-      } catch (e) { ElMessage.error(e.message); }
-      finally { updating.value = false; }
-    }
     const previewing = ref(false);
+    const updating = ref(false);
 
     async function loadPreview() {
       previewing.value = true;
-      try {
-        const r = await api.get('/config/preview');
-        yamlText.value = r.yaml || '';
-      }
+      try { const r = await api.get('/config/preview'); yamlText.value = r.yaml || ''; }
       catch (e) { ElMessage.error(e.message); }
       finally { previewing.value = false; }
     }
-    async function loadVersions() {
-      try {
-        const res = await api.get('/config/versions');
-        versions.value = res || [];
-      } catch (e) { console.warn(e); }
-    }
+    async function loadVersions() { try { versions.value = (await api.get('/config/versions')) || []; } catch (e) { console.warn(e); } }
     async function publish() {
       publishing.value = true;
       try {
@@ -233,6 +230,17 @@ const App = {
       } catch (e) { ElMessage.error(e.message); }
     }
 
+    async function updateMihomo() {
+      updating.value = true;
+      try {
+        const r = await api.post('/mihomo/update');
+        if (r.status === 'latest') ElMessage.info(r.message);
+        else ElMessage.success(r.message);
+        await loadOverview();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { updating.value = false; }
+    }
+
     function formatTime(timeStr) {
       if (!timeStr) return '';
       const date = new Date(timeStr);
@@ -243,11 +251,11 @@ const App = {
       const h = String(date.getHours()).padStart(2, '0');
       const min = String(date.getMinutes()).padStart(2, '0');
       const s = String(date.getSeconds()).padStart(2, '0');
-      return `${y}-${m}-${d} ${h}:${min}:${s}`;
+      return y + '-' + m + '-' + d + ' ' + h + ':' + min + ':' + s;
     }
 
     async function refreshAll() {
-      await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings()]);
+      await Promise.all([loadOverview(), loadProxies(), loadRules(), loadPreview(), loadVersions(), loadSettings()]);
     }
     onMounted(async () => {
       if (token.value) {
@@ -263,7 +271,9 @@ const App = {
     return {
       token, user, page, loginForm, loginLoading, doLogin, logout,
       overview, proxies, proxyDialog, proxySaving, proxyForm,
-      openCreate, openEdit, saveProxy, removeProxy, importDialog, importContent, importing, doImport, handleFileUpload,
+      openCreate, openEdit, saveProxy, removeProxy,
+      rules, ruleDialog, ruleSaving, ruleForm, openRuleCreate, saveRule, removeRule,
+      importDialog, importContent, importing, handleFileUpload, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime
     };
@@ -271,17 +281,7 @@ const App = {
 };
 
 const app = createApp(App);
-
-app.config.errorHandler = (err, instance, info) => {
-  console.error(err);
-  alert('Vue 渲染出错: ' + err.message + '\n位置: ' + info);
-};
-
+app.config.errorHandler = (err, instance, info) => { console.error(err); alert('Vue 渲染出错: ' + err.message); };
 app.use(ElementPlus);
-if (typeof ElementPlusIconsVue !== 'undefined') {
-  for (const [k, v] of Object.entries(ElementPlusIconsVue)) {
-    app.component(k, v);
-  }
-}
-
+if (typeof ElementPlusIconsVue !== 'undefined') { for (const [k, v] of Object.entries(ElementPlusIconsVue)) app.component(k, v); }
 app.mount('#app');
