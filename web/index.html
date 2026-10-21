@@ -155,7 +155,7 @@
     <h3 style="margin:0;color:#333;font-size:16px;">已注册节点机器码</h3>
     <button onclick="loadAgentsData()" style="padding:6px 15px;background:#409EFF;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新列表</button>
   </div>
-  <table style="width:100%;text-align:left;border-collapse:collapse;font-size:14px;">
+  <div style="overflow-x: auto; width: 100%;"><table style="width:100%;text-align:left;border-collapse:collapse;font-size:14px;min-width: 500px;">
     <thead><tr style="background:#f5f7fa;color:#909399;">
       <th style="padding:12px;border-bottom:1px solid #ebeef5;">机器码</th>
       <th style="padding:12px;border-bottom:1px solid #ebeef5;">Token</th>
@@ -163,6 +163,7 @@
     </tr></thead>
     <tbody id="agent-list-body"><tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">加载中...</td></tr></tbody>
   </table>
+</div>
 </div>
 <script>
 function loadAgentsData(){
@@ -182,7 +183,14 @@ function loadAgentsData(){
       h+='</td></tr>';
     });
     tb.innerHTML=h;
-  }).catch(e=>{tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:red;">加载失败: '+e.message+'</td></tr>';});
+  }).catch(e=>{
+    tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:red;">加载失败，请先登录主控台</td></tr>';
+  }).then(async (res) => {
+    // 单独处理 401 的情况（如果你的 fetch 写法支持）
+    if (res && res.status === 401) {
+        tb.innerHTML = '<tr><td colspan="3" style="padding:12px;text-align:center;color:#E6A23C;">未登录或登录已过期，请先登录主控台</td></tr>';
+    }
+  });
 }
 window.safeCopy=function(text){
   var t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.left='-9999px';
