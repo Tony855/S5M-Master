@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -481,10 +482,19 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	settings, _ := a.store.GetSettings()
 	expectedSecret := settings["agent_token"]
 	if expectedSecret == "" {
-		expectedSecret = "s5m-agent-secret"
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			writeErr(w, 500, "生成 Agent Token 失败")
+			return
+		}
+		expectedSecret = fmt.Sprintf("s5m-%x", buf)
+		if err := a.store.UpdateSettings(map[string]string{"agent_token": expectedSecret}); err != nil {
+			writeErr(w, 500, "持久化 Agent Token 失败: "+err.Error())
+			return
+		}
 	}
 	if in.Secret != expectedSecret {
-		writeErr(w, 403, "密钥错误，拒绝接入！请使用默认密钥 s5m-agent-secret")
+		writeErr(w, 403, "密钥错误，请去主控台【系统设置】查看并复制正确的 Agent Token")
 		return
 	}
 	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}

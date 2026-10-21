@@ -168,7 +168,7 @@
 function loadAgentsData(){
   var tb=document.getElementById('agent-list-body');
   tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">正在加载...</td></tr>';
-  fetch('/api/v1/agents').then(r=>r.json()).then(data=>{
+  fetch('/api/v1/agents',{headers:{'Authorization':'Bearer '+(localStorage.getItem('s5m_next_token')||'')}}).then(r=>r.json()).then(data=>{
     var keys=Object.keys(data);
     if(!keys.length){tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">暂无注册的机器码</td></tr>';return;}
     var h='';
@@ -192,7 +192,7 @@ window.safeCopy=function(text){
 };
 window.deleteAgent=function(code){
   if(!confirm('确定删除该机器码？'))return;
-  fetch('/api/v1/agents?code='+encodeURIComponent(code),{method:'DELETE'})
+  fetch('/api/v1/agents?code='+encodeURIComponent(code),{method:'DELETE',headers:{'Authorization':'Bearer '+(localStorage.getItem('s5m_next_token')||'')}})
     .then(r=>r.json()).then(d=>{alert('删除成功');loadAgentsData();})
     .catch(e=>alert('删除失败: '+e.message));
 };

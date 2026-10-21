@@ -1,8 +1,10 @@
 package app
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -125,7 +127,16 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 	}
 
 	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('tun_enable', 'false')`)
-	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('agent_token', 's5m-agent-secret')`)
+	// 首次启动时自动生成随机 Agent 注册密钥（不再硬编码默认值）
+	var atCount int
+	s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE key='agent_token' AND value != ''`).Scan(&atCount)
+	if atCount == 0 {
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err == nil {
+			token := fmt.Sprintf("s5m-%x", buf)
+			s.db.Exec(`INSERT OR REPLACE INTO settings (key, value) VALUES ('agent_token', ?)`, token)
+		}
+	}
 	return nil
 }
 
