@@ -43,6 +43,18 @@ const App = {
     const previewing = ref(false);
     const updating = ref(false);
     
+    
+    const subUrl = computed(() => {
+      return window.location.protocol + '//' + window.location.host + '/api/v1/subscribe?token=s5m-proxy-sub';
+    });
+    function copySubUrl() {
+      navigator.clipboard.writeText(subUrl.value).then(() => {
+        ElMessage.success('订阅链接已复制');
+      }).catch(() => {
+        ElMessage.error('复制失败');
+      });
+    }
+
     const logText = ref('');
     const logBox = ref(null);
     const logTimer = ref(null);
@@ -362,7 +374,7 @@ const App = {
       importDialog, importContent, importing, handleFileUpload, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime,
-      logText, logBox, loadLogs, formatSpeed, themeIcon, toggleTheme, downloadBackup, handleRestoreUpload
+      logText, logBox, loadLogs, formatSpeed, subUrl, copySubUrl, themeIcon, toggleTheme, downloadBackup, handleRestoreUpload
     };
   }
 };

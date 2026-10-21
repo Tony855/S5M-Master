@@ -28,12 +28,14 @@ return a.store.CreateUser(a.cfg.AdminUser, string(h), "admin")
 
 func (a *App) Router(static fs.FS) http.Handler {
 mux := http.NewServeMux()
+
+// 无需鉴权的公共接口
 mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
 mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
-	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
-	
-	mux.HandleFunc("POST /api/v1/restore", a.auth(a.handleRestoreBackup))
+mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
+mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
 
+// 需要 JWT 鉴权的管理接口
 authed := map[string]http.HandlerFunc{
 "GET /api/v1/auth/me":          a.handleMe,
 "PUT /api/v1/auth/password":    a.handlePassword,
@@ -41,7 +43,7 @@ authed := map[string]http.HandlerFunc{
 "PUT /api/v1/settings":         a.handleUpdateSettings,
 "GET /api/v1/proxies":          a.handleListProxies,
 "POST /api/v1/proxies":         a.handleCreateProxy,
-		"POST /api/v1/proxies/import":  a.handleImportProxies,
+"POST /api/v1/proxies/import":  a.handleImportProxies,
 "PUT /api/v1/proxies/{id}":     a.handleUpdateProxy,
 "DELETE /api/v1/proxies/{id}":  a.handleDeleteProxy,
 "GET /api/v1/config/preview":   a.handlePreview,
@@ -49,11 +51,14 @@ authed := map[string]http.HandlerFunc{
 "GET /api/v1/config/versions":  a.handleVersions,
 "POST /api/v1/config/rollback": a.handleRollback,
 "GET /api/v1/monitor/overview": a.handleOverview,
-		"GET /api/v1/monitor/traffic":  a.handleMonitorTraffic,
-		"GET /api/v1/logs":             a.handleGetLogs,
-		
+"GET /api/v1/monitor/traffic":  a.handleMonitorTraffic,
+"POST /api/v1/mihomo/update":   a.handleUpdateMihomo,
+"GET /api/v1/logs":             a.handleGetLogs,
+"POST /api/v1/restore":         a.handleRestoreBackup,
 }
-for pat, h := range authed { mux.HandleFunc(pat, a.auth(h)) }
+for pat, h := range authed {
+mux.HandleFunc(pat, a.auth(h))
+}
 
 mux.Handle("/", http.FileServer(http.FS(static)))
 return withRecover(mux)
