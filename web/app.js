@@ -90,6 +90,16 @@ const App = {
     const importContent = ref('');
     const importing = ref(false);
 
+    
+    function handleFileUpload(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        importContent.value = e.target.result;
+        ElMessage.success('文件内容已读取，请点击确认导入');
+      };
+      reader.readAsText(file.raw);
+    }
+
     async function doImport() {
       if (!importContent.value.trim()) return ElMessage.warning('请粘贴节点链接');
       importing.value = true;
@@ -252,7 +262,7 @@ const App = {
     return {
       token, user, page, loginForm, loginLoading, doLogin, logout,
       overview, proxies, proxyDialog, proxySaving, proxyForm,
-      openCreate, openEdit, saveProxy, removeProxy, importDialog, importContent, importing, doImport,
+      openCreate, openEdit, saveProxy, removeProxy, importDialog, importContent, importing, doImport, handleFileUpload,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime
     };

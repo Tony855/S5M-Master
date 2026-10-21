@@ -297,7 +297,12 @@
 
   <!-- 批量导入对话框 -->
   <el-dialog v-model="importDialog" title="批量导入节点" width="90%" style="max-width: 600px;">
-    <el-alert title="支持 socks5://, vless://, trojan://, vmess://, ss:// 等分享链接，每行一个。" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
+    <el-alert title="支持直接粘贴多行分享链接，或上传 .txt / .json 配置文件" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
+    <div style="margin-bottom: 10px;">
+      <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".txt,.json" :on-change="handleFileUpload">
+        <el-button type="primary" plain icon="UploadFilled">选择文件 (.txt / .json)</el-button>
+      </el-upload>
+    </div>
     <el-input 
       v-model="importContent" 
       type="textarea" 

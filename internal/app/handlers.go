@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -117,7 +118,7 @@ func (a *App) validateProxy(p *Proxy) string {
 		p.SourceCIDR = "0.0.0.0/0"
 	}
 	if _, _, err := net.ParseCIDR(p.SourceCIDR); err != nil {
-		return "源 IP 必须是合法 CIDR，例如 192.168.1.10/32"
+		return "源 IP 必须是合法 CIDR"
 	}
 	switch p.Type {
 	case "socks5", "ss", "vmess", "vless", "trojan":
@@ -311,90 +312,135 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type jsonImportServer struct {
+	Server   string `json:"server"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	UDP      bool   `json:"udp"`
+}
+
+type jsonImportConfig struct {
+	Protocol string             `json:"protocol"`
+	Servers  []jsonImportServer `json:"servers"`
+}
+
 func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
-var in struct {
-Content string `json:"content"`
-}
-if err := decode(r, &in); err != nil {
-writeErr(w, 400, "参数错误")
-return
-}
+	var in struct {
+		Content string `json:"content"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
 
-lines := strings.Split(strings.ReplaceAll(in.Content, "\r\n", "\n"), "\n")
-successCount := 0
-failCount := 0
+	successCount := 0
+	failCount := 0
+	content := strings.TrimSpace(in.Content)
 
-for _, line := range lines {
-line = strings.TrimSpace(line)
-if line == "" || strings.HasPrefix(line, "//") {
-continue
-}
+	// 1. 尝试作为 JSON 解析
+	var jsonCfg jsonImportConfig
+	if err := json.Unmarshal([]byte(content), &jsonCfg); err == nil && len(jsonCfg.Servers) > 0 {
+		for _, s := range jsonCfg.Servers {
+			p := Proxy{
+				Name:       fmt.Sprintf("%s-%d", s.Server, s.Port),
+				Type:       "socks5",
+				Server:     s.Server,
+				Port:       s.Port,
+				SourceCIDR: "0.0.0.0/0",
+				Enabled:    true,
+				Extra:      map[string]any{"udp": s.UDP},
+			}
+			if s.Username != "" {
+				p.Extra["username"] = s.Username
+			}
+			if s.Password != "" {
+				p.Extra["password"] = s.Password
+			}
+			if err := a.store.CreateProxy(&p); err != nil {
+				p.Name = fmt.Sprintf("%s-%d-%d", s.Server, s.Port, time.Now().UnixNano())
+				if err := a.store.CreateProxy(&p); err != nil {
+					failCount++
+					continue
+				}
+			}
+			successCount++
+		}
+	} else {
+		// 2. 尝试作为 TXT 链接解析
+		lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "//") {
+				continue
+			}
 
-var p Proxy
-u, err := url.Parse(line)
-if err == nil && u.Scheme != "" {
-p.Type = u.Scheme
-p.Server = u.Hostname()
-if port, e := strconv.Atoi(u.Port()); e == nil {
-p.Port = port
-}
+			u, err := url.Parse(line)
+			if err != nil || u.Scheme == "" || u.Host == "" {
+				failCount++
+				continue
+			}
 
-name := u.Fragment
-if name == "" {
-name = p.Type + "-" + p.Server
-}
-p.Name = name
-p.Enabled = true
-p.SourceCIDR = "0.0.0.0/0"
-p.Extra = map[string]any{}
+			p := Proxy{
+				Type:       u.Scheme,
+				Server:     u.Hostname(),
+				SourceCIDR: "0.0.0.0/0",
+				Enabled:    true,
+				Extra:      map[string]any{},
+			}
+			
+			if port, e := strconv.Atoi(u.Port()); e == nil {
+				p.Port = port
+			}
 
-if u.User != nil {
-if pass, ok := u.User.Password(); ok {
-if p.Type == "vmess" || p.Type == "vless" {
-p.Extra["uuid"] = u.User.Username()
-} else {
-p.Extra["username"] = u.User.Username()
-p.Extra["password"] = pass
-}
-} else {
-if p.Type == "vmess" || p.Type == "vless" {
-p.Extra["uuid"] = u.User.Username()
-} else if p.Type == "trojan" {
-p.Extra["password"] = u.User.Username()
-} else if p.Type == "socks5" {
-p.Extra["username"] = u.User.Username()
-}
-}
-}
+			name := u.Fragment
+			if name == "" {
+				name = fmt.Sprintf("%s-%s:%d", p.Type, p.Server, p.Port)
+			}
+			p.Name = name
 
-q := u.Query()
-for k, v := range q {
-if len(v) > 0 {
-p.Extra[k] = v[0]
-}
-}
+			if u.User != nil {
+				username := u.User.Username()
+				password, _ := u.User.Password()
+				if p.Type == "vmess" || p.Type == "vless" {
+					if username != "" {
+						p.Extra["uuid"] = username
+					}
+				} else {
+					if username != "" {
+						p.Extra["username"] = username
+					}
+					if password != "" {
+						p.Extra["password"] = password
+					}
+				}
+			}
 
-if p.Type == "vless" || p.Type == "vmess" || p.Type == "trojan" {
-p.Extra["udp"] = true
-}
+			q := u.Query()
+			for k, v := range q {
+				if len(v) > 0 {
+					p.Extra[k] = v[0]
+				}
+			}
 
-// 防重名机制
-if err := a.store.CreateProxy(&p); err != nil {
-p.Name = name + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-if err := a.store.CreateProxy(&p); err != nil {
-failCount++
-continue
-}
-}
-successCount++
-} else {
-failCount++
-}
-}
+			if p.Type == "vless" || p.Type == "vmess" || p.Type == "trojan" || p.Type == "socks5" {
+				p.Extra["udp"] = true
+			}
 
-writeJSON(w, 200, map[string]any{
-"success": successCount,
-"fail":    failCount,
-"message": "导入完成",
-})
+			if err := a.store.CreateProxy(&p); err != nil {
+				p.Name = name + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+				if err := a.store.CreateProxy(&p); err != nil {
+					failCount++
+					continue
+				}
+			}
+			successCount++
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{
+		"success": successCount,
+		"fail":    failCount,
+		"message": "导入完成",
+	})
 }
