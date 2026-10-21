@@ -415,15 +415,7 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 }
 
 // ================= 系统日志 =================
-func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-precise")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		writeJSON(w, 200, map[string]string{"logs": "读取日志失败: " + err.Error() + "\n" + string(output)})
-		return
-	}
-	writeJSON(w, 200, map[string]string{"logs": string(output)})
-}
+
 
 // ================= 客户端订阅 =================
 func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -555,4 +547,15 @@ return
 }
 
 writeJSON(w, 200, map[string]string{"message": "数据库已成功覆盖，请手动重启 S5M 服务以生效！"})
+}
+
+func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
+cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso")
+output, _ := cmd.CombinedOutput()
+
+// 使用正则清理掉主机名，只保留时:分:秒
+re := regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2}).*?s5m-next\[\d+\]:\s*`)
+cleaned := re.ReplaceAllString(string(output), "$1 ")
+
+writeJSON(w, 200, map[string]string{"logs": cleaned})
 }
