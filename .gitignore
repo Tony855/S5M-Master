@@ -3,3 +3,9 @@ bin/
 *.yaml
 node_modules/
 .DS_Store
+*.bak
+*.bak.*
+*.preinject.*
+s5m-agent/agent-bin
+s5m-agent/agent.log
+bin/s5m-next

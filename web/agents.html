@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>节点机器码管理 - 控制台</title>
+    <style>
+        body { background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        h2 { margin-top: 0; color: #4cc9f0; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #334155; padding-bottom: 15px; }
+        button { padding: 8px 16px; background: #4361ee; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #3a56d4; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #334155; }
+        th { color: #94a3b8; font-size: 14px; font-weight: 500; }
+        td { font-size: 14px; }
+        .code { font-family: monospace; color: #34d399; background: rgba(52, 211, 153, 0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+        .token { font-family: monospace; color: #64748b; font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
+        .empty { text-align: center; color: #64748b; padding: 40px 0; }
+        .btn-copy { background: rgba(76, 201, 240, 0.15); color: #4cc9f0; border: 1px solid #4cc9f0; padding: 4px 10px; font-size: 12px; margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>节点机器码列表</h2>
+            <button onclick="loadAgents()">刷新列表</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>机器码 (Machine Code)</th>
+                    <th>分配 Token (部分展示)</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="agentList">
+                <tr><td colspan="3" class="empty">正在加载...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        async function loadAgents() {
+            const tbody = document.getElementById('agentList');
+            tbody.innerHTML = '<tr><td colspan="3" class="empty">正在加载...</td></tr>';
+            
+            try {
+                const res = await fetch('/api/v1/agents');
+                if (!res.ok) throw new Error('网络请求失败');
+                const data = await res.json();
+                
+                const keys = Object.keys(data);
+                if (keys.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="empty">暂无注册的机器码，请前往 Agent 端绑定</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = keys.map(k => `
+                    <tr>
+                        <td><span class="code">${k}</span></td>
+                        <td><span class="token" title="${data[k]}">${data[k]}</span></td>
+                        <td><button class="btn-copy" onclick="copyText('${k}')">复制机器码</button></td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:#ef4444">加载失败: ${e.message}</td></tr>`;
+            }
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('机器码已复制: ' + text);
+            });
+        }
+
+        // 页面加载时自动获取
+        window.onload = loadAgents;
+    </script>
+</body>
+</html>

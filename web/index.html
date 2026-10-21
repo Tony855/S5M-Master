@@ -3,563 +3,201 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>S5M Proxy Service · 代理管理控制台</title>
+<title>S5M Proxy Service</title>
 <link rel="stylesheet" href="/vendor/element-plus.css">
 <style>
   :root{--brand:#4361ee;--brand-2:#4cc9f0;}
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f7fb;color:#1e293b;}
+  *{box-sizing:border-box} html,body{height:100%;margin:0}
+  body{font-family:-apple-system,sans-serif;background:#f5f7fb;color:#1e293b;}
   [v-cloak]{display:none;}
-  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 600px at 10% 10%,#4361ee33,transparent 60%),radial-gradient(1000px 500px at 90% 90%,#4cc9f033,transparent 60%),linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:24px;}
-  .login-card{width:100%;max-width:400px;background:rgba(255,255,255,.98);border-radius:18px;padding:40px 36px;box-shadow:0 24px 60px rgba(0,0,0,.35);}
-  .login-logo{width:56px;height:56px;border-radius:14px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:20px;background:linear-gradient(135deg,var(--brand),var(--brand-2));box-shadow:0 8px 20px rgba(67,97,238,.4);}
-  .login-title{text-align:center;font-size:22px;font-weight:700;margin:0 0 6px;color:#0f172a}
-  .login-sub{text-align:center;color:#64748b;font-size:13px;margin:0 0 28px}
-  
-  .layout{min-height:100vh;}
-  .aside{background:linear-gradient(180deg,#0f172a,#1e293b);color:#cbd5e1;border-right:1px solid rgba(255,255,255,.08);flex-shrink:0;}
-  .brand{display:flex;align-items:center;gap:10px;padding:20px 20px 14px;color:#fff;font-weight:700;}
-  .brand .dot{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--brand),var(--brand-2));font-size:13px;}
-  .el-menu{background:transparent!important;border-right:none!important}
-  .el-menu-item{color:#cbd5e1!important;border-radius:10px;margin:4px 10px}
-  .el-menu-item.is-active{background:rgba(67,97,238,.22)!important;color:#fff!important}
-  .el-menu-item:hover{background:rgba(255,255,255,.06)!important}
-  
-  .main-container{flex:1;min-width:0;}
-  .header{background:#fff;border-bottom:1px solid #e5e9f2;display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:62px;flex-shrink:0;}
-  .header .crumb{font-weight:600;color:#0f172a}
-  .main{padding:22px;overflow-x:hidden;}
-  
-  
-  
-  .stat-grid{display:grid;grid-template-columns:repeat(2, 1fr);gap:12px}
-  .stat-card{
-    background: #fff;
-    border: 1px solid #eef1f7;
-    border-radius: 12px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 10px;
-    box-shadow: 0 4px 16px rgba(15,23,42,.04);
-  }
-  .stat-icon-row{display:flex;align-items:center;gap:10px;}
-  .stat-ico{
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    color: #fff;
-    background: linear-gradient(135deg,var(--brand),var(--brand-2));
-    flex: none;
-  }
-  .stat-val{font-size:22px; font-weight:700; line-height:1.2;}
-  .stat-lbl{color:#64748b; font-size:13px; font-weight:500;}
-  
-  /* 独占整行的特殊卡片 */
-  .card-full { grid-column: 1 / -1; flex-direction: row; align-items: center; justify-content: space-between; }
-  .card-full .stat-lbl { margin-bottom: 0; }
-
-  @media (min-width: 768px) {
-    .stat-grid { grid-template-columns: repeat(4, 1fr); }
-    .card-full { grid-column: span 4; }
-  }
-  @media (max-width: 768px) {
-    .stat-grid { grid-template-columns: 1fr !important; }
-    .card-full { flex-direction: column; align-items: flex-start; gap: 12px; }
-  }
-
-  .muted{color:#94a3b8}
-  
-  .proxy-card, .version-card { background: #fff; border: 1px solid #eef1f7; border-radius: 10px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
-  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #eee; }
-  .card-title { font-weight: 600; font-size: 16px; color: #1e293b; }
-  .card-row { font-size: 13px; color: #64748b; margin-bottom: 6px; line-height: 1.5; word-break: break-all; }
-  .card-row span { color: #1e293b; font-weight: 500; }
-  .card-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
-
-  .mobile-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 12px; width: 100%; }
-
-  @media (max-width: 768px) {
-    .layout { flex-direction: column !important; }
-    .aside { width: 100% !important; min-height: auto !important; border-right: none; border-bottom: 1px solid rgba(255,255,255,.08); }
-    .brand { padding: 10px 16px; justify-content: center; }
-    .el-menu { display: flex !important; flex-wrap: wrap !important; padding: 0 10px 10px !important; justify-content: center; }
-    .el-menu-item { margin: 2px 4px !important; padding: 0 15px !important; height: 40px; line-height: 40px; }
-    .header { padding: 0 15px !important; height: 50px; }
-    .main { padding: 15px !important; }
-    .stat-grid { grid-template-columns: 1fr !important; }
-    .panel { padding: 15px !important; margin-top: 15px !important; }
-  }
-
-  .log-box {
-    background: #0d1117;
-    color: #3fb950;
-    border-radius: 12px;
-    padding: 15px;
-    font-family: SFMono-Regular, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    overflow-y: auto;
-    max-height: 65vh;
-    white-space: pre-wrap;
-    word-break: break-all;
-    border: 1px solid #30363d;
-  }
-
-  .yaml-box {
-    background: #0f172a;
-    color: #e2e8f0;
-    border-radius: 12px;
-    padding: 16px;
-    overflow: auto;
-    font-family: SFMono-Regular, Consolas, Monaco, monospace;
-    font-size: 13px;
-    line-height: 1.55;
-    max-height: 520px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    box-shadow: 0 4px 16px rgba(15,23,42,.04);
-  }
-</style>
-
-  <style>
-    .mobile-radio {
-      display: flex !important;
-      flex-wrap: wrap !important;
-      gap: 8px !important;
-    }
-    .mobile-radio .el-radio-button__inner {
-      border-radius: 4px !important;
-      border-left: 1px solid #dcdfe6 !important;
-    }
-  
-  .log-box {
-    background: #0d1117;
-    color: #3fb950;
-    border-radius: 12px;
-    padding: 15px;
-    font-family: SFMono-Regular, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    overflow-y: auto;
-    max-height: 65vh;
-    white-space: pre-wrap;
-    word-break: break-all;
-    border: 1px solid #30363d;
-  }
-
-  .yaml-box {
-    background: #0f172a;
-    color: #e2e8f0;
-    border-radius: 12px;
-    padding: 16px;
-    overflow: auto;
-    font-family: SFMono-Regular, Consolas, Monaco, monospace;
-    font-size: 13px;
-    line-height: 1.55;
-    max-height: 520px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    box-shadow: 0 4px 16px rgba(15,23,42,.04);
-  }
-</style>
-
-  <style>
-    body.dark {
-      --light-bg: #0f172a;
-      --card-bg: #1e293b;
-      --card-border: rgba(255, 255, 255, 0.08);
-      --text-primary: #f8fafc;
-      --text-secondary: #cbd5e1;
-      background-color: var(--light-bg);
-      color: var(--text-primary);
-    }
-    body.dark .header { background: #1e293b; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    body.dark .header .crumb { color: #f8fafc; }
-    body.dark .panel, body.dark .stat-card, body.dark .proxy-card, body.dark .version-card { background: #1e293b; border-color: rgba(255,255,255,0.08); }
-    body.dark .stat-val, body.dark .card-title, body.dark .card-row span { color: #f8fafc !important; }
-    body.dark .stat-lbl, body.dark .card-row { color: #94a3b8; }
-  
-  .log-box {
-    background: #0d1117;
-    color: #3fb950;
-    border-radius: 12px;
-    padding: 15px;
-    font-family: SFMono-Regular, Consolas, monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    overflow-y: auto;
-    max-height: 65vh;
-    white-space: pre-wrap;
-    word-break: break-all;
-    border: 1px solid #30363d;
-  }
-
-  .yaml-box {
-    background: #0f172a;
-    color: #e2e8f0;
-    border-radius: 12px;
-    padding: 16px;
-    overflow: auto;
-    font-family: SFMono-Regular, Consolas, Monaco, monospace;
-    font-size: 13px;
-    line-height: 1.55;
-    max-height: 520px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    box-shadow: 0 4px 16px rgba(15,23,42,.04);
-  }
+  .layout{min-height:100vh;display:flex;}
+  .aside{background:#0f172a;color:#cbd5e1;width:230px;}
+  .main{flex:1;padding:22px;}
+  .panel { background: #fff; border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
 </style>
 </head>
-
 <body>
 <div id="app" v-cloak>
-  <div v-if="!token" class="login-wrap">
-    <div class="login-card">
-      <div class="login-logo">S5</div>
-      <h2 class="login-title">S5M Proxy Service 控制台</h2>
-      <p class="login-sub">多协议代理 · IP 分流 · Mihomo 集中管理</p>
-      <el-form label-position="top">
-        <el-form-item label="用户名"><el-input v-model="loginForm.username" size="large" placeholder="admin" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="loginForm.password" size="large" type="password" show-password placeholder="请输入密码" @keyup.enter="doLogin" /></el-form-item>
-        <el-button type="primary" size="large" style="width:100%;margin-top:8px" :loading="loginLoading" @click="doLogin">登 录</el-button>
-      </el-form>
-    </div>
-  </div>
-
-  <el-container v-else class="layout">
-    <el-aside width="230px" class="aside">
-      <div class="brand"><div class="dot">S5</div><span>S5M Proxy Service</span></div>
-      <el-menu :default-active="page" @select="v => page = v">
-        <el-menu-item index="dashboard"><el-icon><Odometer/></el-icon><span>仪表盘</span></el-menu-item>
-        <el-menu-item index="proxies"><el-icon><Connection/></el-icon><span>代理规则</span></el-menu-item>
-        <el-menu-item index="instances"><el-icon><Cpu/></el-icon><span>远端节点</span></el-menu-item>
-        <el-menu-item index="config"><el-icon><Document/></el-icon><span>配置管理</span></el-menu-item>
-        <el-menu-item index="logs"><el-icon><Tickets/></el-icon><span>系统日志</span></el-menu-item>
-        <el-menu-item index="settings"><el-icon><Setting/></el-icon><span>系统设置</span></el-menu-item>
+  <el-container class="layout">
+    <el-aside class="aside">
+      <div style="padding:20px;font-weight:bold;color:#fff;">S5M Proxy</div>
+      <el-menu :default-active="page" @select="v => page = v" style="background:transparent;border:none;color:#cbd5e1;">
+        <el-menu-item index="dashboard">仪表盘</el-menu-item>
+        <el-menu-item index="instances">远端节点</el-menu-item>
+        <el-menu-item index="config">配置管理</el-menu-item>
       </el-menu>
     </el-aside>
 
-    <el-container class="main-container">
-      <el-header class="header">
-        <div class="crumb">{{ menuTitle }}</div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <el-button size="small" @click="toggleTheme" :icon="themeIcon === 'dark' ? 'Moon' : 'Sunny'" circle></el-button>
-          <span class="muted">{{ user && user.username }}</span>
-          <el-button size="small" @click="logout(false)">退出登录</el-button>
-        </div>
-      </el-header>
+    <el-main class="main">
+      <!-- 仪表盘 -->
+      <div v-if="page === 'dashboard'">
+        <div class="panel">欢迎使用 S5M 控制台</div>
+      </div>
 
-      <el-main class="main">
-        <!-- 仪表盘 -->
-        <div v-if="page === 'dashboard'">
-          <div class="stat-grid">
-            
-            <!-- Mihomo 内核（独占整行） -->
-            <div class="stat-card card-full">
-              <div class="stat-icon-row">
-                <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
-                <div>
-                  <div class="stat-val" style="font-size:18px; font-weight:600; white-space:nowrap;">Mihomo 内核</div>
-                  <div class="stat-lbl" style="display:flex; align-items:center; gap:8px; margin-top:4px;">
-                    <span>版本: <strong style="color:#4361ee;">{{ overview.mihomo && overview.mihomo.version ? overview.mihomo.version.version : '--' }}</strong></span>
-                  </div>
-                </div>
-              </div>
-              <div style="display:flex; align-items:center; gap:12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 6px 12px; border-radius: 8px;">
-                  {{ overview.mihomo && overview.mihomo.online ? '🟢 运行中' : '🔴 已停止' }}
-                </div>
-                <el-button type="primary" size="small" :loading="updating" @click="updateMihomo">更新内核</el-button>
-              </div>
+      <!-- 远端节点 -->
+      <div v-if="page === 'instances'">
+        <div class="panel">
+          <h3>远端 Mihomo 实例</h3>
+          <div style="text-align:center;color:#999;padding:20px;">暂无远端节点，请添加</div>
+          
+          <!-- 机器码管理区块（原生JS实现） -->
+          <div style="margin-top: 20px; border-top: 1px dashed #ebeef5; padding-top: 15px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <h3 style="margin: 0; color: #333; font-size: 16px;">生成专属机器码 Token</h3>
+            </div>
+            <div style="display:flex; gap:10px; margin-bottom: 15px;">
+              <input type="text" id="generate-mc-input" placeholder="输入机器码..." style="flex:1; padding: 8px; border: 1px solid #dcdfe6; border-radius: 4px;">
+              <button onclick="window.generateAgentToken()" style="padding: 8px 15px; background: #409EFF; color: white; border: none; border-radius: 4px; cursor: pointer;">生成并绑定</button>
+            </div>
+            <div id="generate-result" style="display:none; margin-bottom: 15px; padding: 10px; background: #f0f9eb; border: 1px solid #e1f3d8; color: #67c23a; word-break: break-all;">
+              专属 Token: <strong id="generated-token-text" style="font-family: monospace;"></strong>
+              <button onclick="window.safeCopy(document.getElementById('generated-token-text').innerText)" style="margin-left: 10px; padding: 2px 8px; background: #67c23a; color: white; border: none; border-radius: 4px;">复制</button>
             </div>
 
-            <!-- 实时下载 -->
-            <div class="stat-card">
-              <div class="stat-icon-row">
-                <div class="stat-ico" style="background:linear-gradient(135deg,#ec4899,#f472b6)"><el-icon><Bottom/></el-icon></div>
-                <div class="stat-lbl">实时下载</div>
-              </div>
-              <div class="stat-val">{{ formatSpeed(traffic.down) }}</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+              <h3 style="margin: 0; color: #333; font-size: 16px;">已注册节点机器码</h3>
+              <button onclick="window.loadAgentsData()" style="padding: 6px 15px; background: #409EFF; color: white; border: none; border-radius: 4px;">刷新列表</button>
             </div>
-
-            <!-- 实时上传 -->
-            <div class="stat-card">
-              <div class="stat-icon-row">
-                <div class="stat-ico" style="background:linear-gradient(135deg,#8b5cf6,#a78bfa)"><el-icon><Top/></el-icon></div>
-                <div class="stat-lbl">实时上传</div>
-              </div>
-              <div class="stat-val">{{ formatSpeed(traffic.up) }}</div>
-            </div>
-
-            <!-- 活跃连接 -->
-            <div class="stat-card">
-              <div class="stat-icon-row">
-                <div class="stat-ico" style="background:linear-gradient(135deg,#06b6d4,#22d3ee)"><el-icon><Link/></el-icon></div>
-                <div class="stat-lbl">活跃连接</div>
-              </div>
-              <div class="stat-val">{{ traffic.conns || 0 }}</div>
-            </div>
-
-            <!-- 节点状态 -->
-            <div class="stat-card">
-              <div class="stat-icon-row">
-                <div class="stat-ico" style="background:linear-gradient(135deg,#10b981,#34d399)"><el-icon><Connection/></el-icon></div>
-                <div class="stat-lbl">启用节点</div>
-              </div>
-              <div class="stat-val">{{ overview.proxy_enabled || 0 }} <span style="font-size:14px;color:#94a3b8;">/ {{ overview.proxy_total || 0 }}</span></div>
-            </div>
-
-            <!-- 历史版本 -->
-            <div class="stat-card card-full" style="flex-direction:row; justify-content:space-between; padding:16px 20px;">
-              <div class="stat-icon-row">
-                <div class="stat-ico" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><el-icon><Document/></el-icon></div>
-                <div class="stat-lbl" style="font-size:14px; font-weight:500;">历史配置版本</div>
-              </div>
-              <div class="stat-val" style="font-size:20px;">{{ (versions || []).length }} <span style="font-size:14px;color:#94a3b8;">个</span></div>
-            </div>
-
-          </div>
-        </div>
-
-        <!-- 代理规则 -->
-        <div v-if="page === 'proxies'">
-          <div class="panel">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-              <h3 style="margin:0">节点与规则</h3>
-              <div>
-                <el-button type="success" @click="importDialog = true">批量导入</el-button>
-                <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
-              </div>
-            </div>
-            <div>
-              <div v-for="row in proxies" :key="row.id" class="proxy-card">
-                <div class="card-header">
-                  <span class="card-title">{{ row.name }}</span>
-                  <el-tag :type="row.enabled ? 'success':'info'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
-                </div>
-                <div class="card-row">模式: <span>{{ getModeLabel(row.mode) }}</span></div>
-                <div class="card-row" v-if="['proxy', 'china', 'game'].includes(row.mode)">服务器: <span>{{ row.server }}:{{ row.port }}</span></div>
-                <div class="card-row">源 IP: <span>{{ row.source_cidr }}</span></div>
-                <div class="card-actions">
-                  <el-button size="small" @click="openEdit(row)">编辑</el-button>
-                  <el-button size="small" type="danger" @click="removeProxy(row)">删除</el-button>
-                </div>
-              </div>
-              <div v-if="!proxies || proxies.length === 0" style="text-align:center;color:#999;padding:20px;">暂无代理节点</div>
+            <div id="agent-list-body">
+              <div style="text-align: center; color: #999; padding: 20px;">等待加载...</div>
             </div>
           </div>
         </div>
+      </div>
 
-        
-        <!-- 远端节点管理 -->
-        <div v-if="page === 'instances'">
-          <div class="panel">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-              <h3 style="margin:0">远端 Mihomo 实例</h3>
-              <el-button type="primary" @click="openInstanceCreate">+ 添加实例</el-button>
-            </div>
-            <div>
-              <div v-for="row in instances" :key="row.id" class="proxy-card">
-                <div class="card-header">
-                  <span class="card-title">{{ row.name }}</span>
-                  <el-tag type="success" size="small">已连接</el-tag>
-                </div>
-                <div class="card-row">API 地址: <span>{{ row.api_url }}</span></div>
-                <div class="card-row">Secret: <span>{{ row.secret ? '******' : '无' }}</span></div>
-                <div class="card-actions">
-                  <el-button size="small" type="danger" @click="removeInstance(row)">删除</el-button>
-                </div>
-              </div>
-              <div v-if="!instances || instances.length === 0" style="text-align:center;color:#999;padding:20px;">暂无远端节点，请添加</div>
-            </div>
+      <!-- 配置管理 -->
+      <div v-if="page === 'config'">
+        <div class="panel">
+          <h3>客户端订阅链接</h3>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <el-input v-model="subUrl" readonly style="flex:1; min-width: 0;">
+              <template #prepend>订阅地址</template>
+            </el-input>
           </div>
         </div>
-
-        <!-- 配置管理 -->
-
-          <div class="panel" style="margin-bottom: 20px;">
-            <h3 style="margin:0 0 12px">客户端订阅链接</h3>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <el-input v-model="subUrl" readonly style="flex:1; min-width: 0;">
-                <template #prepend>订阅地址</template>
-              </el-input>
-              <el-button type="primary" @click="copySubUrl" style="flex: none;">一键复制</el-button>
-            </div>
-            <div style="margin-top:8px;font-size:12px;color:#999;">复制此链接导入到手机客户端即可自动同步节点。</div>
-          </div>
-
-        <div v-if="page === 'config'">
-          <div class="panel">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-              <h3 style="margin:0">当前生成的 YAML</h3>
-            </div>
-            <div style="width: 100%;">
-              <div class="mobile-row">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <span style="font-size:14px;font-weight:500;">TUN 代理</span>
-                  <el-switch v-model="settings.tun_enable" @change="saveSettings" />
-                </div>
-              </div>
-              <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <el-button :loading="previewing" @click="loadPreview" style="flex:1;">刷新预览</el-button>
-                <el-button type="primary" :loading="publishing" @click="publish" style="flex:1;">发布到 Mihomo</el-button>
-              </div>
-            </div>
-            <pre class="yaml-box">{{ yamlText || '暂无配置' }}</pre>
-          </div>
-          <div class="panel">
-            <h3 style="margin:0 0 12px">历史版本</h3>
-            <div>
-              <div v-for="row in versions" :key="row.id" class="version-card">
-                <div class="card-header">
-                  <span class="card-title">版本 v{{ row.version }}</span>
-                  <span style="font-size:12px;color:#999;">{{ formatTime(row.created_at) }}</span>
-                </div>
-                <div class="card-row">SHA256: <span style="font-family:monospace;">{{ row.sha256.substring(0, 16) }}...</span></div>
-                <div class="card-row">状态: <span>{{ row.status }}</span></div>
-                <div class="card-actions">
-                  <el-button size="small" type="warning" @click="rollback(row)">回滚到此版本</el-button>
-                </div>
-              </div>
-              <div v-if="!versions || versions.length === 0" style="text-align:center;color:#999;padding:20px;">暂无历史版本</div>
-            </div>
-          </div>
+        <div class="panel">
+          <h3>当前生成的 YAML</h3>
+          <pre style="background:#0f172a;color:#e2e8f0;padding:15px;border-radius:8px;">暂无配置</pre>
         </div>
-
-        
-        <!-- 系统日志 -->
-        <div v-if="page === 'logs'" class="panel">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-            <h3 style="margin:0">S5M Proxy Service 实时日志</h3>
-            <el-button size="small" @click="loadLogs">刷新日志</el-button>
-          </div>
-          <pre class="log-box" ref="logBox">{{ logText || '等待日志加载...' }}</pre>
-        </div>
-<!-- 系统设置 -->
-        <div v-if="page === 'settings'" class="panel" style="max-width:520px">
-          <h3 style="margin:0 0 18px">修改密码</h3>
-          <el-form label-position="top">
-            <el-form-item label="原密码"><el-input v-model="pwdForm.old" type="password" show-password /></el-form-item>
-            <el-form-item label="新密码"><el-input v-model="pwdForm.new" type="password" show-password /></el-form-item>
-            <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password /></el-form-item>
-            <el-button type="primary" @click="changePwd">保存</el-button>
-          </el-form>
-
-          <div class="panel" style="margin-top: 20px;">
-            <h3 style="margin:0 0 18px">数据库备份与恢复</h3>
-            <div style="display:flex; gap:12px; width: 100%;">
-              <div style="flex: 1;">
-                <el-button type="primary" @click="downloadBackup" icon="Download" style="width: 100%; margin: 0;">下载备份</el-button>
-              </div>
-              <div style="flex: 1;">
-                <el-upload
-                  action="#"
-                  :auto-upload="false"
-                  :show-file-list="false"
-                  accept=".db"
-                  :on-change="handleRestoreUpload"
-                  style="width: 100%; display: block;">
-                  <el-button type="warning" icon="Upload" style="width: 100%; margin: 0;">恢复备份</el-button>
-                </el-upload>
-              </div>
-            </div>
-          </div>
-        </div>
-      </el-main>
-    </el-container>
+      </div>
+    </el-main>
   </el-container>
-
-  <!-- 节点编辑对话框 -->
-  <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 600px;">
-    <el-form label-position="top">
-      <el-form-item label="名称"><el-input v-model="proxyForm.name" placeholder="例如: 我的代理" /></el-form-item>
-      <el-form-item label="所属实例">
-        <el-select v-model="proxyForm.instance_id" style="width:100%">
-          <el-option label="本地 S5M 面板 (默认)" :value="0" />
-          <el-option v-for="i in instances" :key="i.id" :label="i.name" :value="i.id" />
-        </el-select>
-      </el-form-item>
-      
-      <el-form-item label="代理模式">
-        <el-radio-group v-model="proxyForm.mode" class="mobile-radio">
-          <el-radio-button label="proxy">代理</el-radio-button>
-          <el-radio-button label="direct">直连</el-radio-button>
-          <el-radio-button label="reject">拦截</el-radio-button>
-          <el-radio-button label="china">回国</el-radio-button>
-          <el-radio-button label="game">游戏</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-
-      <template v-if="['proxy', 'china', 'game'].includes(proxyForm.mode)">
-        <el-form-item label="协议类型">
-          <el-radio-group v-model="proxyForm.type" class="mobile-radio">
-            <el-radio-button label="vless">VLESS</el-radio-button>
-            <el-radio-button label="vmess">VMess</el-radio-button>
-            <el-radio-button label="trojan">Trojan</el-radio-button>
-            <el-radio-button label="ss">SS</el-radio-button>
-            <el-radio-button label="socks5">SOCKS5</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="服务器"><el-input v-model="proxyForm.server" placeholder="example.com" /></el-form-item>
-        <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
-        <el-form-item label="扩展参数 (JSON)">
-          <el-input v-model="proxyForm.extraText" type="textarea" :rows="5" />
-        </el-form-item>
-      </template>
-
-      <el-form-item label="源 IP / CIDR"><el-input v-model="proxyForm.source_cidr" placeholder="192.168.1.10/32 或 0.0.0.0/0" /></el-form-item>
-      <el-form-item label="启用"><el-switch v-model="proxyForm.enabled" /></el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="proxyDialog = false">取消</el-button>
-      <el-button type="primary" :loading="proxySaving" @click="saveProxy">保存</el-button>
-    </template>
-  </el-dialog>
-
-  
-  <!-- 实例编辑对话框 -->
-  <el-dialog v-model="instanceDialog" title="添加远端实例" width="90%" style="max-width: 500px;">
-    <el-form label-position="top">
-      <el-form-item label="实例名称"><el-input v-model="instanceForm.name" placeholder="例如: 香港节点" /></el-form-item>
-      <el-form-item label="API 地址"><el-input v-model="instanceForm.api_url" placeholder="例如: http://1.2.3.4:9090" /></el-form-item>
-      <el-form-item label="Secret"><el-input v-model="instanceForm.secret" placeholder="API 密钥" /></el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="instanceDialog = false">取消</el-button>
-      <el-button type="primary" :loading="instanceSaving" @click="saveInstance">保存</el-button>
-    </template>
-  </el-dialog>
-
-  <!-- 批量导入对话框 -->
-  <el-dialog v-model="importDialog" title="批量导入节点" width="90%" style="max-width: 600px;" append-to-body>
-    <div style="max-height: 60vh; overflow-y: auto; padding-right: 5px;">
-      <el-alert title="支持直接粘贴多行分享链接，或上传 .txt / .json 配置文件" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
-      <div style="margin-bottom: 10px;">
-        <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".txt,.json" :on-change="handleFileUpload">
-          <el-button type="primary" plain icon="UploadFilled">选择文件 (.txt / .json)</el-button>
-        </el-upload>
-      </div>
-      <el-input v-model="importContent" type="textarea" :rows="6" placeholder="socks5://user:pass@1.2.3.4:1080#我的SOCKS5节点" />
-    </div>
-    <template #footer>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <el-button @click="importDialog = false">取消</el-button>
-        <el-button type="primary" :loading="importing" @click="doImport">确认导入</el-button>
-      </div>
-    </template>
-  </el-dialog>
 </div>
 
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/element-plus.full.js"></script>
-<script src="/vendor/icons.js"></script>
-<script src="/app.js"></script>
+<script>
+  const { createApp } = Vue;
+  createApp({
+    data() {
+      return { page: 'instances', subUrl: 'http://foodflow.v2net.cc/api/sub' }
+    }
+  }).use(ElementPlus).mount('#app');
+
+  // === 原生 JS 逻辑层（与 Vue 完全隔离） ===
+  window.safeCopy = function(text) {
+    var t = document.createElement("textarea"); t.value = text; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); alert('复制成功'); } catch (e) { alert('复制失败'); }
+    document.body.removeChild(t);
+  };
+  window.generateAgentToken = function() {
+    var mc = document.getElementById('generate-mc-input').value.trim();
+    if (!mc) return alert('请输入机器码');
+    var btn = event.target; btn.innerText = '生成中...'; btn.disabled = true;
+    fetch('/api/v1/agents/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: mc })
+    }).then(r => r.json()).then(d => {
+      btn.innerText = '生成并绑定'; btn.disabled = false;
+      if (d.token) {
+        document.getElementById('generated-token-text').innerText = d.token;
+        document.getElementById('generate-result').style.display = 'block';
+        window.loadAgentsData();
+      } else { alert(d.error || '失败'); }
+    });
+  };
+  window.deleteAgent = function(code) {
+    if (!confirm('确定删除？')) return;
+    fetch('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' })
+    .then(r => r.json()).then(() => window.loadAgentsData());
+  };
+  window.loadAgentsData = function() {
+    var box = document.getElementById('agent-list-body');
+    if (!box) return;
+    box.innerHTML = '<div style="text-align:center;padding:20px;">加载中...</div>';
+    fetch('/api/v1/agents').then(r => r.json()).then(data => {
+      var keys = Object.keys(data);
+      if (!keys.length) { box.innerHTML = '<div style="text-align:center;padding:20px;">暂无数据</div>'; return; }
+      var h = '';
+      keys.forEach(k => {
+        var v = data[k];
+        h += '<div style="display:flex;flex-direction:column;padding:12px 0;border-bottom:1px solid #eee;">';
+        h += '<div style="display:flex;justify-content:space-between;margin-bottom:8px;">';
+        h += '<span style="font-weight:bold;font-size:13px;">' + k + '</span>';
+        h += '<div>';
+        h += '<button onclick="safeCopy(\'' + v + '\')" style="padding:4px 8px;background:#67C23A;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-right:5px;">复制Token</button>';
+        h += '<button onclick="deleteAgent(\'' + k + '\')" style="padding:4px 8px;background:#F56C6C;color:#fff;border:none;border-radius:4px;cursor:pointer;">删除</button>';
+        h += '</div></div>';
+        h += '<div style="background:#f8f8f8;padding:6px;border-radius:4px;font-family:monospace;font-size:12px;">' + v + '</div>';
+        h += '</div>';
+      });
+      box.innerHTML = h;
+    });
+  };
+  setInterval(() => {
+    var box = document.getElementById('agent-list-body');
+    if (box && box.innerHTML.includes('等待加载')) window.loadAgentsData();
+  }, 1000);
+</script>
+
+<!-- ===== 自动注入的节点机器码管理模块 ===== -->
+<div id="agent-injected-section" style="margin: 20px auto; max-width: 1200px; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px 0 rgba(0,0,0,.1);">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:15px;">
+    <h3 style="margin:0;color:#333;font-size:16px;">已注册节点机器码</h3>
+    <button onclick="loadAgentsData()" style="padding:6px 15px;background:#409EFF;color:#fff;border:none;border-radius:4px;cursor:pointer;">刷新列表</button>
+  </div>
+  <table style="width:100%;text-align:left;border-collapse:collapse;font-size:14px;">
+    <thead><tr style="background:#f5f7fa;color:#909399;">
+      <th style="padding:12px;border-bottom:1px solid #ebeef5;">机器码</th>
+      <th style="padding:12px;border-bottom:1px solid #ebeef5;">Token</th>
+      <th style="padding:12px;border-bottom:1px solid #ebeef5;">操作</th>
+    </tr></thead>
+    <tbody id="agent-list-body"><tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">加载中...</td></tr></tbody>
+  </table>
+</div>
+<script>
+function loadAgentsData(){
+  var tb=document.getElementById('agent-list-body');
+  tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">正在加载...</td></tr>';
+  fetch('/api/v1/agents').then(r=>r.json()).then(data=>{
+    var keys=Object.keys(data);
+    if(!keys.length){tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:#999;">暂无注册的机器码</td></tr>';return;}
+    var h='';
+    keys.forEach(k=>{
+      var v=data[k];
+      h+='<tr><td style="padding:12px;border-bottom:1px solid #ebeef5;font-family:monospace;">'+k+'</td>';
+      h+='<td style="padding:12px;border-bottom:1px solid #ebeef5;font-family:monospace;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+v+'</td>';
+      h+='<td style="padding:12px;border-bottom:1px solid #ebeef5;">';
+      h+='<button onclick="window.safeCopy(\''+v+'\')" style="margin-right:6px;padding:4px 10px;background:#67C23A;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">复制 Token</button>';
+      h+='<button onclick="window.deleteAgent(\''+k+'\')" style="padding:4px 10px;background:#F56C6C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">删除</button>';
+      h+='</td></tr>';
+    });
+    tb.innerHTML=h;
+  }).catch(e=>{tb.innerHTML='<tr><td colspan="3" style="padding:12px;text-align:center;color:red;">加载失败: '+e.message+'</td></tr>';});
+}
+window.safeCopy=function(text){
+  var t=document.createElement('textarea');t.value=text;t.style.position='fixed';t.style.left='-9999px';
+  document.body.appendChild(t);t.select();
+  try{document.execCommand('copy');alert('已复制');}catch(e){alert('复制失败，请长按选择');}
+  document.body.removeChild(t);
+};
+window.deleteAgent=function(code){
+  if(!confirm('确定删除该机器码？'))return;
+  fetch('/api/v1/agents?code='+encodeURIComponent(code),{method:'DELETE'})
+    .then(r=>r.json()).then(d=>{alert('删除成功');loadAgentsData();})
+    .catch(e=>alert('删除失败: '+e.message));
+};
+document.addEventListener('DOMContentLoaded',loadAgentsData);
+</script>
+
 </body>
 </html>
