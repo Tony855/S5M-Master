@@ -85,6 +85,24 @@ const App = {
     }
 
     const proxies = ref([]);
+
+    const importDialog = ref(false);
+    const importContent = ref('');
+    const importing = ref(false);
+
+    async function doImport() {
+      if (!importContent.value.trim()) return ElMessage.warning('请粘贴节点链接');
+      importing.value = true;
+      try {
+        const r = await api.post('/proxies/import', { content: importContent.value });
+        ElMessage.success(`导入完成：成功 ${r.success} 个，失败 ${r.fail} 个`);
+        importDialog.value = false;
+        importContent.value = '';
+        await loadProxies(); await loadOverview();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { importing.value = false; }
+    }
+
     const proxyDialog = ref(false);
     const proxySaving = ref(false);
     const proxyForm = reactive({
@@ -234,7 +252,7 @@ const App = {
     return {
       token, user, page, loginForm, loginLoading, doLogin, logout,
       overview, proxies, proxyDialog, proxySaving, proxyForm,
-      openCreate, openEdit, saveProxy, removeProxy,
+      openCreate, openEdit, saveProxy, removeProxy, importDialog, importContent, importing, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime
     };

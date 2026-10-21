@@ -188,7 +188,10 @@
         <div v-if="page === 'proxies'" class="panel">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
             <h3 style="margin:0">代理节点</h3>
-            <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
+            <div>
+              <el-button type="success" @click="importDialog = true">批量导入</el-button>
+              <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
+            </div>
           </div>
           <div class="table-wrapper"><div class="table-container">
             <div style="width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;">
@@ -291,6 +294,22 @@
       <el-button type="primary" :loading="proxySaving" @click="saveProxy">保存</el-button>
     </template>
   </el-dialog>
+
+  <!-- 批量导入对话框 -->
+  <el-dialog v-model="importDialog" title="批量导入节点" width="90%" style="max-width: 600px;">
+    <el-alert title="支持 socks5://, vless://, trojan://, vmess://, ss:// 等分享链接，每行一个。" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
+    <el-input 
+      v-model="importContent" 
+      type="textarea" 
+      :rows="12" 
+      placeholder="socks5://user:pass@1.2.3.4:1080#我的SOCKS5节点&#10;vless://uuid@1.2.3.4:443?security=tls#我的VLESS节点" 
+    />
+    <template #footer>
+      <el-button @click="importDialog = false">取消</el-button>
+      <el-button type="primary" :loading="importing" @click="doImport">确认导入</el-button>
+    </template>
+  </el-dialog>
+</el-dialog>
 </div>
 
 <script src="/vendor/vue.global.prod.js"></script>
