@@ -582,3 +582,20 @@ result = append(result, line)
 
 writeJSON(w, 200, map[string]string{"logs": strings.Join(result, "\n")})
 }
+
+func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {
+list, _ := a.store.ListInstances()
+writeJSON(w, 200, list)
+}
+func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
+var in Instance
+if err := decode(r, &in); err != nil { writeErr(w, 400, "参数错误"); return }
+if in.Name == "" || in.APIURL == "" { writeErr(w, 400, "名称和API地址不能为空"); return }
+if err := a.store.CreateInstance(&in); err != nil { writeErr(w, 409, err.Error()); return }
+writeJSON(w, 200, in)
+}
+func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request) {
+id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+a.store.DeleteInstance(id)
+writeJSON(w, 200, map[string]string{"message": "已删除"})
+}

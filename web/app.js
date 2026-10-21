@@ -36,6 +36,10 @@ const App = {
     const traffic = ref({ up: 0, down: 0, conns: 0 });
     const trafficTimer = ref(null);
     const settings = ref({ tun_enable: false });
+    const instances = ref([]);
+    const instanceDialog = ref(false);
+    const instanceSaving = ref(false);
+    const instanceForm = reactive({ name: '', api_url: '', secret: '' });
     const proxies = ref([]);
     const yamlText = ref('');
     const versions = ref([]);
@@ -124,7 +128,7 @@ const App = {
 
     const proxyDialog = ref(false);
     const proxySaving = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', mode: 'proxy', type: 'vless', server: '', port: 443, source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}' });
+    const proxyForm = reactive({ id: 0, instance_id: 0, name: '', mode: 'proxy', type: 'vless', server: '', port: 443, source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}' });
 
     function getModeLabel(mode) {
       const map = { proxy: '代理模式', direct: '直连模式', reject: '拦截模式', china: '回国模式', game: '游戏模式' };
@@ -132,13 +136,13 @@ const App = {
     }
 
     function openCreate() {
-      Object.assign(proxyForm, { id: 0, name: '', mode: 'proxy', type: 'vless', server: '', port: 443, source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}' });
+      Object.assign(proxyForm, { id: 0, instance_id: 0, name: '', mode: 'proxy', type: 'vless', server: '', port: 443, source_cidr: '0.0.0.0/0', enabled: true, extraText: '{}' });
       proxyDialog.value = true;
     }
 
     function openEdit(row) {
       Object.assign(proxyForm, {
-        id: row.id, name: row.name, mode: row.mode, type: row.type, server: row.server,
+        id: row.id, instance_id: row.instance_id || 0, name: row.name, mode: row.mode, type: row.type, server: row.server,
         port: row.port, source_cidr: row.source_cidr, enabled: row.enabled,
         extraText: JSON.stringify(row.extra || {}, null, 2)
       });
@@ -152,7 +156,7 @@ const App = {
         catch { return ElMessage.error('扩展参数不是合法 JSON'); }
       }
       const body = { 
-        name: proxyForm.name, mode: proxyForm.mode, type: proxyForm.type, 
+        instance_id: proxyForm.instance_id, name: proxyForm.name, mode: proxyForm.mode, type: proxyForm.type, 
         server: proxyForm.server, port: Number(proxyForm.port), 
         source_cidr: proxyForm.source_cidr, enabled: proxyForm.enabled, extra 
       };
@@ -339,8 +343,35 @@ const App = {
       }
     }
 
+    
+    async function loadInstances() {
+      try { instances.value = (await api.get('/instances')) || []; } catch (e) { console.warn(e); }
+    }
+    function openInstanceCreate() {
+      Object.assign(instanceForm, { name: '', api_url: '', secret: '' });
+      instanceDialog.value = true;
+    }
+    async function saveInstance() {
+      instanceSaving.value = true;
+      try {
+        await api.post('/instances', instanceForm);
+        ElMessage.success('实例已添加');
+        instanceDialog.value = false;
+        await loadInstances();
+      } catch (e) { ElMessage.error(e.message); }
+      finally { instanceSaving.value = false; }
+    }
+    async function removeInstance(row) {
+      try {
+        await ElMessageBox.confirm('确认删除实例 "' + row.name + '" ?', '提示', { type: 'warning' });
+        await api.del('/instances/' + row.id);
+        ElMessage.success('已删除');
+        await loadInstances();
+      } catch (e) { if (e && e !== 'cancel') ElMessage.error(e.message || '删除失败'); }
+    }
+
     async function refreshAll() {
-      await Promise.all([loadOverview(), loadProxies(), loadPreview(), loadVersions(), loadSettings(), loadTraffic()]);
+      await Promise.all([loadOverview(), loadInstances(), loadProxies(), loadPreview(), loadVersions(), loadSettings(), loadTraffic()]);
     }
 
     onMounted(async () => {
@@ -374,7 +405,7 @@ const App = {
       importDialog, importContent, importing, handleFileUpload, doImport,
       yamlText, versions, publishing, previewing, loadPreview, loadVersions, publish, rollback,
       pwdForm, changePwd, menuTitle, settings, saveSettings, updating, updateMihomo, formatTime,
-      logText, logBox, loadLogs, formatSpeed, subUrl, copySubUrl, themeIcon, toggleTheme, downloadBackup, handleRestoreUpload
+      logText, logBox, loadLogs, formatSpeed, subUrl, copySubUrl, themeIcon, toggleTheme, instances, instanceDialog, instanceSaving, instanceForm, openInstanceCreate, saveInstance, removeInstance, downloadBackup, handleRestoreUpload
     };
   }
 };

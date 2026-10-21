@@ -239,6 +239,7 @@
       <el-menu :default-active="page" @select="v => page = v">
         <el-menu-item index="dashboard"><el-icon><Odometer/></el-icon><span>仪表盘</span></el-menu-item>
         <el-menu-item index="proxies"><el-icon><Connection/></el-icon><span>代理规则</span></el-menu-item>
+        <el-menu-item index="instances"><el-icon><Cpu/></el-icon><span>远端节点</span></el-menu-item>
         <el-menu-item index="config"><el-icon><Document/></el-icon><span>配置管理</span></el-menu-item>
         <el-menu-item index="logs"><el-icon><Tickets/></el-icon><span>系统日志</span></el-menu-item>
         <el-menu-item index="settings"><el-icon><Setting/></el-icon><span>系统设置</span></el-menu-item>
@@ -356,6 +357,31 @@
           </div>
         </div>
 
+        
+        <!-- 远端节点管理 -->
+        <div v-if="page === 'instances'">
+          <div class="panel">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <h3 style="margin:0">远端 Mihomo 实例</h3>
+              <el-button type="primary" @click="openInstanceCreate">+ 添加实例</el-button>
+            </div>
+            <div>
+              <div v-for="row in instances" :key="row.id" class="proxy-card">
+                <div class="card-header">
+                  <span class="card-title">{{ row.name }}</span>
+                  <el-tag type="success" size="small">已连接</el-tag>
+                </div>
+                <div class="card-row">API 地址: <span>{{ row.api_url }}</span></div>
+                <div class="card-row">Secret: <span>{{ row.secret ? '******' : '无' }}</span></div>
+                <div class="card-actions">
+                  <el-button size="small" type="danger" @click="removeInstance(row)">删除</el-button>
+                </div>
+              </div>
+              <div v-if="!instances || instances.length === 0" style="text-align:center;color:#999;padding:20px;">暂无远端节点，请添加</div>
+            </div>
+          </div>
+        </div>
+
         <!-- 配置管理 -->
 
           <div class="panel" style="margin-bottom: 20px;">
@@ -454,6 +480,12 @@
   <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 600px;">
     <el-form label-position="top">
       <el-form-item label="名称"><el-input v-model="proxyForm.name" placeholder="例如: 我的代理" /></el-form-item>
+      <el-form-item label="所属实例">
+        <el-select v-model="proxyForm.instance_id" style="width:100%">
+          <el-option label="本地 S5M 面板 (默认)" :value="0" />
+          <el-option v-for="i in instances" :key="i.id" :label="i.name" :value="i.id" />
+        </el-select>
+      </el-form-item>
       
       <el-form-item label="代理模式">
         <el-radio-group v-model="proxyForm.mode" class="mobile-radio">
@@ -488,6 +520,20 @@
     <template #footer>
       <el-button @click="proxyDialog = false">取消</el-button>
       <el-button type="primary" :loading="proxySaving" @click="saveProxy">保存</el-button>
+    </template>
+  </el-dialog>
+
+  
+  <!-- 实例编辑对话框 -->
+  <el-dialog v-model="instanceDialog" title="添加远端实例" width="90%" style="max-width: 500px;">
+    <el-form label-position="top">
+      <el-form-item label="实例名称"><el-input v-model="instanceForm.name" placeholder="例如: 香港节点" /></el-form-item>
+      <el-form-item label="API 地址"><el-input v-model="instanceForm.api_url" placeholder="例如: http://1.2.3.4:9090" /></el-form-item>
+      <el-form-item label="Secret"><el-input v-model="instanceForm.secret" placeholder="API 密钥" /></el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="instanceDialog = false">取消</el-button>
+      <el-button type="primary" :loading="instanceSaving" @click="saveInstance">保存</el-button>
     </template>
   </el-dialog>
 

@@ -21,8 +21,16 @@ Role         string `json:"role"`
 Enabled      bool   `json:"enabled"`
 }
 
+type Instance struct {
+ID     int64  `json:"id"`
+Name   string `json:"name"`
+APIURL string `json:"api_url"`
+Secret string `json:"secret"`
+}
+
 type Proxy struct {
 ID         int64          `json:"id"`
+	InstanceID int64          `json:"instance_id"`
 Name       string         `json:"name"`
 Mode       string         `json:"mode"`
 Type       string         `json:"type"`
@@ -66,6 +74,12 @@ CREATE TABLE IF NOT EXISTS users(
  role TEXT NOT NULL DEFAULT 'admin',
  enabled INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS instances(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ name TEXT NOT NULL UNIQUE,
+ api_url TEXT NOT NULL,
+ secret TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS proxies(
  id INTEGER PRIMARY KEY AUTOINCREMENT,
  name TEXT NOT NULL UNIQUE,
@@ -74,6 +88,7 @@ CREATE TABLE IF NOT EXISTS proxies(
  server TEXT NOT NULL,
  port INTEGER NOT NULL,
  source_cidr TEXT NOT NULL DEFAULT '0.0.0.0/0',
+	instance_id INTEGER NOT NULL DEFAULT 0,
  config_json TEXT NOT NULL DEFAULT '{}',
  enabled INTEGER NOT NULL DEFAULT 1
 );
@@ -103,6 +118,7 @@ if err != nil { return fmt.Errorf("failed to add mode column: %w", err) }
 }
 
 s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('tun_enable', 'false')`)
+	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('agent_token', 's5m-agent-secret')`)
 return nil
 }
 
@@ -153,7 +169,7 @@ return err
 }
 
 func (s *Store) ListProxies() ([]Proxy, error) {
-rows, err := s.db.Query(`SELECT id,name,mode,type,server,port,source_cidr,config_json,enabled FROM proxies ORDER BY id`)
+rows, err := s.db.Query(`SELECT id,instance_id,name,mode,type,server,port,source_cidr,config_json,enabled FROM proxies ORDER BY id`)
 if err != nil { return nil, err }
 defer rows.Close()
 var out []Proxy
@@ -161,7 +177,7 @@ for rows.Next() {
 var p Proxy
 var extra string
 var en int
-if err := rows.Scan(&p.ID, &p.Name, &p.Mode, &p.Type, &p.Server, &p.Port, &p.SourceCIDR, &extra, &en); err != nil { return nil, err }
+if err := rows.Scan(&p.ID, &p.InstanceID, &p.Name, &p.Mode, &p.Type, &p.Server, &p.Port, &p.SourceCIDR, &extra, &en); err != nil { return nil, err }
 p.Enabled = en == 1
 p.Extra = map[string]any{}
 _ = json.Unmarshal([]byte(extra), &p.Extra)
@@ -172,7 +188,7 @@ return out, nil
 
 func (s *Store) CreateProxy(p *Proxy) error {
 extra, _ := json.Marshal(p.Extra)
-res, err := s.db.Exec(`INSERT INTO proxies(name,mode,type,server,port,source_cidr,config_json,enabled) VALUES(?,?,?,?,?,?,?,?)`, p.Name, p.Mode, p.Type, p.Server, p.Port, p.SourceCIDR, string(extra), b2i(p.Enabled))
+res, err := s.db.Exec(`INSERT INTO proxies(instance_id,name,mode,type,server,port,source_cidr,config_json,enabled) VALUES(?,?,?,?,?,?,?,?,?)`, p.InstanceID, p.Name, p.Mode, p.Type, p.Server, p.Port, p.SourceCIDR, string(extra), b2i(p.Enabled))
 if err != nil { return err }
 p.ID, _ = res.LastInsertId()
 return nil
@@ -180,7 +196,7 @@ return nil
 
 func (s *Store) UpdateProxy(p *Proxy) error {
 extra, _ := json.Marshal(p.Extra)
-_, err := s.db.Exec(`UPDATE proxies SET name=?,mode=?,type=?,server=?,port=?,source_cidr=?,config_json=?,enabled=? WHERE id=?`, p.Name, p.Mode, p.Type, p.Server, p.Port, p.SourceCIDR, string(extra), b2i(p.Enabled), p.ID)
+_, err := s.db.Exec(`UPDATE proxies SET instance_id=?,name=?,mode=?,type=?,server=?,port=?,source_cidr=?,config_json=?,enabled=? WHERE id=?`, p.InstanceID, p.Name, p.Mode, p.Type, p.Server, p.Port, p.SourceCIDR, string(extra), b2i(p.Enabled), p.ID)
 return err
 }
 
@@ -217,4 +233,29 @@ func (s *Store) VersionYAML(version int) (string, error) {
 var y string
 err := s.db.QueryRow(`SELECT yaml_text FROM config_versions WHERE version=?`, version).Scan(&y)
 return y, err
+}
+
+func (s *Store) ListInstances() ([]Instance, error) {
+rows, err := s.db.Query(`SELECT id,name,api_url,secret FROM instances ORDER BY id`)
+if err != nil { return nil, err }
+defer rows.Close()
+var out []Instance
+for rows.Next() {
+var i Instance
+if err := rows.Scan(&i.ID, &i.Name, &i.APIURL, &i.Secret); err != nil { return nil, err }
+out = append(out, i)
+}
+return out, nil
+}
+
+func (s *Store) CreateInstance(i *Instance) error {
+res, err := s.db.Exec(`INSERT INTO instances(name,api_url,secret) VALUES(?,?,?)`, i.Name, i.APIURL, i.Secret)
+if err != nil { return err }
+i.ID, _ = res.LastInsertId()
+return nil
+}
+
+func (s *Store) DeleteInstance(id int64) error {
+_, err := s.db.Exec(`DELETE FROM instances WHERE id=?`, id)
+return err
 }

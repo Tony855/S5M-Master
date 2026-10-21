@@ -1,0 +1,19 @@
+services:
+  s5m-agent:
+    build: .
+    container_name: s5m-agent
+    restart: unless-stopped
+    ports:
+      - "81:80"
+    volumes:
+      - ./data:/data
+
+  mihomo:
+    image: metacubex/mihomo:latest
+    container_name: mihomo
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun]
+    volumes:
+      - ./data:/data
+    command: -d /data
