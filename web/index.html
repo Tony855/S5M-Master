@@ -47,8 +47,6 @@
   .card-row span { color: #1e293b; font-weight: 500; }
   .card-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 
-  .el-select-dropdown__item { font-size: 14px; }
-  .custom-popper { min-width: 120px !important; max-width: 200px !important; }
   .mobile-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: center; margin-bottom: 12px; width: 100%; }
 
   @media (max-width: 768px) {
@@ -63,10 +61,22 @@
     .panel { padding: 15px !important; margin-top: 15px !important; }
   }
 </style>
+
+  <style>
+    .mobile-radio {
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 8px !important;
+    }
+    .mobile-radio .el-radio-button__inner {
+      border-radius: 4px !important;
+      border-left: 1px solid #dcdfe6 !important;
+    }
+  </style>
 </head>
+
 <body>
 <div id="app" v-cloak>
-  <!-- 登录页 -->
   <div v-if="!token" class="login-wrap">
     <div class="login-card">
       <div class="login-logo">S5</div>
@@ -80,7 +90,6 @@
     </div>
   </div>
 
-  <!-- 主界面 -->
   <el-container v-else class="layout">
     <el-aside width="230px" class="aside">
       <div class="brand"><div class="dot">S5</div><span>S5M Next</span></div>
@@ -134,7 +143,7 @@
         <div v-if="page === 'proxies'">
           <div class="panel">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-              <h3 style="margin:0">代理节点</h3>
+              <h3 style="margin:0">节点与规则</h3>
               <div>
                 <el-button type="success" @click="importDialog = true">批量导入</el-button>
                 <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
@@ -146,8 +155,8 @@
                   <span class="card-title">{{ row.name }}</span>
                   <el-tag :type="row.enabled ? 'success':'info'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
                 </div>
-                <div class="card-row">类型: <span>{{ row.type.toUpperCase() }}</span></div>
-                <div class="card-row">服务器: <span>{{ row.server }}:{{ row.port }}</span></div>
+                <div class="card-row">模式: <span>{{ getModeLabel(row.mode) }}</span></div>
+                <div class="card-row" v-if="['proxy', 'china', 'game'].includes(row.mode)">服务器: <span>{{ row.server }}:{{ row.port }}</span></div>
                 <div class="card-row">源 IP: <span>{{ row.source_cidr }}</span></div>
                 <div class="card-actions">
                   <el-button size="small" @click="openEdit(row)">编辑</el-button>
@@ -155,26 +164,6 @@
                 </div>
               </div>
               <div v-if="!proxies || proxies.length === 0" style="text-align:center;color:#999;padding:20px;">暂无代理节点</div>
-            </div>
-          </div>
-
-          <div class="panel" style="margin-top: 20px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-              <h3 style="margin:0">自定义分流规则</h3>
-              <el-button type="primary" @click="openRuleCreate">+ 新增规则</el-button>
-            </div>
-            <div>
-              <div v-for="row in rules" :key="row.id" class="version-card">
-                <div class="card-header">
-                  <span class="card-title">{{ row.rule_type }}, {{ row.rule_value }}</span>
-                  <el-tag :type="row.enabled ? 'success':'info'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
-                </div>
-                <div class="card-row">策略目标: <span style="color:#4361ee;font-weight:bold;">{{ row.target }}</span></div>
-                <div class="card-actions">
-                  <el-button size="small" type="danger" @click="removeRule(row)">删除</el-button>
-                </div>
-              </div>
-              <div v-if="!rules || rules.length === 0" style="text-align:center;color:#999;padding:20px;">暂无自定义规则</div>
             </div>
           </div>
         </div>
@@ -187,16 +176,6 @@
             </div>
             <div style="width: 100%;">
               <div class="mobile-row">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <span style="font-size:14px;font-weight:500;">运行模式</span>
-                  <el-select v-model="settings.mode" size="small" style="width:110px" popper-class="custom-popper" @change="saveSettings">
-                    <el-option label="直连模式" value="direct" />
-                    <el-option label="代理模式" value="global" />
-                    <el-option label="回国模式" value="china" />
-                    <el-option label="分流模式" value="rule" />
-                    <el-option label="游戏模式" value="game" />
-                  </el-select>
-                </div>
                 <div style="display:flex;align-items:center;gap:8px;">
                   <span style="font-size:14px;font-weight:500;">TUN 代理</span>
                   <el-switch v-model="settings.tun_enable" @change="saveSettings" />
@@ -242,28 +221,40 @@
     </el-container>
   </el-container>
 
-  <!-- ==================== 弹窗区（独立于页面最外层） ==================== -->
-  
   <!-- 节点编辑对话框 -->
   <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 600px;">
     <el-form label-position="top">
-      <el-form-item label="名称"><el-input v-model="proxyForm.name" placeholder="proxy1" /></el-form-item>
-      <el-form-item label="类型">
-        <el-select v-model="proxyForm.type" style="width:100%">
-          <el-option label="VLESS" value="vless" />
-          <el-option label="VMess" value="vmess" />
-          <el-option label="Trojan" value="trojan" />
-          <el-option label="Shadowsocks" value="ss" />
-          <el-option label="SOCKS5" value="socks5" />
-        </el-select>
+      <el-form-item label="名称"><el-input v-model="proxyForm.name" placeholder="例如: 我的代理" /></el-form-item>
+      
+      <el-form-item label="代理模式">
+        <el-radio-group v-model="proxyForm.mode" class="mobile-radio">
+          <el-radio-button label="proxy">代理</el-radio-button>
+          <el-radio-button label="direct">直连</el-radio-button>
+          <el-radio-button label="reject">拦截</el-radio-button>
+          <el-radio-button label="china">回国</el-radio-button>
+          <el-radio-button label="game">游戏</el-radio-button>
+        </el-radio-group>
       </el-form-item>
-      <el-form-item label="服务器"><el-input v-model="proxyForm.server" placeholder="example.com" /></el-form-item>
-      <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+
+      <template v-if="['proxy', 'china', 'game'].includes(proxyForm.mode)">
+        <el-form-item label="协议类型">
+          <el-radio-group v-model="proxyForm.type" class="mobile-radio">
+            <el-radio-button label="vless">VLESS</el-radio-button>
+            <el-radio-button label="vmess">VMess</el-radio-button>
+            <el-radio-button label="trojan">Trojan</el-radio-button>
+            <el-radio-button label="ss">SS</el-radio-button>
+            <el-radio-button label="socks5">SOCKS5</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="服务器"><el-input v-model="proxyForm.server" placeholder="example.com" /></el-form-item>
+        <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+        <el-form-item label="扩展参数 (JSON)">
+          <el-input v-model="proxyForm.extraText" type="textarea" :rows="5" />
+        </el-form-item>
+      </template>
+
       <el-form-item label="源 IP / CIDR"><el-input v-model="proxyForm.source_cidr" placeholder="192.168.1.10/32 或 0.0.0.0/0" /></el-form-item>
       <el-form-item label="启用"><el-switch v-model="proxyForm.enabled" /></el-form-item>
-      <el-form-item label="扩展参数 (JSON)">
-        <el-input v-model="proxyForm.extraText" type="textarea" :rows="8" />
-      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="proxyDialog = false">取消</el-button>
@@ -271,51 +262,24 @@
     </template>
   </el-dialog>
 
-  <!-- 规则编辑对话框 -->
-  <el-dialog v-model="ruleDialog" title="新增分流规则" width="90%" style="max-width: 500px;">
-    <el-form label-position="top">
-      <el-form-item label="规则类型">
-        <el-select v-model="ruleForm.rule_type" style="width:100%">
-          <el-option label="DOMAIN-SUFFIX (域名后缀)" value="DOMAIN-SUFFIX" />
-          <el-option label="DOMAIN-KEYWORD (域名关键字)" value="DOMAIN-KEYWORD" />
-          <el-option label="DOMAIN (完整域名)" value="DOMAIN" />
-          <el-option label="IP-CIDR (目标 IP 段)" value="IP-CIDR" />
-          <el-option label="SRC-IP-CIDR (源 IP 段)" value="SRC-IP-CIDR" />
-          <el-option label="GEOIP (国家/地区)" value="GEOIP" />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="规则值">
-        <el-input v-model="ruleForm.rule_value" placeholder="例如: google.com 或 CN 或 192.168.1.0/24" />
-      </el-form-item>
-      <el-form-item label="目标策略">
-        <el-select v-model="ruleForm.target" style="width:100%" filterable allow-create>
-          <el-option label="DIRECT (直连)" value="DIRECT" />
-          <el-option label="REJECT (拦截)" value="REJECT" />
-          <el-option v-for="p in proxies" :key="p.id" :label="p.name" :value="p.name" />
-        </el-select>
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="ruleDialog = false">取消</el-button>
-      <el-button type="primary" :loading="ruleSaving" @click="saveRule">保存</el-button>
-    </template>
-  </el-dialog>
-
   <!-- 批量导入对话框 -->
-  <el-dialog v-model="importDialog" title="批量导入节点" width="90%" style="max-width: 600px;">
-    <el-alert title="支持直接粘贴多行分享链接，或上传 .txt / .json 配置文件" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
-    <div style="margin-bottom: 10px;">
-      <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".txt,.json" :on-change="handleFileUpload">
-        <el-button type="primary" plain icon="UploadFilled">选择文件 (.txt / .json)</el-button>
-      </el-upload>
+  <el-dialog v-model="importDialog" title="批量导入节点" width="90%" style="max-width: 600px;" append-to-body>
+    <div style="max-height: 60vh; overflow-y: auto; padding-right: 5px;">
+      <el-alert title="支持直接粘贴多行分享链接，或上传 .txt / .json 配置文件" type="info" show-icon style="margin-bottom: 15px;" :closable="false" />
+      <div style="margin-bottom: 10px;">
+        <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".txt,.json" :on-change="handleFileUpload">
+          <el-button type="primary" plain icon="UploadFilled">选择文件 (.txt / .json)</el-button>
+        </el-upload>
+      </div>
+      <el-input v-model="importContent" type="textarea" :rows="6" placeholder="socks5://user:pass@1.2.3.4:1080#我的SOCKS5节点" />
     </div>
-    <el-input v-model="importContent" type="textarea" :rows="10" placeholder="socks5://user:pass@1.2.3.4:1080#我的SOCKS5节点" />
     <template #footer>
-      <el-button @click="importDialog = false">取消</el-button>
-      <el-button type="primary" :loading="importing" @click="doImport">确认导入</el-button>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <el-button @click="importDialog = false">取消</el-button>
+        <el-button type="primary" :loading="importing" @click="doImport">确认导入</el-button>
+      </div>
     </template>
   </el-dialog>
-
 </div>
 
 <script src="/vendor/vue.global.prod.js"></script>

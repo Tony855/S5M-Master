@@ -1,18 +1,18 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
+"crypto/sha256"
+"encoding/hex"
+"fmt"
+"os"
+"path/filepath"
+"strings"
+"time"
 
-	"gopkg.in/yaml.v3"
+"gopkg.in/yaml.v3"
 )
 
-const baseTemplate = `mode: __MODE__
+const baseTemplate = `mode: rule
 log-level: info
 external-controller: 127.0.0.1:8088
 secret: "change-this-secret"
@@ -23,7 +23,7 @@ ipv6: false
 unified-delay: true
 tcp-fast-open: true
 
-# === 防泄漏核心：TUN 与 DNS ===
+# === 防泄漏核心 ===
 sniffer:
     enable: true
     sniff:
@@ -76,167 +76,128 @@ rules:__RULES__
 `
 
 type proxyOut struct {
-	Name   string         `yaml:"name"`
-	Type   string         `yaml:"type"`
-	Server string         `yaml:"server"`
-	Port   int            `yaml:"port"`
-	Extra  map[string]any `yaml:",inline"`
+Name   string         `yaml:"name"`
+Type   string         `yaml:"type"`
+Server string         `yaml:"server"`
+Port   int            `yaml:"port"`
+Extra  map[string]any `yaml:",inline"`
 }
 
 func indent(s, prefix string) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	for i, l := range lines {
-		lines[i] = prefix + l
-	}
-	return strings.Join(lines, "\n") + "\n"
+lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+for i, l := range lines {
+lines[i] = prefix + l
+}
+return strings.Join(lines, "\n") + "\n"
 }
 
 func (a *App) BuildConfig() (string, error) {
-	proxies, err := a.store.ListProxies()
-	if err != nil {
-		return "", err
-	}
-	settings, _ := a.store.GetSettings()
-	tunEnable := settings["tun_enable"]
-	if tunEnable != "true" {
-		tunEnable = "false"
-	}
-	mode := settings["mode"]
-	if mode == "" {
-		mode = "direct"
-	}
+proxies, err := a.store.ListProxies()
+if err != nil { return "", err }
+settings, _ := a.store.GetSettings()
+tunEnable := settings["tun_enable"]
+if tunEnable != "true" { tunEnable = "false" }
 
-	var outs []proxyOut
-	for _, p := range proxies {
-		if !p.Enabled {
-			continue
-		}
-		ex := map[string]any{}
-		for k, v := range p.Extra {
-			switch k {
-			case "name", "type", "server", "port":
-				continue
-			}
-			ex[k] = v
-		}
-		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
-	}
+var outs []proxyOut
+for _, p := range proxies {
+// 如果是直连或拦截，不需要写入 proxies
+if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" { continue }
 
-	proxiesYAML := " []"
-	if len(outs) > 0 {
-		b, err := yaml.Marshal(outs)
-		if err != nil {
-			return "", err
-		}
-		proxiesYAML = "\n" + indent(string(b), "    ")
-	}
+ex := map[string]any{}
+for k, v := range p.Extra {
+switch k {
+case "name", "type", "server", "port":
+continue
+}
+ex[k] = v
+}
+outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
+}
 
-	// 根据模式生成规则
-	var rules []string
-	if mode == "china" {
-		rules = []string{
-			"GEOIP,CN,DIRECT",
-			"MATCH,REJECT",
-		}
-	} else {
-		rules = []string{
-			"DOMAIN-KEYWORD,221111cdn,REJECT",
-			"DOMAIN-SUFFIX,221111cdn,REJECT",
-			"DOMAIN-REGEX,^abc.*2222com,REJECT",
-		}
-		for _, p := range proxies {
-			if !p.Enabled {
-				continue
-			}
-			cidr := p.SourceCIDR
-			if cidr == "" {
-				cidr = "0.0.0.0/0"
-			}
-			rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", cidr, p.Name))
-		}
-		rules = append(rules, "NETWORK,UDP,DIRECT", "MATCH,REJECT")
-	}
+proxiesYAML := " []"
+if len(outs) > 0 {
+b, err := yaml.Marshal(outs)
+if err != nil { return "", err }
+proxiesYAML = "\n" + indent(string(b), "    ")
+}
 
-	rb, err := yaml.Marshal(rules)
-	if err != nil {
-		return "", err
-	}
-	rulesYAML := "\n" + indent(string(rb), "    ")
+// 基础拦截规则
+rules := []string{
+"DOMAIN-KEYWORD,221111cdn,REJECT",
+"DOMAIN-SUFFIX,221111cdn,REJECT",
+"DOMAIN-REGEX,^abc.*2222com,REJECT",
+}
 
-	out := strings.Replace(baseTemplate, "__PROXIES__", proxiesYAML, 1)
-	out = strings.Replace(out, "__RULES__", rulesYAML, 1)
-	out = strings.Replace(out, "__TUN_ENABLE__", tunEnable, 1)
-	out = strings.Replace(out, "__MODE__", mode, 1)
-	return out, nil
+// 遍历所有规则，包括直连、代理、回国等
+for _, p := range proxies {
+if !p.Enabled { continue }
+cidr := p.SourceCIDR
+if cidr == "" { cidr = "0.0.0.0/0" }
+
+target := p.Name
+if p.Mode == "direct" { target = "DIRECT" }
+if p.Mode == "reject" { target = "REJECT" }
+
+// 对于回国、游戏模式，底层依然分配该节点，但可以在后面追加特殊规则
+// 这里简化为直接指向目标
+rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", cidr, target))
+}
+
+// 兜底规则
+rules = append(rules, "NETWORK,UDP,DIRECT", "MATCH,REJECT")
+
+rb, err := yaml.Marshal(rules)
+if err != nil { return "", err }
+rulesYAML := "\n" + indent(string(rb), "    ")
+
+out := strings.Replace(baseTemplate, "__PROXIES__", proxiesYAML, 1)
+out = strings.Replace(out, "__RULES__", rulesYAML, 1)
+out = strings.Replace(out, "__TUN_ENABLE__", tunEnable, 1)
+return out, nil
 }
 
 func (a *App) Publish() (*ConfigVersion, error) {
-	yml, err := a.BuildConfig()
-	if err != nil {
-		return nil, err
-	}
-	var chk any
-	if err := yaml.Unmarshal([]byte(yml), &chk); err != nil {
-		return nil, fmt.Errorf("YAML 语法错误: %w", err)
-	}
-	sum := sha256.Sum256([]byte(yml))
-	sha := hex.EncodeToString(sum[:])
-
-	_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
-	_ = os.MkdirAll(filepath.Dir(a.cfg.ConfigPath), 0o700)
-
-	if _, err := os.Stat(a.cfg.ConfigPath); err == nil {
-		if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
-			_ = os.WriteFile(filepath.Join(a.cfg.BackupDir,
-				time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
-		}
-	}
-
-	tmp := a.cfg.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil {
-		return nil, err
-	}
-
-	v, _ := a.store.NextVersion()
-	if err := a.store.InsertVersion(v, sha, yml, "published"); err != nil {
-		return nil, err
-	}
-
-	cv := &ConfigVersion{Version: v, SHA256: sha, Status: "published"}
-	if err := a.ReloadMihomo(); err != nil {
-		cv.Status = "published_reload_failed"
-		return cv, fmt.Errorf("配置已写入，但 Mihomo 重载失败: %w", err)
-	}
-	return cv, nil
+yml, err := a.BuildConfig()
+if err != nil { return nil, err }
+var chk any
+if err := yaml.Unmarshal([]byte(yml), &chk); err != nil { return nil, fmt.Errorf("YAML 语法错误: %w", err) }
+sum := sha256.Sum256([]byte(yml))
+sha := hex.EncodeToString(sum[:])
+_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
+_ = os.MkdirAll(filepath.Dir(a.cfg.ConfigPath), 0o700)
+if _, err := os.Stat(a.cfg.ConfigPath); err == nil {
+if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
+_ = os.WriteFile(filepath.Join(a.cfg.BackupDir, time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
+}
+}
+tmp := a.cfg.ConfigPath + ".tmp"
+if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil { return nil, err }
+if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil { return nil, err }
+v, _ := a.store.NextVersion()
+if err := a.store.InsertVersion(v, sha, yml, "published"); err != nil { return nil, err }
+cv := &ConfigVersion{Version: v, SHA256: sha, Status: "published"}
+if err := a.ReloadMihomo(); err != nil {
+cv.Status = "published_reload_failed"
+return cv, fmt.Errorf("配置已写入，但 Mihomo 重载失败: %w", err)
+}
+return cv, nil
 }
 
 func (a *App) Rollback(version int) (*ConfigVersion, error) {
-	yml, err := a.store.VersionYAML(version)
-	if err != nil {
-		return nil, fmt.Errorf("版本不存在: %w", err)
-	}
-	var chk any
-	if err := yaml.Unmarshal([]byte(yml), &chk); err != nil {
-		return nil, fmt.Errorf("历史 YAML 损坏: %w", err)
-	}
-	_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
-	if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
-		_ = os.WriteFile(filepath.Join(a.cfg.BackupDir,
-			"before-rollback-"+time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
-	}
-	tmp := a.cfg.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256([]byte(yml))
-	if err := a.ReloadMihomo(); err != nil {
-		return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back_reload_failed"}, err
-	}
-	return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back"}, nil
+yml, err := a.store.VersionYAML(version)
+if err != nil { return nil, fmt.Errorf("版本不存在: %w", err) }
+var chk any
+if err := yaml.Unmarshal([]byte(yml), &chk); err != nil { return nil, fmt.Errorf("历史 YAML 损坏: %w", err) }
+_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
+if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
+_ = os.WriteFile(filepath.Join(a.cfg.BackupDir, "before-rollback-"+time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
+}
+tmp := a.cfg.ConfigPath + ".tmp"
+if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil { return nil, err }
+if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil { return nil, err }
+sum := sha256.Sum256([]byte(yml))
+if err := a.ReloadMihomo(); err != nil {
+return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back_reload_failed"}, err
+}
+return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back"}, nil
 }
