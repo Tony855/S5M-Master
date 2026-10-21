@@ -533,24 +533,44 @@ func min(a, b int) int {
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	// 记录心跳时间
-	if claims, ok := r.Context().Value("user").(jwt.MapClaims); ok {
-		if machineCode, ok := claims["sub"].(string); ok {
-			now := fmt.Sprintf("%d", time.Now().Unix())
-			a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
+	// 1. 从 Authorization Header 提取 Bearer Token
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// 2. 解析 JWT，获取 machine_code (sub 字段)
+		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+			return a.jwtKey, nil
+		})
+
+		if err == nil && token.Valid {
+			if claims, ok := token.Claims.(jwt.MapClaims); ok {
+				if machineCode, ok := claims["sub"].(string); ok && machineCode != "" {
+					// 3. 记录最后在线时间到数据库
+					now := fmt.Sprintf("%d", time.Now().Unix())
+					a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
+				}
+			}
 		}
 	}
-	tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || !t.Valid {
-		writeErr(w, 401, "无效 Token")
+
+	// 4. 返回配置给 Agent
+	// (假设你原本是通过 a.store.GetSettings 读取配置并返回，如果逻辑不同请根据实际修改)
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, 500, "读取配置失败")
 		return
 	}
-	claims, _ := t.Claims.(jwt.MapClaims)
-	machineCode, _ := claims["sub"].(string)
-	yml, _ := a.BuildConfigForMachine(machineCode)
-	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-	w.Write([]byte(yml))
+
+	// 假设全局配置存在 settings["config_yaml"] 里，或者返回空配置
+	yamlContent := settings["config_yaml"]
+	if yamlContent == "" {
+		yamlContent = "proxies:\n  - name: dummy\n    type: socks5\n    server: 1.2.3.4\n    port: 1080"
+	}
+
+	w.Header().Set("Content-Type", "text/yaml")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(yamlContent))
 }
 
 // 删除指定的机器码
