@@ -533,6 +533,13 @@ func min(a, b int) int {
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
+	// 记录心跳时间
+	if claims, ok := r.Context().Value("user").(jwt.MapClaims); ok {
+		if machineCode, ok := claims["sub"].(string); ok {
+			now := fmt.Sprintf("%d", time.Now().Unix())
+			a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
+		}
+	}
 	tokenStr := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || !t.Valid {
@@ -568,11 +575,21 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "读取设置失败: "+err.Error())
 		return
 	}
-	result := make(map[string]string)
+	type AgentInfo struct {
+		Token    string `json:"token"`
+		LastSeen int64  `json:"last_seen"`
+	}
+	result := make(map[string]AgentInfo)
 	for k, v := range settings {
 		if strings.HasPrefix(k, "agent_machine_") && v != "" {
 			code := strings.TrimPrefix(k, "agent_machine_")
-			result[code] = v
+			// 读取最后在线时间
+			var lastSeen int64
+			tsStr := settings["agent_lastseen_"+code]
+			if tsStr != "" {
+				lastSeen, _ = strconv.ParseInt(tsStr, 10, 64)
+			}
+			result[code] = AgentInfo{Token: v, LastSeen: lastSeen}
 		}
 	}
 	writeJSON(w, 200, result)

@@ -259,10 +259,23 @@
           
           var h = '';
           keys.forEach(k => {
-            var v = data[k];
+            var item = data[k];
+            var v = item.token;
+            var lastSeen = item.last_seen || 0;
+            var now = Math.floor(Date.now() / 1000);
+            
+            // 如果 60 秒内请求过，视为在线
+            var isOnline = (now - lastSeen) < 60;
+            var statusHtml = isOnline 
+                ? '<span style="color:#10b981;font-size:12px;">● 在线</span>' 
+                : '<span style="color:#ef4444;font-size:12px;">● 离线</span>';
+
             h += '<div class="agent-item">';
             h += '<div class="agent-header">';
-            h += '<span class="agent-code">' + k + '</span>';
+            h += '<div>';
+            h += '<span class="agent-code">' + k + '</span> ';
+            h += statusHtml;
+            h += '</div>';
             h += '<div class="agent-actions">';
             h += '<button class="btn-sm copy" onclick="safeCopy(\'' + v + '\')">复制 Token</button>';
             h += '<button class="btn-sm delete" onclick="deleteAgent(\'' + k + '\')">删除</button>';
