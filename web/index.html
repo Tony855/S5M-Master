@@ -26,50 +26,21 @@
     font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; 
   }
 
-  /* 未登录时的居中布局 */
-  .login-layout {
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-
-  /* 登录后的布局 */
+  .login-layout { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
   .app-container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
-  .nav-bar { 
-    display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; 
-    background: rgba(255,255,255,0.03); padding: 10px; border-radius: 12px;
-    border: 1px solid var(--border);
-  }
-  .nav-item { 
-    padding: 10px 20px; border-radius: 8px; cursor: pointer; color: var(--text-sub); 
-    font-size: 15px; font-weight: 600; transition: all 0.2s; 
-  }
+  .nav-bar { display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 12px; border: 1px solid var(--border); }
+  .nav-item { padding: 10px 20px; border-radius: 8px; cursor: pointer; color: var(--text-sub); font-size: 15px; font-weight: 600; transition: all 0.2s; }
   .nav-item:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
-  .nav-item.active { 
-    background: linear-gradient(135deg, var(--brand-2), var(--brand)); 
-    color: #fff; box-shadow: 0 4px 12px rgba(76,201,240,0.3); 
-  }
+  .nav-item.active { background: linear-gradient(135deg, var(--brand-2), var(--brand)); color: #fff; box-shadow: 0 4px 12px rgba(76,201,240,0.3); }
 
-  /* 卡片面板 */
-  .card { 
-    background: var(--card-bg); border-radius: 16px; padding: 30px; margin-bottom: 25px; 
-    box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--border); 
-  }
+  .card { background: var(--card-bg); border-radius: 16px; padding: 30px; margin-bottom: 25px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--border); }
   .card-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 15px; }
 
-  /* 表单与输入框 */
   .el-input__wrapper { background: rgba(0,0,0,0.3) !important; box-shadow: 0 0 0 1px var(--border) inset !important; }
   .el-input__inner { color: var(--text-main) !important; }
   .el-button--primary { background: linear-gradient(135deg, var(--brand-2), var(--brand)); border: none; }
   
-  /* 机器码列表 */
-  .agent-item { 
-    background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; 
-    padding: 15px; margin-bottom: 15px; transition: all 0.2s;
-  }
-  .agent-item:hover { border-color: rgba(76,201,240,0.3); }
+  .agent-item { background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 15px; transition: all 0.2s; }
   .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .agent-code { font-weight: bold; font-size: 14px; color: var(--brand-2); font-family: monospace; word-break: break-all; }
   .agent-token { background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--text-sub); word-break: break-all; margin-bottom: 15px; }
@@ -92,7 +63,6 @@
 <body>
 <div id="app" v-cloak>
   
-  <!-- ================= 未登录状态 ================= -->
   <div v-if="!token" class="login-layout">
     <div class="card" style="width: 100%; max-width: 400px;">
       <div class="card-title" style="text-align: center; border: none; font-size: 22px;">S5M 控制台登录</div>
@@ -102,16 +72,13 @@
     </div>
   </div>
 
-  <!-- ================= 已登录状态 ================= -->
   <div v-else class="app-container">
-    <!-- 顶部导航 -->
     <div class="nav-bar">
       <div class="nav-item" :class="{active: page === 'instances'}" @click="switchPage('instances')">远端节点</div>
       <div class="nav-item" :class="{active: page === 'config'}" @click="switchPage('config')">配置管理</div>
       <div class="nav-item" style="color: #ef4444;" @click="logout">退出登录</div>
     </div>
 
-    <!-- 远端节点 -->
     <div v-if="page === 'instances'">
       <div class="card">
         <div class="card-title">生成专属机器码 Token</div>
@@ -137,7 +104,6 @@
       </div>
     </div>
 
-    <!-- 配置管理 -->
     <div v-if="page === 'config'">
       <div class="card">
         <div class="card-title">客户端订阅链接</div>
@@ -236,17 +202,29 @@
         var box = document.getElementById('agent-list');
         if (!box) return;
         
-        if(!token.value) return;
-        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">加载中...</div>';
+        if(!token.value) {
+           box.innerHTML = '<div style="text-align:center;padding:20px;color:#E6A23C;">请先在仪表盘登录主控台</div>';
+           return;
+        }
+
+        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">正在加载...</div>';
         
         try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+
           const res = await fetch('/api/v1/agents', { 
-            headers: { 'Authorization': 'Bearer ' + token.value } 
+            headers: { 'Authorization': 'Bearer ' + token.value },
+            signal: controller.signal
           });
+          clearTimeout(timeoutId);
           
           if (res.status === 401) {
             logout();
             throw new Error('登录已过期，请重新登录');
+          }
+          if (!res.ok) {
+            throw new Error('服务器返回错误: ' + res.status);
           }
           
           const data = await res.json();
@@ -264,7 +242,6 @@
             var lastSeen = item.last_seen || 0;
             var now = Math.floor(Date.now() / 1000);
             
-            // 如果 60 秒内请求过，视为在线
             var isOnline = (now - lastSeen) < 60;
             var statusHtml = isOnline 
                 ? '<span style="color:#10b981;font-size:12px;">● 在线</span>' 
@@ -285,7 +262,11 @@
           });
           box.innerHTML = h;
         } catch(e) {
-          box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger);">' + e.message + '</div>';
+          if (e.name === 'AbortError') {
+            box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger);">请求超时，请检查后端服务是否正常</div>';
+          } else {
+            box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger);">' + e.message + '</div>';
+          }
         }
       };
 
