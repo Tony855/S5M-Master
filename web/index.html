@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>S5M Next · 代理管理控制台</title>
+<link rel="stylesheet" href="/vendor/element-plus.css">
+<style>
+  :root{--brand:#4361ee;--brand-2:#4cc9f0;}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;background:#f5f7fb;color:#1e293b;}
+  [v-cloak]{display:none;}
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 600px at 10% 10%,#4361ee33,transparent 60%),radial-gradient(1000px 500px at 90% 90%,#4cc9f033,transparent 60%),linear-gradient(135deg,#0f172a 0%,#1e293b 100%);padding:24px;}
+  .login-card{width:100%;max-width:400px;background:rgba(255,255,255,.98);border-radius:18px;padding:40px 36px;box-shadow:0 24px 60px rgba(0,0,0,.35);}
+  .login-logo{width:56px;height:56px;border-radius:14px;margin:0 auto 18px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:20px;background:linear-gradient(135deg,var(--brand),var(--brand-2));box-shadow:0 8px 20px rgba(67,97,238,.4);}
+  .login-title{text-align:center;font-size:22px;font-weight:700;margin:0 0 6px;color:#0f172a}
+  .login-sub{text-align:center;color:#64748b;font-size:13px;margin:0 0 28px}
+  
+  .layout{min-height:100vh;}
+  .aside{background:linear-gradient(180deg,#0f172a,#1e293b);color:#cbd5e1;border-right:1px solid rgba(255,255,255,.08);flex-shrink:0;}
+  .brand{display:flex;align-items:center;gap:10px;padding:20px 20px 14px;color:#fff;font-weight:700;}
+  .brand .dot{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--brand),var(--brand-2));font-size:13px;}
+  .el-menu{background:transparent!important;border-right:none!important}
+  .el-menu-item{color:#cbd5e1!important;border-radius:10px;margin:4px 10px}
+  .el-menu-item.is-active{background:rgba(67,97,238,.22)!important;color:#fff!important}
+  .el-menu-item:hover{background:rgba(255,255,255,.06)!important}
+  
+  .main-container{flex:1;min-width:0;}
+  .header{background:#fff;border-bottom:1px solid #e5e9f2;display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:62px;flex-shrink:0;}
+  .header .crumb{font-weight:600;color:#0f172a}
+  .main{padding:22px;overflow-x:hidden;}
+  
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .stat-card{background:#fff;border-radius:14px;padding:20px;border:1px solid #eef1f7;box-shadow:0 4px 16px rgba(15,23,42,.04);display:flex;align-items:center;gap:16px;}
+  .stat-ico{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;background:linear-gradient(135deg,var(--brand),var(--brand-2));flex:none;}
+  .stat-val{font-size:24px;font-weight:700;line-height:1.1}
+  .stat-lbl{color:#64748b;font-size:13px;margin-top:4px}
+  .panel{background:#fff;border-radius:14px;border:1px solid #eef1f7;padding:20px;margin-top:18px}
+  .yaml-box{background:#0f172a;color:#e2e8f0;border-radius:12px;padding:16px;overflow:auto;font-family:SFMono-Regular,Consolas,Monaco,monospace;font-size:13px;line-height:1.55;max-height:520px;white-space:pre;}
+  .muted{color:#94a3b8}
+
+  @media (max-width: 768px) {
+    .layout { flex-direction: column !important; }
+    .aside { width: 100% !important; min-height: auto !important; border-right: none; border-bottom: 1px solid rgba(255,255,255,.08); }
+    .brand { padding: 10px 16px; justify-content: center; }
+    .el-menu { display: flex !important; flex-wrap: wrap !important; padding: 0 10px 10px !important; justify-content: center; }
+    .el-menu-item { margin: 2px 4px !important; padding: 0 15px !important; height: 40px; line-height: 40px; }
+    .header { padding: 0 15px !important; height: 50px; }
+    .main { padding: 15px !important; }
+    .stat-grid { grid-template-columns: 1fr !important; }
+    .panel { padding: 15px !important; margin-top: 15px !important; }
+    .yaml-box { max-height: 300px; }
+  }
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+  <!-- 登录页 -->
+  <div v-if="!token" class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">S5</div>
+      <h2 class="login-title">S5M Next 控制台</h2>
+      <p class="login-sub">多协议代理 · IP 分流 · Mihomo 集中管理</p>
+      <el-form label-position="top">
+        <el-form-item label="用户名">
+          <el-input v-model="loginForm.username" size="large" placeholder="admin" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="loginForm.password" size="large" type="password" show-password placeholder="请输入密码" @keyup.enter="doLogin" />
+        </el-form-item>
+        <el-button type="primary" size="large" style="width:100%;margin-top:8px" :loading="loginLoading" @click="doLogin">登 录</el-button>
+      </el-form>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <el-container v-else class="layout">
+    <el-aside width="230px" class="aside">
+      <div class="brand"><div class="dot">S5</div><span>S5M Next</span></div>
+      <el-menu :default-active="page" @select="v => page = v">
+        <el-menu-item index="dashboard"><el-icon><Odometer/></el-icon><span>仪表盘</span></el-menu-item>
+        <el-menu-item index="proxies"><el-icon><Connection/></el-icon><span>代理规则</span></el-menu-item>
+        <el-menu-item index="config"><el-icon><Document/></el-icon><span>配置管理</span></el-menu-item>
+        <el-menu-item index="settings"><el-icon><Setting/></el-icon><span>系统设置</span></el-menu-item>
+      </el-menu>
+    </el-aside>
+
+    <el-container class="main-container">
+      <el-header class="header">
+        <div class="crumb">{{ menuTitle }}</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="muted">{{ user && user.username }}</span>
+          <el-button size="small" @click="logout(false)">退出登录</el-button>
+        </div>
+      </el-header>
+
+      <el-main class="main">
+        <!-- 仪表盘 -->
+        <div v-if="page === 'dashboard'">
+          <div class="stat-grid">
+            <div class="stat-card">
+              <div class="stat-ico"><el-icon><Monitor/></el-icon></div>
+              <div><div class="stat-val">{{ overview.mihomo && overview.mihomo.online ? '在线' : '离线' }}</div><div class="stat-lbl">Mihomo 内核</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-ico" style="background:linear-gradient(135deg,#10b981,#34d399)"><el-icon><Connection/></el-icon></div>
+              <div><div class="stat-val">{{ overview.proxy_enabled || 0 }} / {{ overview.proxy_total || 0 }}</div><div class="stat-lbl">启用 / 全部节点</div></div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-ico" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"><el-icon><Document/></el-icon></div>
+              <div><div class="stat-val">{{ (versions || []).length }}</div><div class="stat-lbl">历史配置版本</div></div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3 style="margin:0 0 12px">Mihomo 信息</h3>
+            <pre class="yaml-box">{{ JSON.stringify(overview.mihomo || {}, null, 2) }}</pre>
+          </div>
+        </div>
+
+        <!-- 代理规则 -->
+        <div v-if="page === 'proxies'" class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+            <h3 style="margin:0">代理节点</h3>
+            <el-button type="primary" @click="openCreate">+ 新增节点</el-button>
+          </div>
+          <el-table :data="proxies || []" style="width:100%">
+            <el-table-column prop="name" label="名称" width="120" />
+            <el-table-column prop="type" label="类型" width="90" />
+            <el-table-column prop="server" label="服务器" />
+            <el-table-column prop="port" label="端口" width="70" />
+            <el-table-column prop="source_cidr" label="源 IP" width="150" />
+            <el-table-column label="启用" width="70">
+              <template #default="{ row }">
+                <el-tag :type="row.enabled ? 'success':'info'">{{ row.enabled ? '是':'否' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="140" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" @click="openEdit(row)">编辑</el-button>
+                <el-button size="small" type="danger" @click="removeProxy(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+
+        <!-- 配置管理 -->
+        <div v-if="page === 'config'">
+          <div class="panel">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+              <h3 style="margin:0">当前生成的 YAML</h3>
+              <div style="display:flex;align-items:center;gap:15px;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span style="font-size:14px;font-weight:500;">TUN 透明代理</span>
+                  <el-switch v-model="settings.tun_enable" @change="saveSettings" />
+                </div>
+                <el-button :loading="previewing" @click="loadPreview">刷新预览</el-button>
+                <el-button type="primary" :loading="publishing" @click="publish">发布到 Mihomo</el-button>
+              </div>
+            </div>
+            <pre class="yaml-box">{{ yamlText || '暂无配置' }}</pre>
+          </div>
+          <div class="panel">
+            <h3 style="margin:0 0 12px">历史版本</h3>
+            <el-table :data="versions || []" style="width:100%">
+              <el-table-column prop="version" label="版本" width="70" />
+              <el-table-column prop="sha256" label="SHA256" />
+              <el-table-column prop="status" label="状态" width="150" />
+              <el-table-column prop="created_at" label="时间" width="180" />
+              <el-table-column label="操作" width="100" fixed="right">
+                <template #default="{ row }">
+                  <el-button size="small" type="warning" @click="rollback(row)">回滚</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </div>
+
+        <!-- 系统设置 -->
+        <div v-if="page === 'settings'" class="panel" style="max-width:520px">
+          <h3 style="margin:0 0 18px">修改密码</h3>
+          <el-form label-position="top">
+            <el-form-item label="原密码"><el-input v-model="pwdForm.old" type="password" show-password /></el-form-item>
+            <el-form-item label="新密码"><el-input v-model="pwdForm.new" type="password" show-password /></el-form-item>
+            <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirm" type="password" show-password /></el-form-item>
+            <el-button type="primary" @click="changePwd">保存</el-button>
+          </el-form>
+        </div>
+      </el-main>
+    </el-container>
+  </el-container>
+
+  <!-- 节点编辑对话框 -->
+  <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 600px;">
+    <el-form label-position="top">
+      <el-form-item label="名称"><el-input v-model="proxyForm.name" placeholder="proxy1" /></el-form-item>
+      <el-form-item label="类型">
+        <el-select v-model="proxyForm.type" style="width:100%">
+          <el-option label="VLESS" value="vless" />
+          <el-option label="VMess" value="vmess" />
+          <el-option label="Trojan" value="trojan" />
+          <el-option label="Shadowsocks" value="ss" />
+          <el-option label="SOCKS5" value="socks5" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="服务器"><el-input v-model="proxyForm.server" placeholder="example.com" /></el-form-item>
+      <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%" /></el-form-item>
+      <el-form-item label="源 IP / CIDR"><el-input v-model="proxyForm.source_cidr" placeholder="192.168.1.10/32 或 0.0.0.0/0" /></el-form-item>
+      <el-form-item label="启用"><el-switch v-model="proxyForm.enabled" /></el-form-item>
+      <el-form-item label="扩展参数 (JSON)">
+        <el-input v-model="proxyForm.extraText" type="textarea" :rows="8" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="proxyDialog = false">取消</el-button>
+      <el-button type="primary" :loading="proxySaving" @click="saveProxy">保存</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script src="/vendor/vue.global.prod.js"></script>
+<script src="/vendor/element-plus.full.js"></script>
+<script src="/vendor/icons.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>
