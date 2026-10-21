@@ -12,26 +12,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const baseTemplate = `log-level: info
+const baseTemplate = `mode: __MODE__
+log-level: info
 external-controller: 127.0.0.1:8088
 secret: "change-this-secret"
 allow-lan: true
 find-process-mode: "off"
 tcp-concurrent: true
 ipv6: false
+unified-delay: true
+tcp-fast-open: true
+
+# === 防泄漏核心：TUN 与 DNS ===
 sniffer:
-    enable: false
+    enable: true
     sniff:
         HTTP:
-            ports:
-                - 80
+            ports: [80]
             override-destination: true
         TLS:
-            ports:
-                - 443
+            ports: [443]
         QUIC:
-            ports:
-                - 443
+            ports: [443]
             override-destination: true
 tun:
     enable: __TUN_ENABLE__
@@ -39,20 +41,36 @@ tun:
     bind-address: '*'
     stack: mixed
     dns-hijack:
-        - any:53
-        - tcp://any:53
+        - 'any:53'
+        - 'tcp://any:53'
     auto-detect-interface: true
     auto-route: true
+    strict-route: true
 dns:
     enable: true
     listen: 0.0.0.0:5353
-    nameserver:
-        - https://doh.opendns.com/dns-query
-        - https://dns.google/dns-query
-        - https://dns.alidns.com/dns-query
-    fallback:
+    enhanced-mode: fake-ip
+    fake-ip-range: 198.18.0.1/16
+    fake-ip-filter:
+        - '*.lan'
+        - '*.local'
+        - '*.msftconnecttest.com'
+        - '*.msftncsi.com'
+    default-nameserver:
         - 223.5.5.5
-        - 8.8.8.8
+        - 119.29.29.29
+    nameserver:
+        - https://dns.alidns.com/dns-query
+        - https://doh.pub/dns-query
+    fallback:
+        - https://dns.cloudflare.com/dns-query
+        - https://dns.google/dns-query
+    fallback-filter:
+        geoip: true
+        geoip-code: CN
+        ipcidr:
+            - 240.0.0.0/4
+
 proxies:__PROXIES__
 rules:__RULES__
 `
@@ -78,11 +96,14 @@ func (a *App) BuildConfig() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	settings, _ := a.store.GetSettings()
 	tunEnable := settings["tun_enable"]
 	if tunEnable != "true" {
 		tunEnable = "false"
+	}
+	mode := settings["mode"]
+	if mode == "" {
+		mode = "direct"
 	}
 
 	var outs []proxyOut
@@ -98,9 +119,7 @@ func (a *App) BuildConfig() (string, error) {
 			}
 			ex[k] = v
 		}
-		outs = append(outs, proxyOut{
-			Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex,
-		})
+		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
 	}
 
 	proxiesYAML := " []"
@@ -112,22 +131,31 @@ func (a *App) BuildConfig() (string, error) {
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{
-		"DOMAIN-KEYWORD,221111cdn,REJECT",
-		"DOMAIN-SUFFIX,221111cdn,REJECT",
-		"DOMAIN-REGEX,^abc.*2222com,REJECT",
-	}
-	for _, p := range proxies {
-		if !p.Enabled {
-			continue
+	// 根据模式生成规则
+	var rules []string
+	if mode == "china" {
+		rules = []string{
+			"GEOIP,CN,DIRECT",
+			"MATCH,REJECT",
 		}
-		cidr := p.SourceCIDR
-		if cidr == "" {
-			cidr = "0.0.0.0/0"
+	} else {
+		rules = []string{
+			"DOMAIN-KEYWORD,221111cdn,REJECT",
+			"DOMAIN-SUFFIX,221111cdn,REJECT",
+			"DOMAIN-REGEX,^abc.*2222com,REJECT",
 		}
-		rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", cidr, p.Name))
+		for _, p := range proxies {
+			if !p.Enabled {
+				continue
+			}
+			cidr := p.SourceCIDR
+			if cidr == "" {
+				cidr = "0.0.0.0/0"
+			}
+			rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", cidr, p.Name))
+		}
+		rules = append(rules, "NETWORK,UDP,DIRECT", "MATCH,REJECT")
 	}
-	rules = append(rules, "NETWORK,UDP,DIRECT", "MATCH,REJECT")
 
 	rb, err := yaml.Marshal(rules)
 	if err != nil {
@@ -138,6 +166,7 @@ func (a *App) BuildConfig() (string, error) {
 	out := strings.Replace(baseTemplate, "__PROXIES__", proxiesYAML, 1)
 	out = strings.Replace(out, "__RULES__", rulesYAML, 1)
 	out = strings.Replace(out, "__TUN_ENABLE__", tunEnable, 1)
+	out = strings.Replace(out, "__MODE__", mode, 1)
 	return out, nil
 }
 

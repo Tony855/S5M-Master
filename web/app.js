@@ -68,17 +68,18 @@ const App = {
       } catch (e) { console.warn(e); }
     }
 
-    const settings = ref({ tun_enable: false });
+    const settings = ref({ tun_enable: false, mode: 'direct' });
     async function loadSettings() {
       try {
         const res = await api.get('/settings');
         settings.value.tun_enable = res.tun_enable === 'true';
+        settings.value.mode = res.mode || 'direct';
       } catch (e) { console.warn(e); }
     }
 
     async function saveSettings() {
       try {
-        await api.put('/settings', { tun_enable: settings.value.tun_enable ? 'true' : 'false' });
+        await api.put('/settings', { tun_enable: settings.value.tun_enable ? 'true' : 'false', mode: settings.value.mode });
         ElMessage.success('TUN 状态已保存，请点击发布生效');
         await loadPreview();
       } catch (e) { ElMessage.error(e.message); }

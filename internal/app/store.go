@@ -101,6 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 		return err
 	}
 	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('tun_enable', 'false')`)
+	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('mode', 'direct')`)
 	return nil
 }
 
