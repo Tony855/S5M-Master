@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,6 +27,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {
+	slog.Error("API 报错", "code", code, "msg", msg)
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
@@ -47,11 +49,7 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "用户名或密码错误")
 		return
 	}
-	tok, err := a.signToken(u)
-	if err != nil {
-		writeErr(w, 500, "签发令牌失败")
-		return
-	}
+	tok, _ := a.signToken(u)
 	writeJSON(w, 200, map[string]any{"token": tok, "user": u})
 }
 
@@ -274,7 +272,7 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 	exec.Command("systemctl", "stop", "mihomo").Run()
 	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
 	data, _ := exec.Command("gunzip", "-c", tmp).Output()
-	os.WriteFile("/opt/mihomo/mihomo", data, 0755) // 简单写入
+	os.WriteFile("/opt/mihomo/mihomo", data, 0755)
 	exec.Command("systemctl", "start", "mihomo").Run()
 
 	writeJSON(w, 200, map[string]string{"message": "已成功更新至最新版本 " + latestVersion, "status": "updated"})
@@ -505,57 +503,82 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ================= 数据库备份与恢复 =================
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
-// 从 URL 参数获取 token 进行鉴权
-tokenStr := r.URL.Query().Get("token")
-if tokenStr == "" {
-writeErr(w, 401, "未登录")
-return
-}
-t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-if err != nil || !t.Valid {
-writeErr(w, 401, "登录已失效")
-return
-}
+	tokenStr := r.URL.Query().Get("token")
+	if tokenStr == "" {
+		writeErr(w, 401, "未登录")
+		return
+	}
+	t, err := jwt.Parse(tokenStr, func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil || !t.Valid {
+		writeErr(w, 401, "登录已失效")
+		return
+	}
 
-w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
-w.Header().Set("Content-Type", "application/octet-stream")
-http.ServeFile(w, r, a.cfg.DBPath)
+	w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, a.cfg.DBPath)
 }
 
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
-file, _, err := r.FormFile("file")
-if err != nil {
-writeErr(w, 400, "上传文件失败: "+err.Error())
-return
-}
-defer file.Close()
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, "上传文件失败: "+err.Error())
+		return
+	}
+	defer file.Close()
 
-tmp := "/tmp/restore.db"
-out, err := os.Create(tmp)
-if err != nil {
-writeErr(w, 500, "创建临时文件失败")
-return
-}
-defer out.Close()
-io.Copy(out, file)
+	tmp := "/tmp/restore.db"
+	out, err := os.Create(tmp)
+	if err != nil {
+		writeErr(w, 500, "创建临时文件失败")
+		return
+	}
+	defer out.Close()
+	io.Copy(out, file)
 
-a.store.db.Close()
-if err := os.Rename(tmp, a.cfg.DBPath); err != nil {
-writeErr(w, 500, "覆盖数据库失败，请检查权限")
-return
-}
+	a.store.db.Close()
+	if err := os.Rename(tmp, a.cfg.DBPath); err != nil {
+		writeErr(w, 500, "覆盖数据库失败，请检查权限")
+		return
+	}
 
-writeJSON(w, 200, map[string]string{"message": "数据库已成功覆盖，请手动重启 S5M 服务以生效！"})
+	writeJSON(w, 200, map[string]string{"message": "数据库已成功覆盖，请手动重启 S5M 服务以生效！"})
 }
 
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso")
 output, _ := cmd.CombinedOutput()
 
-// 使用正则清理掉主机名，只保留时:分:秒
-re := regexp.MustCompile(`(?m)^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2}).*?s5m-next\[\d+\]:\s*`)
-cleaned := re.ReplaceAllString(string(output), "$1 ")
+lines := strings.Split(string(output), "\n")
+var result []string
 
-writeJSON(w, 200, map[string]string{"logs": cleaned})
+for _, line := range lines {
+if strings.TrimSpace(line) == "" { continue }
+
+// 1. 清理服务器主机名
+reHost := regexp.MustCompile(`\s+[a-zA-Z0-9.-]+\.bytevirt\.com\s+`)
+line = reHost.ReplaceAllString(line, " ")
+
+// 2. 清理 systemd 的冗余信息
+line = strings.ReplaceAll(line, " systemd[1]: ", " ")
+line = strings.ReplaceAll(line, "s5m-next.service:", "S5M:")
+
+// 3. 关键修复：强制删除日志内部的 time=2026-10-21T07:47:15.966Z 格式
+reTime := regexp.MustCompile(`time=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?\s*`)
+line = reTime.ReplaceAllString(line, "")
+
+// 4. 整理最前面的系统时间格式
+if len(line) >= 25 && line[10] == 'T' {
+timeStr := line[:19]
+timeStr = strings.Replace(timeStr, "T", " ", 1)
+rest := line[25:]
+line = timeStr + " " + strings.TrimSpace(rest)
+}
+
+result = append(result, line)
+}
+
+writeJSON(w, 200, map[string]string{"logs": strings.Join(result, "\n")})
 }
