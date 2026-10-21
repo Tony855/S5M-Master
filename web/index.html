@@ -2,212 +2,314 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>S5M Proxy Service</title>
 <link rel="stylesheet" href="/vendor/element-plus.css">
 <style>
-  :root { --brand: #4361ee; --brand-2: #4cc9f0; }
-  * { box-sizing: border-box; } 
-  html, body { height: 100%; margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: #f4f7f9; }
+  /* 恢复经典深色风格 */
+  :root {
+    --bg: #0f172a;
+    --card-bg: #1e293b;
+    --text-main: #f1f5f9;
+    --text-sub: #94a3b8;
+    --brand: #4361ee;
+    --brand-2: #4cc9f0;
+    --success: #10b981;
+    --danger: #ef4444;
+    --border: rgba(255,255,255,0.08);
+  }
   
-  /* 桌面端布局 */
-  .layout { height: 100vh; }
-  .aside { width: 220px; background: #0f172a; color: #fff; display: flex; flex-direction: column; }
-  .logo { padding: 20px; font-size: 18px; font-weight: bold; color: var(--brand-2); border-bottom: 1px solid rgba(255,255,255,0.1); }
-  .main { padding: 20px; overflow-y: auto; }
-  .panel { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { 
+    min-height: 100vh; 
+    background: var(--bg); 
+    color: var(--text-main); 
+    font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; 
+  }
 
-  /* 机器码列表样式 */
-  .agent-item { display: flex; flex-direction: column; padding: 12px 0; border-bottom: 1px solid #eee; }
-  .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .agent-code { font-weight: bold; font-size: 14px; color: #333; word-break: break-all; }
-  .agent-token { background: #f8f8f8; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px; color: #666; word-break: break-all; }
+  /* 页面布局 */
+  .app-container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+  
+  /* 顶部导航 */
+  .nav-bar { 
+    display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; 
+    background: rgba(255,255,255,0.03); padding: 10px; border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .nav-item { 
+    padding: 10px 20px; border-radius: 8px; cursor: pointer; color: var(--text-sub); 
+    font-size: 15px; font-weight: 600; transition: all 0.2s; 
+  }
+  .nav-item:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+  .nav-item.active { 
+    background: linear-gradient(135deg, var(--brand-2), var(--brand)); 
+    color: #fff; box-shadow: 0 4px 12px rgba(76,201,240,0.3); 
+  }
 
-  /* === 移动端响应式覆盖 === */
-  @media (max-width: 768px) {
-    .layout { flex-direction: column; height: auto; min-height: 100vh; }
-    .aside { width: 100%; flex-direction: row; align-items: center; overflow-x: auto; padding: 0; }
-    .logo { padding: 15px; border-bottom: none; border-right: 1px solid rgba(255,255,255,0.1); font-size: 16px; white-space: nowrap; }
-    .aside .el-menu { display: flex; flex-direction: row; border: none; background: transparent; }
-    .aside .el-menu-item { color: #cbd5e1; height: 50px; line-height: 50px; padding: 0 15px; border-bottom: none !important; }
-    .aside .el-menu-item.is-active { color: #fff; background: rgba(255,255,255,0.1); border-left: 3px solid var(--brand-2) !important; }
-    .main { padding: 15px; }
-    .panel { padding: 15px; }
+  /* 卡片面板 */
+  .card { 
+    background: var(--card-bg); border-radius: 16px; padding: 30px; margin-bottom: 25px; 
+    box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--border); 
+  }
+  .card-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+
+  /* 表单与输入框（覆盖 Element Plus 样式） */
+  .el-input__wrapper { background: rgba(0,0,0,0.3) !important; box-shadow: 0 0 0 1px var(--border) inset !important; }
+  .el-input__inner { color: var(--text-main) !important; }
+  .el-button--primary { background: linear-gradient(135deg, var(--brand-2), var(--brand)); border: none; }
+  
+  /* 机器码列表项 */
+  .agent-item { 
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; 
+    padding: 15px; margin-bottom: 15px; transition: all 0.2s;
+  }
+  .agent-item:hover { border-color: rgba(76,201,240,0.3); }
+  .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .agent-code { font-weight: bold; font-size: 14px; color: var(--brand-2); font-family: monospace; word-break: break-all; }
+  .agent-token { 
+    background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; 
+    font-family: monospace; font-size: 13px; color: var(--text-sub); word-break: break-all; margin-bottom: 15px;
+  }
+  .agent-actions { display: flex; gap: 10px; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none; color: #fff; font-weight: 600; }
+  .btn-sm.copy { background: var(--success); }
+  .btn-sm.delete { background: var(--danger); }
+
+  /* 移动端适配 */
+  @media (max-width: 600px) {
+    .app-container { padding: 20px 15px; }
+    .nav-bar { flex-wrap: wrap; gap: 8px; padding: 8px; }
+    .nav-item { padding: 8px 12px; font-size: 14px; flex: 1; text-align: center; }
+    .card { padding: 20px; }
     .agent-header { flex-direction: column; align-items: flex-start; gap: 10px; }
-    .agent-actions { display: flex; gap: 8px; width: 100%; }
-    .agent-actions button { flex: 1; }
+    .agent-actions { width: 100%; }
+    .agent-actions button { flex: 1; padding: 10px; }
   }
 </style>
 </head>
 <body>
 <div id="app" v-cloak>
-  <el-container class="layout">
-    <!-- 侧边栏/顶部菜单 -->
-    <el-aside class="aside">
-      <div class="logo">S5M Proxy</div>
-      <el-menu :default-active="page" @select="v => page = v" style="border:none;background:transparent;">
-        <el-menu-item index="dashboard">仪表盘</el-menu-item>
-        <el-menu-item index="instances">远端节点</el-menu-item>
-        <el-menu-item index="config">配置管理</el-menu-item>
-      </el-menu>
-    </el-aside>
+  <div class="app-container">
+    
+    <!-- 顶部导航 -->
+    <div class="nav-bar">
+      <div class="nav-item" :class="{active: page === 'dashboard'}" @click="switchPage('dashboard')">仪表盘</div>
+      <div class="nav-item" :class="{active: page === 'instances'}" @click="switchPage('instances')">远端节点</div>
+      <div class="nav-item" :class="{active: page === 'config'}" @click="switchPage('config')">配置管理</div>
+    </div>
 
-    <!-- 主内容区 -->
-    <el-main class="main">
-      <!-- 仪表盘 -->
-      <div v-if="page === 'dashboard'">
-        <div class="panel">
-          <h3 style="margin-top:0;">欢迎使用 S5M 控制台</h3>
-          <p style="color:#666;">请前往 <b>远端节点</b> 管理您的机器码。</p>
+    <!-- 1. 仪表盘 (登录) -->
+    <div v-if="page === 'dashboard'">
+      <div class="card" v-if="!token" style="max-width: 400px; margin: 0 auto;">
+        <div class="card-title" style="text-align: center;">管理员登录</div>
+        <el-input v-model="loginUser" placeholder="账号 (默认 admin)" style="margin-bottom: 20px;"></el-input>
+        <el-input v-model="loginPass" type="password" placeholder="密码" show-password style="margin-bottom: 25px;" @keyup.enter="doLogin"></el-input>
+        <el-button type="primary" style="width: 100%; height: 45px; border-radius: 8px; font-size: 16px;" @click="doLogin" :loading="loggingIn">登 录</el-button>
+      </div>
+      <div class="card" v-else>
+        <div class="card-title" style="color: var(--success); border: none;">✓ 已登录成功</div>
+        <p style="color: var(--text-sub); margin-bottom: 20px; font-size: 14px;">欢迎使用 S5M Proxy 控制台。</p>
+        <el-button size="small" @click="logout" style="background: transparent; color: var(--text-sub); border-color: var(--border);">退出登录</el-button>
+      </div>
+    </div>
+
+    <!-- 2. 远端节点 -->
+    <div v-if="page === 'instances'">
+      <div class="card">
+        <div class="card-title">生成专属机器码 Token</div>
+        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+          <el-input id="generate-mc-input" v-model="newMachineCode" placeholder="输入机器码 (Machine Code)..."></el-input>
+          <el-button type="primary" @click="generateAgentToken">生成并绑定</el-button>
+        </div>
+        <div v-if="generatedToken" style="padding: 15px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; color: var(--success); word-break: break-all;">
+          专属 Token: <strong style="font-family: monospace; font-size: 14px; margin-right: 10px;">{{ generatedToken }}</strong>
+          <el-button size="small" type="success" @click="safeCopy(generatedToken)">复制</el-button>
         </div>
       </div>
 
-      <!-- 远端节点 -->
-      <div v-if="page === 'instances'">
-        <div class="panel">
-          <h3 style="margin-top:0;">生成专属机器码 Token</h3>
-          <div style="display:flex; gap:10px; margin-bottom: 20px;">
-            <input type="text" id="generate-mc-input" placeholder="输入机器码 (Machine Code)..." style="flex:1; padding: 8px 12px; border: 1px solid #dcdfe6; border-radius: 4px; outline:none;">
-            <el-button type="primary" onclick="window.generateAgentToken()">生成并绑定</el-button>
-          </div>
-          <div id="generate-result" style="display:none; padding: 12px; background: #f0f9eb; border: 1px solid #e1f3d8; color: #67c23a; border-radius: 4px; margin-bottom: 20px; word-break: break-all;">
-            专属 Token: <strong id="generated-token-text" style="font-family: monospace; margin-right: 10px;"></strong>
-            <el-button size="small" type="success" onclick="window.safeCopy(document.getElementById('generated-token-text').innerText)">复制</el-button>
-          </div>
+      <div class="card">
+        <div class="card-title" style="display: flex; justify-content: space-between; align-items: center;">
+          已注册节点机器码
+          <el-button size="small" @click="loadAgentsData" style="background: transparent; color: var(--brand-2); border-color: var(--brand-2);">刷新列表</el-button>
         </div>
-
-        <div class="panel">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-            <h3 style="margin:0;">已注册节点机器码</h3>
-            <el-button size="small" onclick="window.loadAgentsData()">刷新列表</el-button>
-          </div>
-          <div id="agent-list-body">
-            <div style="text-align:center; padding:20px; color:#999;">正在加载...</div>
-          </div>
+        
+        <div id="agent-list">
+          <div style="text-align: center; padding: 20px; color: var(--text-sub);">正在加载...</div>
         </div>
       </div>
+    </div>
 
-      <!-- 配置管理 -->
-      <div v-if="page === 'config'">
-        <div class="panel">
-          <h3 style="margin-top:0;">客户端订阅链接</h3>
-          <div style="display:flex; align-items:center; gap:10px;">
-            <el-input v-model="subUrl" readonly>
-              <template #prepend>订阅地址</template>
-            </el-input>
-          </div>
-        </div>
-        <div class="panel">
-          <h3 style="margin-top:0;">当前生成的 YAML</h3>
-          <pre style="background:#0f172a; color:#e2e8f0; padding:15px; border-radius:8px; overflow-x:auto;">暂无配置</pre>
-        </div>
+    <!-- 3. 配置管理 -->
+    <div v-if="page === 'config'">
+      <div class="card">
+        <div class="card-title">客户端订阅链接</div>
+        <el-input v-model="subUrl" readonly>
+          <template #prepend>订阅地址</template>
+        </el-input>
       </div>
-    </el-main>
-  </el-container>
+    </div>
+
+  </div>
 </div>
 
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/element-plus.full.js"></script>
 <script>
-  // 1. 启动 Vue
-  const { createApp } = Vue;
+  const { createApp, ref, onMounted } = Vue;
+  
   createApp({
-    data() {
-      return { page: 'instances', subUrl: 'http://foodflow.v2net.cc/api/sub' }
-    },
-    mounted() {
-      // 页面加载完成后自动加载机器码
-      setTimeout(() => window.loadAgentsData(), 100);
+    setup() {
+      const page = ref('dashboard'); 
+      const subUrl = ref('http://foodflow.v2net.cc/api/sub');
+      const token = ref(localStorage.getItem('s5m_next_token') || '');
+      const loginUser = ref('admin');
+      const loginPass = ref('');
+      const loggingIn = ref(false);
+      const newMachineCode = ref('');
+      const generatedToken = ref('');
+
+      const switchPage = (v) => {
+        page.value = v;
+        if (v === 'instances') loadAgentsData();
+      };
+
+      const doLogin = async () => {
+        if(!loginUser.value || !loginPass.value) return alert('请输入账号密码');
+        loggingIn.value = true;
+        try {
+          const res = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: loginUser.value, password: loginPass.value })
+          });
+          const data = await res.json();
+          if (res.ok && data.token) {
+            localStorage.setItem('s5m_next_token', data.token);
+            token.value = data.token;
+            loginPass.value = '';
+            switchPage('instances'); // 登录成功自动跳节点页
+          } else {
+            alert(data.error || '登录失败');
+          }
+        } catch(e) {
+          alert('网络错误');
+        }
+        loggingIn.value = false;
+      };
+
+      const logout = () => {
+        localStorage.removeItem('s5m_next_token');
+        token.value = '';
+        switchPage('dashboard');
+      };
+
+      const generateAgentToken = async () => {
+        if (!newMachineCode.value) return alert('请输入机器码');
+        if (!token.value) return alert('请先登录');
+        
+        try {
+          const res = await fetch('/api/v1/agents/generate', {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ' + token.value
+            },
+            body: JSON.stringify({ machine_code: newMachineCode.value })
+          });
+          const data = await res.json();
+          if (data.token) {
+            generatedToken.value = data.token;
+            loadAgentsData();
+          } else {
+            alert(data.error || '生成失败');
+          }
+        } catch(e) {
+          alert('网络错误');
+        }
+      };
+
+      const safeCopy = (text) => {
+        if(!text) return;
+        var t = document.createElement("textarea"); t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
+        document.body.appendChild(t); t.select();
+        try { document.execCommand('copy'); alert('复制成功'); } catch (e) { alert('复制失败'); }
+        document.body.removeChild(t);
+      };
+
+      const loadAgentsData = async () => {
+        var box = document.getElementById('agent-list');
+        if (!box) return;
+        
+        if(!token.value) {
+           box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">请先在仪表盘登录主控台</div>';
+           return;
+        }
+
+        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">加载中...</div>';
+        
+        try {
+          const res = await fetch('/api/v1/agents', { 
+            headers: { 'Authorization': 'Bearer ' + token.value } 
+          });
+          
+          if (res.status === 401) {
+            token.value = ''; localStorage.removeItem('s5m_next_token');
+            throw new Error('登录已过期，请重新登录');
+          }
+          
+          const data = await res.json();
+          const keys = Object.keys(data);
+          
+          if (!keys.length) { 
+            box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">暂无数据</div>'; 
+            return; 
+          }
+          
+          var h = '';
+          keys.forEach(k => {
+            var v = data[k];
+            h += '<div class="agent-item">';
+            h += '<div class="agent-header">';
+            h += '<span class="agent-code">' + k + '</span>';
+            h += '<div class="agent-actions">';
+            h += '<button class="btn-sm copy" onclick="safeCopy(\'' + v + '\')">复制 Token</button>';
+            h += '<button class="btn-sm delete" onclick="deleteAgent(\'' + k + '\')">删除</button>';
+            h += '</div></div>';
+            h += '<div class="agent-token">' + v + '</div>';
+            h += '</div>';
+          });
+          box.innerHTML = h;
+        } catch(e) {
+          box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger);">' + e.message + '</div>';
+        }
+      };
+
+      window.deleteAgent = async (code) => {
+        if (!confirm('确定删除该机器码？')) return;
+        if (!token.value) return alert('请先登录');
+        try {
+          await fetch('/api/v1/agents?code=' + encodeURIComponent(code), { 
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token.value } 
+          });
+          loadAgentsData();
+        } catch(e) {
+          alert('删除失败');
+        }
+      };
+      
+      window.safeCopy = safeCopy;
+
+      onMounted(() => {
+        if(token.value) switchPage('instances');
+      });
+
+      return {
+        page, subUrl, token, loginUser, loginPass, loggingIn, 
+        newMachineCode, generatedToken, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, safeCopy
+      };
     }
   }).use(ElementPlus).mount('#app');
-
-  // 2. 通用复制
-  window.safeCopy = function(text) {
-    if(!text) return;
-    var t = document.createElement("textarea"); t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
-    document.body.appendChild(t); t.select();
-    try { document.execCommand('copy'); alert('复制成功'); } catch (e) { alert('复制失败'); }
-    document.body.removeChild(t);
-  };
-
-  // 3. 生成 Token
-  window.generateAgentToken = function() {
-    var mc = document.getElementById('generate-mc-input').value.trim();
-    if (!mc) return alert('请输入机器码');
-    var token = localStorage.getItem('s5m_next_token');
-    if (!token) return alert('请先登录主控台');
-
-    var btn = event.target; btn.innerText = '生成中...'; btn.disabled = true;
-    fetch('/api/v1/agents/generate', {
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token }, 
-      body: JSON.stringify({ machine_code: mc })
-    }).then(r => r.json()).then(d => {
-      btn.innerText = '生成并绑定'; btn.disabled = false;
-      if (d.token) {
-        document.getElementById('generated-token-text').innerText = d.token;
-        document.getElementById('generate-result').style.display = 'block';
-        window.loadAgentsData();
-      } else { alert(d.error || '失败'); }
-    }).catch(e => { btn.innerText = '生成并绑定'; btn.disabled = false; alert('网络错误'); });
-  };
-
-  // 4. 加载列表
-  window.loadAgentsData = function() {
-    var box = document.getElementById('agent-list-body');
-    if (!box) return;
-    box.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">加载中...</div>';
-    
-    var token = localStorage.getItem('s5m_next_token');
-    fetch('/api/v1/agents', { headers: { 'Authorization': 'Bearer ' + token } })
-      .then(r => {
-        if (r.status === 401) throw new Error('未登录');
-        return r.json();
-      })
-      .then(data => {
-        var keys = Object.keys(data);
-        if (!keys.length) { 
-          box.innerHTML = '<div style="text-align:center;padding:20px;color:#999;">暂无数据</div>'; 
-          return; 
-        }
-        var h = '';
-        keys.forEach(k => {
-          var v = data[k];
-          h += '<div class="agent-item">';
-          h += '<div class="agent-header">';
-          h += '<span class="agent-code">' + k + '</span>';
-          h += '<div class="agent-actions">';
-          h += '<button onclick="safeCopy(\'' + v + '\')" style="padding:6px 12px;background:#67C23A;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">复制 Token</button>';
-          h += '<button onclick="deleteAgent(\'' + k + '\')" style="padding:6px 12px;background:#F56C6C;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;">删除</button>';
-          h += '</div></div>';
-          h += '<div class="agent-token">' + v + '</div>';
-          h += '</div>';
-        });
-        box.innerHTML = h;
-      })
-      .catch(e => {
-        if (e.message === '未登录') {
-          box.innerHTML = '<div style="text-align:center;padding:20px;color:#E6A23C;">未登录或登录已过期，请先登录主控台</div>';
-        } else {
-          box.innerHTML = '<div style="text-align:center;padding:20px;color:red;">加载失败: ' + e.message + '</div>';
-        }
-      });
-  };
-
-  // 5. 删除
-  window.deleteAgent = function(code) {
-    if (!confirm('确定删除该机器码？')) return;
-    var token = localStorage.getItem('s5m_next_token');
-    fetch('/api/v1/agents?code=' + encodeURIComponent(code), { 
-      method: 'DELETE',
-      headers: { 'Authorization': 'Bearer ' + token } 
-    }).then(r => {
-      if(r.status === 401) throw new Error('请先登录');
-      return r.json();
-    }).then(() => {
-      window.loadAgentsData();
-    }).catch(e => alert(e.message));
-  };
 </script>
 </body>
 </html>

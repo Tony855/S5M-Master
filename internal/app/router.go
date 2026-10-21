@@ -50,6 +50,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/auth/me":           a.handleMe,
 		"GET /api/v1/agents":            a.handleGetAgents,
+		"POST /api/v1/agents/generate":  a.handleGenerateAgentToken,
 		"DELETE /api/v1/agents":         a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":     a.handlePassword,
 		"GET /api/v1/settings":          a.handleGetSettings,

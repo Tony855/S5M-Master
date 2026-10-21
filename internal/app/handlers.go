@@ -493,8 +493,16 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.Secret != expectedSecret {
-		writeErr(w, 403, "密钥错误，请去主控台【系统设置】查看并复制正确的 Agent Token")
+
+	// 获取该机器的专属 Token
+	machineToken := settings["agent_machine_"+in.MachineCode]
+
+	// 校验：必须等于全局 Token，或者等于该机器码的专属 Token
+	isGlobalValid := in.Secret == expectedSecret
+	isMachineValid := (machineToken != "" && in.Secret == machineToken)
+
+	if !isGlobalValid && !isMachineValid {
+		writeErr(w, 403, "密钥错误：填入的 Token 与机器码不匹配，请检查主控台生成的专属 Token")
 		return
 	}
 	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}
@@ -568,4 +576,37 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, result)
+}
+
+// 为特定机器码生成专属短 Token
+func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.MachineCode == "" {
+		writeErr(w, 400, "参数错误，缺少机器码")
+		return
+	}
+
+	// 生成一个随机短 token (例如 s5m-mc-xxxx)
+	buf := make([]byte, 8)
+	if _, err := rand.Read(buf); err != nil {
+		writeErr(w, 500, "生成随机 Token 失败")
+		return
+	}
+	token := fmt.Sprintf("s5m-%x", buf)
+
+	// 存入数据库：agent_machine_<机器码> = token
+	err := a.store.UpdateSettings(map[string]string{
+		"agent_machine_" + in.MachineCode: token,
+	})
+	if err != nil {
+		writeErr(w, 500, "保存 Token 失败: "+err.Error())
+		return
+	}
+
+	writeJSON(w, 200, map[string]string{
+		"message": "生成成功",
+		"token":   token,
+	})
 }
