@@ -116,7 +116,14 @@
       <div v-if="page === 'proxies'">
         <div class="card-panel">
           <h3>代理列表</h3>
-          <p style="color: #999;">（由于未接入具体接口，此处显示占位）</p>
+          <p style="color: #999;">
+<div v-if="proxies.length === 0" style="color: #999; padding: 20px;">暂无代理节点</div>
+<div v-else>
+  <div v-for="p in proxies" :key="p.id" style="padding: 10px 0; border-bottom: 1px solid #eee;">
+    <strong>{{ p.name }}</strong> <span style="color:#999;font-size:12px;">{{ p.type }} - {{ p.server }}</span>
+  </div>
+</div>
+</p>
         </div>
       </div>
 
@@ -189,7 +196,13 @@
         if (!tb) return;
         tb.innerHTML = '<tr><td colspan="3" style="padding: 20px; text-align: center; color: #999;">正在加载...</td></tr>';
         try {
-          const res = await fetch('/api/v1/agents', { headers: { 'Authorization': 'Bearer ' + token.value } });
+          
+const res = await fetch('/api/v1/agents?t=" + Date.now(), { headers: { 'Authorization': 'Bearer ' + token.value } });
+          if (!res.ok) {
+              if (res.status === 401) throw new Error('登录已过期，请重新登录');
+              throw new Error('服务器返回错误: ' + res.status);
+          }
+
           if (res.status === 401) { logout(); throw new Error('登录已过期'); }
           const data = await res.json();
           const keys = Object.keys(data);
