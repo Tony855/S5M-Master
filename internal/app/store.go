@@ -156,14 +156,38 @@ func (s *Store) GetSettings() (map[string]string, error) {
 	return res, nil
 }
 
+// CreateSettingIfAbsent 原子创建配置项；若 key 已存在，不覆盖已有值。
+func (s *Store) CreateSettingIfAbsent(key, value string) (bool, error) {
+	result, err := s.db.Exec(
+		`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`,
+		key, value,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
 func (s *Store) UpdateSettings(updates map[string]string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
+
 	for k, v := range updates {
-		tx.Exec(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v)
+		if _, err := tx.Exec(
+			`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+			k, v,
+		); err != nil {
+			return fmt.Errorf("update setting %q: %w", k, err)
+		}
 	}
+
 	return tx.Commit()
 }
 
@@ -279,6 +303,17 @@ func (s *Store) InsertVersion(v int, sha, yml, status string) error {
 	return err
 }
 
+func (s *Store) UpdateVersionStatus(version int, status string) error {
+	_, err := s.db.Exec(
+		`UPDATE config_versions SET status=? WHERE version=?`,
+		status, version,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) ListVersions(limit int) ([]ConfigVersion, error) {
 	rows, err := s.db.Query(`SELECT id,version,sha256,status,created_at FROM config_versions ORDER BY version DESC LIMIT ?`, limit)
 	if err != nil {
@@ -303,11 +338,15 @@ func (s *Store) VersionYAML(version int) (string, error) {
 }
 
 func (s *Store) DeleteSettings(keys []string) error {
-tx, err := s.db.Begin()
-if err != nil { return err }
-defer tx.Rollback()
-for _, k := range keys {
-if _, err := tx.Exec("DELETE FROM settings WHERE key=?", k); err != nil { return err }
-}
-return tx.Commit()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, k := range keys {
+		if _, err := tx.Exec("DELETE FROM settings WHERE key=?", k); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

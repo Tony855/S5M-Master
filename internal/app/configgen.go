@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -13,9 +15,10 @@ import (
 )
 
 const baseTemplate = `mode: rule
+mixed-port: 8080
 log-level: info
-external-controller: 0.0.0.0:9090
-secret: "s5m-agent-mihomo-secret"
+external-controller: 127.0.0.1:8088
+secret: "change-this-secret"
 allow-lan: true
 find-process-mode: "off"
 tcp-concurrent: true
@@ -95,16 +98,36 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return buildConfigFromProxies(proxies, machineCode)
+}
+
+func buildConfigFromProxies(proxies []Proxy, machineCode string) (string, error) {
+	matchesMachine := func(p Proxy) bool {
+		return machineCode == "" || p.MachineCode == "" || p.MachineCode == machineCode
+	}
+	eligible := func(p Proxy) bool {
+		return p.Enabled && p.Mode != "direct" && p.Mode != "reject" && matchesMachine(p)
+	}
+	endpointKey := func(p Proxy) string {
+		return strings.ToLower(strings.TrimSpace(p.Type)) + "|" +
+			strings.Trim(strings.TrimSpace(p.Server), "[]") + "|" +
+			fmt.Sprint(p.Port)
+	}
 
 	var outs []proxyOut
+	emittedNames := map[string]bool{}
+	activeByEndpoint := map[string][]Proxy{}
+
 	for _, p := range proxies {
-		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
+		if !eligible(p) {
 			continue
 		}
-		// 过滤：只发给全匹配或空匹配的
-		if machineCode != "" && p.MachineCode != "" && p.MachineCode != machineCode {
-			continue
+		if emittedNames[p.Name] {
+			return "", fmt.Errorf("代理名称重复：%q", p.Name)
 		}
+		emittedNames[p.Name] = true
+		key := endpointKey(p)
+		activeByEndpoint[key] = append(activeByEndpoint[key], p)
 
 		ex := map[string]any{}
 		for k, v := range p.Extra {
@@ -114,7 +137,10 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 			}
 			ex[k] = v
 		}
-		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
+		outs = append(outs, proxyOut{
+			Name: p.Name, Type: p.Type, Server: p.Server,
+			Port: p.Port, Extra: ex,
+		})
 	}
 
 	proxiesYAML := " []"
@@ -131,21 +157,55 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 		"DOMAIN-SUFFIX,221111cdn,REJECT",
 		"DOMAIN-REGEX,^abc.*2222com,REJECT",
 	}
-	for _, p := range proxies {
-		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
-			continue
-		}
-		if machineCode != "" && p.MachineCode != "" && p.MachineCode != machineCode {
-			continue
-		}
-		cidr := p.SourceCIDR
-		if cidr == "" {
-			cidr = "0.0.0.0/0"
-		}
-		rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", cidr, p.Name))
-	}
-	rules = append(rules, "NETWORK,UDP,DIRECT", "MATCH,REJECT")
+	seenCIDR := map[string]string{}
 
+	for _, p := range proxies {
+		if !matchesMachine(p) || p.Mode == "direct" || p.Mode == "reject" {
+			continue
+		}
+
+		target := ""
+		if eligible(p) {
+			target = p.Name
+		} else if !p.Enabled {
+			// 禁用记录只能作为映射元数据，不能成为实际出口。
+			candidates := activeByEndpoint[endpointKey(p)]
+			if len(candidates) == 1 {
+				target = candidates[0].Name
+			} else {
+				continue
+			}
+		} else {
+			continue
+		}
+
+		cidr := strings.TrimSpace(p.SourceCIDR)
+		if cidr == "" {
+			continue
+		}
+
+		_, network, parseErr := net.ParseCIDR(cidr)
+		if parseErr != nil {
+			return "", fmt.Errorf("代理 %q 的 SourceCIDR 无效 %q: %w", p.Name, cidr, parseErr)
+		}
+		ones, bits := network.Mask.Size()
+		if ones == 0 && (bits == 32 || bits == 128) {
+			continue
+		}
+
+		canonical := network.String()
+		if previous, exists := seenCIDR[canonical]; exists {
+			return "", fmt.Errorf("客户端网段 %q 重复映射到 %q 和 %q", canonical, previous, target)
+		}
+		if !emittedNames[target] {
+			return "", fmt.Errorf("客户端网段 %q 的目标代理 %q 未生成", canonical, target)
+		}
+
+		seenCIDR[canonical] = target
+		rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", canonical, target))
+	}
+
+	rules = append(rules, "MATCH,DIRECT")
 	rb, err := yaml.Marshal(rules)
 	if err != nil {
 		return "", err
@@ -164,35 +224,93 @@ func (a *App) Publish() (*ConfigVersion, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var chk any
 	if err := yaml.Unmarshal([]byte(yml), &chk); err != nil {
 		return nil, fmt.Errorf("YAML 语法错误: %w", err)
 	}
-	sum := sha256.Sum256([]byte(yml))
-	sha := hex.EncodeToString(sum[:])
-	_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
-	_ = os.MkdirAll(filepath.Dir(a.cfg.ConfigPath), 0o700)
-	if _, err := os.Stat(a.cfg.ConfigPath); err == nil {
-		if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
-			_ = os.WriteFile(filepath.Join(a.cfg.BackupDir, time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
+
+	configDir := filepath.Dir(a.cfg.ConfigPath)
+	if err := os.MkdirAll(a.cfg.BackupDir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建备份目录失败: %w", err)
+	}
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建配置目录失败: %w", err)
+	}
+
+	candidate := a.cfg.ConfigPath + ".candidate"
+	if err := os.WriteFile(candidate, []byte(yml), 0o600); err != nil {
+		return nil, fmt.Errorf("写入候选配置失败: %w", err)
+	}
+	defer os.Remove(candidate)
+
+	check := exec.Command("/opt/mihomo/mihomo", "-t", "-d", configDir, "-f", candidate)
+	if output, err := check.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("Mihomo 候选配置校验失败: %w; 输出: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	v, err := a.store.NextVersion()
+	if err != nil {
+		return nil, fmt.Errorf("获取配置版本失败: %w", err)
+	}
+
+	oldConfig, readErr := os.ReadFile(a.cfg.ConfigPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, fmt.Errorf("读取当前配置失败: %w", readErr)
+	}
+	hadOld := readErr == nil
+
+	if hadOld {
+		backupPath := filepath.Join(a.cfg.BackupDir, time.Now().Format("20060102-150405.000000")+".yaml")
+		if err := os.WriteFile(backupPath, oldConfig, 0o600); err != nil {
+			return nil, fmt.Errorf("备份当前配置失败，未发布: %w", err)
 		}
 	}
-	tmp := a.cfg.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil {
-		return nil, err
+
+	sum := sha256.Sum256([]byte(yml))
+	sha := hex.EncodeToString(sum[:])
+
+	restoreOld := func() error {
+		if !hadOld {
+			return os.Remove(a.cfg.ConfigPath)
+		}
+		tmpRestore := a.cfg.ConfigPath + ".restore"
+		if err := os.WriteFile(tmpRestore, oldConfig, 0o600); err != nil {
+			return err
+		}
+		return os.Rename(tmpRestore, a.cfg.ConfigPath)
 	}
-	if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil {
-		return nil, err
+
+	if err := os.Rename(candidate, a.cfg.ConfigPath); err != nil {
+		return nil, fmt.Errorf("替换配置文件失败: %w", err)
 	}
-	v, _ := a.store.NextVersion()
+
 	if err := a.store.InsertVersion(v, sha, yml, "published"); err != nil {
-		return nil, err
+		if restoreErr := restoreOld(); restoreErr != nil {
+			return nil, fmt.Errorf("记录版本失败: %v；恢复旧配置也失败: %w", err, restoreErr)
+		}
+		return nil, fmt.Errorf("记录配置版本失败，已恢复旧配置: %w", err)
 	}
+
 	cv := &ConfigVersion{Version: v, SHA256: sha, Status: "published"}
 	if err := a.ReloadMihomo(); err != nil {
-		cv.Status = "published_reload_failed"
-		return cv, fmt.Errorf("配置已写入，但 Mihomo 重载失败: %w", err)
+		if restoreErr := restoreOld(); restoreErr != nil {
+			cv.Status = "published_reload_failed_restore_failed"
+			_ = a.store.UpdateVersionStatus(v, cv.Status)
+			return cv, fmt.Errorf("新配置重载失败: %v；恢复旧配置失败: %w", err, restoreErr)
+		}
+		if hadOld {
+			if reloadOldErr := a.ReloadMihomo(); reloadOldErr != nil {
+				cv.Status = "published_reload_failed_old_reload_failed"
+				_ = a.store.UpdateVersionStatus(v, cv.Status)
+				return cv, fmt.Errorf("新配置重载失败: %v；旧配置已恢复文件，但重载旧配置也失败: %w", err, reloadOldErr)
+			}
+		}
+		cv.Status = "published_reload_failed_rolled_back"
+		_ = a.store.UpdateVersionStatus(v, cv.Status)
+		return cv, fmt.Errorf("新配置重载失败，已恢复旧配置: %w", err)
 	}
+
 	return cv, nil
 }
 
@@ -201,24 +319,98 @@ func (a *App) Rollback(version int) (*ConfigVersion, error) {
 	if err != nil {
 		return nil, fmt.Errorf("版本不存在: %w", err)
 	}
+
 	var chk any
 	if err := yaml.Unmarshal([]byte(yml), &chk); err != nil {
 		return nil, fmt.Errorf("历史 YAML 损坏: %w", err)
 	}
-	_ = os.MkdirAll(a.cfg.BackupDir, 0o700)
-	if b, e := os.ReadFile(a.cfg.ConfigPath); e == nil {
-		_ = os.WriteFile(filepath.Join(a.cfg.BackupDir, "before-rollback-"+time.Now().Format("20060102-150405")+".yaml"), b, 0o600)
+
+	configDir := filepath.Dir(a.cfg.ConfigPath)
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建配置目录失败: %w", err)
 	}
-	tmp := a.cfg.ConfigPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil {
-		return nil, err
+	if err := os.MkdirAll(a.cfg.BackupDir, 0o700); err != nil {
+		return nil, fmt.Errorf("创建备份目录失败，未回滚: %w", err)
 	}
-	if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil {
-		return nil, err
+
+	candidate := a.cfg.ConfigPath + ".rollback-candidate"
+	defer os.Remove(candidate)
+	if err := os.WriteFile(candidate, []byte(yml), 0o600); err != nil {
+		return nil, fmt.Errorf("写入候选配置失败，未回滚: %w", err)
 	}
+
+	check := exec.Command("/opt/mihomo/mihomo", "-t", "-d", configDir, "-f", candidate)
+	if output, err := check.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("历史配置未通过 Mihomo 校验，未回滚: %w; 输出: %s",
+			err, strings.TrimSpace(string(output)))
+	}
+
+	oldConfig, readErr := os.ReadFile(a.cfg.ConfigPath)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		return nil, fmt.Errorf("读取当前配置失败，未回滚: %w", readErr)
+	}
+	hadOld := readErr == nil
+
+	if hadOld {
+		backupPath := filepath.Join(a.cfg.BackupDir,
+			"before-rollback-"+time.Now().Format("20060102-150405.000000")+".yaml")
+		if err := os.WriteFile(backupPath, oldConfig, 0o600); err != nil {
+			return nil, fmt.Errorf("备份当前配置失败，未回滚: %w", err)
+		}
+	}
+
 	sum := sha256.Sum256([]byte(yml))
-	if err := a.ReloadMihomo(); err != nil {
-		return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back_reload_failed"}, err
+	cv := &ConfigVersion{
+		Version: version,
+		SHA256:  hex.EncodeToString(sum[:]),
+		Status:  "rollback_failed",
 	}
-	return &ConfigVersion{Version: version, SHA256: hex.EncodeToString(sum[:]), Status: "rolled_back"}, nil
+
+	tmp := a.cfg.ConfigPath + ".rollback-tmp"
+	if err := os.WriteFile(tmp, []byte(yml), 0o600); err != nil {
+		return cv, fmt.Errorf("写入回滚临时文件失败: %w", err)
+	}
+	defer os.Remove(tmp)
+
+	if err := os.Rename(tmp, a.cfg.ConfigPath); err != nil {
+		return cv, fmt.Errorf("替换配置失败: %w", err)
+	}
+
+	if err := a.ReloadMihomo(); err != nil {
+		if !hadOld {
+			_ = os.Remove(a.cfg.ConfigPath)
+			cv.Status = "rollback_failed_no_previous_config"
+			_ = a.store.UpdateVersionStatus(version, cv.Status)
+			return cv, fmt.Errorf("历史配置重载失败，原先不存在配置文件，已移除回滚文件: %w", err)
+		}
+
+		restore := a.cfg.ConfigPath + ".rollback-restore"
+		if writeErr := os.WriteFile(restore, oldConfig, 0o600); writeErr != nil {
+			cv.Status = "rollback_failed_restore_failed"
+			_ = a.store.UpdateVersionStatus(version, cv.Status)
+			return cv, fmt.Errorf("历史配置重载失败: %v；写入恢复文件失败: %w", err, writeErr)
+		}
+		if renameErr := os.Rename(restore, a.cfg.ConfigPath); renameErr != nil {
+			_ = os.Remove(restore)
+			cv.Status = "rollback_failed_restore_failed"
+			_ = a.store.UpdateVersionStatus(version, cv.Status)
+			return cv, fmt.Errorf("历史配置重载失败: %v；恢复原配置失败: %w", err, renameErr)
+		}
+
+		if reloadErr := a.ReloadMihomo(); reloadErr != nil {
+			cv.Status = "rollback_failed_old_reload_failed"
+			_ = a.store.UpdateVersionStatus(version, cv.Status)
+			return cv, fmt.Errorf("历史配置重载失败: %v；原配置文件已恢复，但重新加载也失败: %w", err, reloadErr)
+		}
+
+		cv.Status = "rollback_failed_restored"
+		_ = a.store.UpdateVersionStatus(version, cv.Status)
+		return cv, fmt.Errorf("回滚失败，已恢复原配置并重新加载: %w", err)
+	}
+
+	cv.Status = "rolled_back"
+	if err := a.store.UpdateVersionStatus(version, cv.Status); err != nil {
+		return cv, fmt.Errorf("回滚已完成，但记录版本状态失败: %w", err)
+	}
+	return cv, nil
 }

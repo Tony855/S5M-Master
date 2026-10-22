@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -58,38 +60,77 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 		Old string `json:"old"`
 		New string `json:"new"`
 	}
-	if err := decode(r, &in); err != nil || len(in.New) < 6 {
-		writeErr(w, 400, "新密码至少 6 位")
+
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
 		return
 	}
+	if len(in.New) < 6 {
+		writeErr(w, http.StatusBadRequest, "新密码至少 6 位")
+		return
+	}
+
 	cu := currentUser(r)
-	u, err := a.store.UserByUsername(cu.Username)
-	if err != nil || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Old)) != nil {
-		writeErr(w, 401, "原密码错误")
+	if cu == nil {
+		writeErr(w, http.StatusUnauthorized, "未登录")
 		return
 	}
-	h, _ := bcrypt.GenerateFromPassword([]byte(in.New), bcrypt.DefaultCost)
-	a.store.UpdatePassword(u.ID, string(h))
-	writeJSON(w, 200, map[string]string{"message": "密码已更新"})
+
+	u, err := a.store.UserByUsername(cu.Username)
+	if err != nil || u == nil || !u.Enabled {
+		writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用，请重新登录")
+		return
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Old)) != nil {
+		writeErr(w, http.StatusUnauthorized, "原密码错误")
+		return
+	}
+
+	h, err := bcrypt.GenerateFromPassword([]byte(in.New), bcrypt.DefaultCost)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "密码处理失败")
+		return
+	}
+
+	if err := a.store.UpdatePassword(u.ID, string(h)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "密码保存失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "密码已更新"})
 }
 
 func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	s, _ := a.store.GetSettings()
-	writeJSON(w, 200, s)
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取设置失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, settings)
 }
 func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var in map[string]string
-	if err := decode(r, &in); err != nil {
-		writeErr(w, 400, "参数错误")
+	if err := decode(r, &in); err != nil || in == nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
 		return
 	}
-	a.store.UpdateSettings(in)
-	writeJSON(w, 200, map[string]string{"message": "设置已保存"})
+
+	if err := a.store.UpdateSettings(in); err != nil {
+		writeErr(w, http.StatusInternalServerError, "设置保存失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "设置已保存"})
 }
 
 func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {
-	list, _ := a.store.ListInstances()
-	writeJSON(w, 200, list)
+	list, err := a.store.ListInstances()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取实例列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	var in Instance
@@ -104,14 +145,28 @@ func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, in)
 }
 func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	a.store.DeleteInstance(id)
-	writeJSON(w, 200, map[string]string{"message": "已删除"})
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "实例 ID 无效")
+		return
+	}
+
+	if err := a.store.DeleteInstance(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除实例失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已删除"})
 }
 
 func (a *App) handleListProxies(w http.ResponseWriter, r *http.Request) {
-	list, _ := a.store.ListProxies()
-	writeJSON(w, 200, list)
+	list, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取代理列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (a *App) validateProxy(p *Proxy) string {
@@ -156,7 +211,12 @@ func (a *App) handleCreateProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleUpdateProxy(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "代理 ID 无效")
+		return
+	}
 	var p Proxy
 	if err := decode(r, &p); err != nil {
 		writeErr(w, 400, "参数错误")
@@ -178,13 +238,27 @@ func (a *App) handleUpdateProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDeleteProxy(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	a.store.DeleteProxy(id)
-	writeJSON(w, 200, map[string]string{"message": "已删除"})
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "代理 ID 无效")
+		return
+	}
+
+	if err := a.store.DeleteProxy(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除代理失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已删除"})
 }
 
 func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
-	yml, _ := a.BuildConfig()
+	yml, err := a.BuildConfig()
+	if err != nil {
+		writeErr(w, 500, "生成配置失败: "+err.Error())
+		return
+	}
 	writeJSON(w, 200, map[string]string{"yaml": yml})
 }
 func (a *App) handlePublish(w http.ResponseWriter, r *http.Request) {
@@ -196,8 +270,12 @@ func (a *App) handlePublish(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "message": "发布成功", "version": cv})
 }
 func (a *App) handleVersions(w http.ResponseWriter, r *http.Request) {
-	list, _ := a.store.ListVersions(30)
-	writeJSON(w, 200, list)
+	list, err := a.store.ListVersions(30)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取配置版本失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 func (a *App) handleRollback(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -215,14 +293,23 @@ func (a *App) handleRollback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true, "message": "回滚成功", "version": cv})
 }
 func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
-	list, _ := a.store.ListProxies()
+	list, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取代理概览失败")
+		return
+	}
+
 	enabled := 0
 	for _, p := range list {
 		if p.Enabled {
 			enabled++
 		}
 	}
-	writeJSON(w, 200, map[string]any{"mihomo": a.MihomoInfo(), "proxy_total": len(list), "proxy_enabled": enabled})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"total":   len(list),
+		"enabled": enabled,
+	})
 }
 
 var lastUp, lastDown uint64
@@ -360,12 +447,20 @@ func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
-	s, _ := a.store.GetSettings()
+	s, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取订阅设置失败")
+		return
+	}
 	if s["sub_token"] == "" || r.URL.Query().Get("token") != s["sub_token"] {
 		writeErr(w, 403, "无效 token")
 		return
 	}
-	proxies, _ := a.store.ListProxies()
+	proxies, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取订阅代理失败")
+		return
+	}
 	var outs []proxyOut
 	for _, p := range proxies {
 		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
@@ -479,60 +574,93 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	settings, _ := a.store.GetSettings()
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 注册配置失败")
+		return
+	}
 	expectedSecret := settings["agent_token"]
 	if expectedSecret == "" {
 		writeErr(w, 500, "主控台未初始化全局 Token")
 		return
 	}
 
-	// 严格校验：只允许全局 Token，或者已经存在的专属 Token
+	// 只允许预先分配的专属 Token 注册对应机器码。
 	machineToken := settings["agent_machine_"+in.MachineCode]
-
-	isGlobalValid := in.Secret == expectedSecret
-	isMachineValid := (machineToken != "" && in.Secret == machineToken)
-
-	if !isGlobalValid && !isMachineValid {
-		writeErr(w, 403, "密钥错误：输入的 Token 不匹配")
+	if machineToken == "" ||
+		machineToken == expectedSecret ||
+		in.Secret == expectedSecret ||
+		in.Secret != machineToken {
+		writeErr(w, 403, "机器码或专属 Token 不匹配")
 		return
 	}
 
-	// 如果使用的是全局 Token，自动给这个新机器码生成一个专属记录
-	if isGlobalValid && machineToken == "" {
-		a.store.UpdateSettings(map[string]string{"agent_machine_" + in.MachineCode: expectedSecret})
-	}
-
-	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}
+	version := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
+	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent", "ver": version}
 	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
 	writeJSON(w, 200, map[string]string{"message": "注册成功", "token": token})
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	machineCode := ""
 	authHeader := r.Header.Get("Authorization")
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-			return a.jwtKey, nil
-		})
-		if err == nil && token.Valid {
-			if claims, ok := token.Claims.(jwt.MapClaims); ok {
-				if mc, ok := claims["sub"].(string); ok && mc != "" {
-					machineCode = mc
-				}
-			}
-		}
-	}
-	if machineCode == "" {
-		writeErr(w, 401, "无效的 Agent Token")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeErr(w, 401, "缺少 Agent Token")
 		return
 	}
 
-	// 记录最后在线时间
-	now := fmt.Sprintf("%d", time.Now().Unix())
-	a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("不支持的 JWT 签名算法")
+		}
+		return a.jwtKey, nil
+	})
+	if err != nil || token == nil || !token.Valid {
+		writeErr(w, 401, "无效或已过期的 Agent Token")
+		return
+	}
 
-	// 复用 configgen 生成完整配置（含 SRC-IP-CIDR 分流规则、REJECT 防泄漏规则）
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		writeErr(w, 401, "无效的 Agent Token")
+		return
+	}
+	machineCode, ok := claims["sub"].(string)
+	role, roleOK := claims["role"].(string)
+	if !ok || machineCode == "" || !roleOK || role != "agent" {
+		writeErr(w, 401, "Agent 身份或机器码无效")
+		return
+	}
+
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, 500, "读取设备授权状态失败")
+		return
+	}
+
+	// 已删除、未授权，或仍沿用全局 Token 的旧记录一律拒绝。
+	machineToken := settings["agent_machine_"+machineCode]
+	if machineToken == "" || machineToken == settings["agent_token"] {
+		writeErr(w, 401, "设备未授权或已解绑")
+		return
+	}
+
+	// JWT 必须绑定当前专属 Token；更换 Token 后旧 JWT 立即失效。
+	version, versionOK := claims["ver"].(string)
+	currentVersion := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
+	if !versionOK || version == "" || version != currentVersion {
+		writeErr(w, 401, "Agent 授权版本已失效，请重新绑定")
+		return
+	}
+
+	now := fmt.Sprintf("%d", time.Now().Unix())
+	if err := a.store.UpdateSettings(map[string]string{
+		"agent_lastseen_" + machineCode: now,
+	}); err != nil {
+		writeErr(w, 500, "更新设备心跳失败")
+		return
+	}
+
 	yml, err := a.BuildConfigForMachine(machineCode)
 	if err != nil {
 		writeErr(w, 500, "生成配置失败: "+err.Error())
@@ -541,7 +669,7 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(yml))
+	_, _ = w.Write([]byte(yml))
 }
 
 // 删除指定的机器码
@@ -585,14 +713,12 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	globalToken := settings["agent_token"]
-
-	// 2. 组装信息
+	// 2. 仅返回具有有效专属 Token 的设备。
+	// 不使用全局 Token 回退，也不展示只有心跳记录的未授权设备。
 	for code := range codes {
 		token := settings["agent_machine_"+code]
-		// 如果机器专属 token 为空，前端用全局 token 顶替展示（或者留空，取决于前端逻辑）
-		if token == "" {
-			token = globalToken
+		if token == "" || token == settings["agent_token"] {
+			continue
 		}
 
 		var lastSeen int64
@@ -606,36 +732,109 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, result)
 }
 
-// 为特定机器码生成专属短 Token
+// agentTokenGenerateMu 防止同一进程内并发请求重复分配同一机器码。
+var agentTokenGenerateMu sync.Mutex
+
+// 为指定机器码分配专属 Token。
+// 已存在的 Token 不会被覆盖；需要更换时应走单独、明确授权的轮换流程。
 func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
+	// 额外检查管理员角色，不能只依赖登录认证。
+	u := currentUser(r)
+	if u == nil || u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "仅管理员可以生成机器 Token")
+		return
+	}
+
 	var in struct {
 		MachineCode string `json:"machine_code"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.MachineCode == "" {
-		writeErr(w, 400, "参数错误，缺少机器码")
+
+	// 限制请求体大小，避免异常大请求占用资源。
+	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "JSON 参数错误")
 		return
 	}
 
-	// 生成一个随机短 token (例如 s5m-mc-xxxx)
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		writeErr(w, 500, "生成随机 Token 失败")
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+
+	// 保留旧机器码兼容性，同时禁止将任意内容拼接进 settings 键名。
+	// 新节点仍应使用 11 位十六进制机器码。
+	if len(in.MachineCode) < 1 || len(in.MachineCode) > 64 ||
+		!regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(in.MachineCode) {
+		writeErr(w, http.StatusBadRequest, "机器码格式错误")
 		return
 	}
-	token := fmt.Sprintf("s5m-%x", buf)
 
-	// 存入数据库：agent_machine_<机器码> = token
-	err := a.store.UpdateSettings(map[string]string{
-		"agent_machine_" + in.MachineCode: token,
-	})
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+
+	settings, err := a.store.GetSettings()
 	if err != nil {
-		writeErr(w, 500, "保存 Token 失败: "+err.Error())
+		writeErr(w, http.StatusInternalServerError, "读取机器码配置失败")
 		return
 	}
 
-	writeJSON(w, 200, map[string]string{
-		"message": "生成成功",
-		"token":   token,
+	globalToken := strings.TrimSpace(settings["agent_token"])
+	key := "agent_machine_" + in.MachineCode
+
+	// 不允许用生成接口覆盖已有绑定凭证。
+	if existing := strings.TrimSpace(settings[key]); existing != "" {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":        "该机器码已经分配专属 Token，未进行覆盖",
+			"machine_code": in.MachineCode,
+		})
+		return
+	}
+
+	// 防止生成结果与全局 Token 相同。
+	var token string
+	for attempt := 0; attempt < 3; attempt++ {
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			writeErr(w, http.StatusInternalServerError, "生成随机 Token 失败")
+			return
+		}
+		token = fmt.Sprintf("s5m-%x", buf)
+		if token != globalToken {
+			break
+		}
+		token = ""
+	}
+	if token == "" {
+		writeErr(w, http.StatusInternalServerError, "无法生成有效的专属 Token")
+		return
+	}
+
+	// 原子创建绑定，绝不覆盖已存在的 Token。
+	created, err := a.store.CreateSettingIfAbsent(key, token)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存 Token 失败")
+		return
+	}
+	if !created {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error":        "该机器码已经分配专属 Token，未进行覆盖",
+			"machine_code": in.MachineCode,
+		})
+		return
+	}
+
+	// 回读验证，避免把未成功保存的凭证返回给调用方。
+	saved, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "Token 已提交保存，但回读验证失败")
+		return
+	}
+	if saved[key] != token {
+		writeErr(w, http.StatusInternalServerError, "Token 保存校验失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message":      "生成成功",
+		"machine_code": in.MachineCode,
+		"token":        token,
 	})
 }
 

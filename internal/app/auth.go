@@ -27,23 +27,37 @@ func (a *App) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h := r.Header.Get("Authorization")
 		if !strings.HasPrefix(h, "Bearer ") {
-			writeErr(w, 401, "未登录")
+			writeErr(w, http.StatusUnauthorized, "未登录")
 			return
 		}
+
 		t, err := jwt.Parse(strings.TrimPrefix(h, "Bearer "), func(t *jwt.Token) (any, error) {
 			return a.jwtKey, nil
 		}, jwt.WithValidMethods([]string{"HS256"}))
-		if err != nil || !t.Valid {
-			writeErr(w, 401, "登录已失效，请重新登录")
+		if err != nil || t == nil || !t.Valid {
+			writeErr(w, http.StatusUnauthorized, "登录已失效，请重新登录")
 			return
 		}
-		claims, _ := t.Claims.(jwt.MapClaims)
-		u := &User{}
-		if id, ok := claims["sub"].(float64); ok {
-			u.ID = int64(id)
+
+		claims, ok := t.Claims.(jwt.MapClaims)
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "登录凭证无效")
+			return
 		}
-		u.Username, _ = claims["usr"].(string)
-		u.Role, _ = claims["role"].(string)
+
+		username, ok := claims["usr"].(string)
+		if !ok || strings.TrimSpace(username) == "" {
+			writeErr(w, http.StatusUnauthorized, "登录凭证缺少用户信息")
+			return
+		}
+
+		// 每次请求都读取数据库中的当前账号状态和角色。
+		u, err := a.store.UserByUsername(username)
+		if err != nil || u == nil || !u.Enabled {
+			writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用，请重新登录")
+			return
+		}
+
 		ctx := context.WithValue(r.Context(), userKey, u)
 		next(w, r.WithContext(ctx))
 	}

@@ -9,8 +9,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // 结构体定义
@@ -43,91 +47,169 @@ func decrypt(cryptoText string) (string, error) {
 // 独立的重载函数，防止变量冲突
 
 // mergeConfig 把 agent 拉到的 proxies/rules 片段合并进主配置，保留 tun/dns 等系统级设置
-func mergeConfig(agentYml []byte) error {
-	mainPath := "/data/s5m-next/config.yaml"
-	mainData, err := os.ReadFile(mainPath)
+
+const mihomoConfigPath = "/data/s5m-next/config.yaml"
+const mihomoBinaryPath = "/opt/mihomo/mihomo"
+const mihomoAPIURL = "http://127.0.0.1:8088"
+
+func validateMihomoConfig(path string) error {
+	cmd := exec.Command(mihomoBinaryPath, "-t", "-d", "/data/s5m-next", "-f", path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Mihomo 配置校验失败: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func atomicWrite(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, ".s5m-config-*.tmp")
 	if err != nil {
 		return err
 	}
-	agentStr := string(agentYml)
-	mainStr := string(mainData)
+	tmp := f.Name()
+	defer os.Remove(tmp)
 
-	// 从 agent 片段中截出 "proxies:" 到 "rules:" 的块
-	pIdx := strings.Index(agentStr, "proxies:")
-	rIdx := strings.Index(agentStr, "\nrules:")
-	var agentProxies, agentRules string
-	if pIdx < 0 {
-		return fmt.Errorf("agent 无 proxies 段")
+	if err := f.Chmod(mode); err != nil {
+		f.Close()
+		return err
 	}
-	if rIdx < 0 {
-		agentProxies = strings.TrimRight(agentStr[pIdx:], "\n")
-	} else {
-		agentProxies = strings.TrimRight(agentStr[pIdx:rIdx], "\n")
-		agentRules = strings.TrimLeft(agentStr[rIdx+1:], "\n")
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
 	}
-
-	// 在 mainStr 中定位 "proxies:" 和 "rules:"（顶层，行首）
-	mainPIdx := -1
-	mainRIdx := -1
-	lines := strings.Split(mainStr, "\n")
-	offset := 0
-	for _, ln := range lines {
-		if strings.HasPrefix(ln, "proxies:") && mainPIdx < 0 {
-			mainPIdx = offset
-		}
-		if strings.HasPrefix(ln, "rules:") && mainRIdx < 0 {
-			mainRIdx = offset
-		}
-		offset += len(ln) + 1
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
 	}
-
-	if mainPIdx < 0 {
-		// 没 proxies 段，追加在 rules 前或文末
-		if mainRIdx >= 0 {
-			mainStr = mainStr[:mainRIdx] + agentProxies + "\n" + mainStr[mainRIdx:]
-		} else {
-			mainStr = strings.TrimRight(mainStr, "\n") + "\n" + agentProxies + "\n"
-		}
-	} else {
-		var tail string
-		if mainRIdx >= 0 {
-			tail = mainStr[mainRIdx:]
-		} else {
-			tail = ""
-		}
-		mainStr = mainStr[:mainPIdx] + agentProxies + "\n" + tail
+	if err := f.Close(); err != nil {
+		return err
 	}
-
-	// 如果 agent 有 rules 段，再替换一次 rules
-	if agentRules != "" {
-		mainRIdx2 := strings.Index(mainStr, "\nrules:")
-		if mainRIdx2 < 0 && strings.HasPrefix(mainStr, "rules:") {
-			mainRIdx2 = 0
-		} else if mainRIdx2 >= 0 {
-			mainRIdx2++
-		}
-		if mainRIdx2 >= 0 {
-			mainStr = mainStr[:mainRIdx2] + agentRules
-		}
-	}
-
-	return os.WriteFile(mainPath, []byte(mainStr), 0644)
+	return os.Rename(tmp, path)
 }
 
-func reloadMihomo() {
-	// 调用 Mihomo 外部控制 API 重载配置
-	reloadBody := strings.NewReader(`{"path": "/data/s5m-next/config.yaml"}`)
-	reloadReq, _ := http.NewRequest("PUT", "http://127.0.0.1:8088/configs?force=true", reloadBody)
-	reloadReq.Header.Set("Content-Type", "application/json")
-	// 注意：这里需要和你 Mihomo 的真实 Secret 保持一致，默认是 change-this-secret
-	reloadReq.Header.Set("Authorization", "Bearer change-this-secret")
-	reloadResp, err := http.DefaultClient.Do(reloadReq)
-	if err == nil && (reloadResp.StatusCode == 204 || reloadResp.StatusCode == 200) {
-		fmt.Println("✅ Mihomo 配置重载成功！")
-		reloadResp.Body.Close()
-	} else {
-		fmt.Println("❌ Mihomo 重载失败，请检查端口和 Secret")
+func mergeConfig(agentYml []byte) (bool, error) {
+	mainData, err := os.ReadFile(mihomoConfigPath)
+	if err != nil {
+		return false, fmt.Errorf("读取主配置失败: %w", err)
 	}
+
+	var mainCfg map[string]interface{}
+	var agentCfg map[string]interface{}
+	if err := yaml.Unmarshal(mainData, &mainCfg); err != nil {
+		return false, fmt.Errorf("主配置 YAML 无效: %w", err)
+	}
+	if err := yaml.Unmarshal(agentYml, &agentCfg); err != nil {
+		return false, fmt.Errorf("主控下发的 YAML 无效: %w", err)
+	}
+	if mainCfg == nil || agentCfg == nil {
+		return false, fmt.Errorf("配置必须是 YAML 对象")
+	}
+
+	for _, key := range []string{"proxies", "rules"} {
+		if value, ok := agentCfg[key]; ok {
+			mainCfg[key] = value
+		}
+	}
+
+	merged, err := yaml.Marshal(mainCfg)
+	if err != nil {
+		return false, fmt.Errorf("生成合并配置失败: %w", err)
+	}
+
+	var oldNorm, newNorm map[string]interface{}
+	if err := yaml.Unmarshal(mainData, &oldNorm); err != nil {
+		return false, err
+	}
+	if err := yaml.Unmarshal(merged, &newNorm); err != nil {
+		return false, err
+	}
+	oldBytes, err := yaml.Marshal(oldNorm)
+	if err != nil {
+		return false, err
+	}
+	newBytes, err := yaml.Marshal(newNorm)
+	if err != nil {
+		return false, err
+	}
+	if string(oldBytes) == string(newBytes) {
+		return false, nil
+	}
+
+	candidate := mihomoConfigPath + ".candidate"
+	if err := atomicWrite(candidate, merged, 0600); err != nil {
+		return false, fmt.Errorf("写入候选配置失败: %w", err)
+	}
+	defer os.Remove(candidate)
+
+	if err := validateMihomoConfig(candidate); err != nil {
+		return false, err
+	}
+
+	backupPath := fmt.Sprintf("%s.backup-%d", mihomoConfigPath, time.Now().UnixNano())
+	if err := atomicWrite(backupPath, mainData, 0600); err != nil {
+		return false, fmt.Errorf("创建配置回滚副本失败: %w", err)
+	}
+	if err := atomicWrite(mihomoConfigPath, merged, 0600); err != nil {
+		return false, fmt.Errorf("原子替换配置失败: %w", err)
+	}
+
+	if err := reloadMihomo(); err != nil {
+		fmt.Printf("配置重载失败，正在回滚：%v\n", err)
+		if restoreErr := atomicWrite(mihomoConfigPath, mainData, 0600); restoreErr != nil {
+			return false, fmt.Errorf("严重：重载失败且恢复配置失败（备份 %s）：%v；%w",
+				backupPath, restoreErr, err)
+		}
+		if rollbackErr := reloadMihomo(); rollbackErr != nil {
+			return false, fmt.Errorf("配置已恢复，但旧配置重载也失败（备份 %s）：%v；原始错误：%w",
+				backupPath, rollbackErr, err)
+		}
+		fmt.Println("配置已恢复旧版本，Mihomo 回滚重载成功")
+		return false, fmt.Errorf("新配置重载失败，已回滚")
+	}
+
+	fmt.Printf("配置更新成功；恢复副本：%s\n", backupPath)
+	return true, nil
+}
+
+func reloadMihomo() error {
+	data, err := os.ReadFile(mihomoConfigPath)
+	if err != nil {
+		return fmt.Errorf("读取配置失败: %w", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return fmt.Errorf("解析配置失败: %w", err)
+	}
+	secret, _ := cfg["secret"].(string)
+	if strings.TrimSpace(secret) == "" {
+		return fmt.Errorf("配置中没有有效的 secret")
+	}
+
+	body := strings.NewReader(`{"path": "/data/s5m-next/config.yaml"}`)
+	req, err := http.NewRequest(http.MethodPut, mihomoAPIURL+"/configs?force=true", body)
+	if err != nil {
+		return fmt.Errorf("创建重载请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+secret)
+
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Mihomo API 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK {
+		fmt.Println("Mihomo 配置重载成功")
+		return nil
+	}
+
+	msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return fmt.Errorf("Mihomo API HTTP %d: %s",
+		resp.StatusCode, strings.TrimSpace(string(msg)))
 }
 
 func getMachineID() string { return "3674c839b56" }
@@ -141,15 +223,8 @@ func main() {
 
 		// ====== 提供前端页面的 API ======
 		http.HandleFunc("/api/machine-id", func(w http.ResponseWriter, r *http.Request) {
-			machineID := "unknown"
-			// 尝试从 /etc/machine-id 读取唯一机器码
-			if data, err := os.ReadFile("/etc/machine-id"); err == nil {
-				machineID = strings.TrimSpace(string(data))
-			} else if data, err := os.ReadFile("/var/lib/dbus/machine-id"); err == nil {
-				machineID = strings.TrimSpace(string(data))
-			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"machine_id":"` + machineID + `"}`))
+			w.Write([]byte(`{"machine_id":"` + getMachineID() + `"}`))
 		})
 
 		http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
@@ -226,8 +301,10 @@ func main() {
 		fmt.Println("👉 正在向主控台发送心跳...")
 		req, _ := http.NewRequest("GET", cfg.CentralURL+"/api/v1/agent/config", nil)
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
-		resp, err := http.DefaultClient.Do(req)
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
 		if err != nil {
+			fmt.Printf("主控配置请求失败: %v\n", err)
 			continue
 		}
 
@@ -241,21 +318,27 @@ func main() {
 		}
 
 		if resp.StatusCode != 200 {
+			fmt.Printf("主控配置请求返回 HTTP %d\n", resp.StatusCode)
 			resp.Body.Close()
 			continue
 		}
 
-		newYml, _ := io.ReadAll(resp.Body)
+		newYml, readErr := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 		resp.Body.Close()
+		if readErr != nil {
+			fmt.Printf("读取主控配置失败: %v\n", readErr)
+			continue
+		}
 
 		// 合并到主配置（保留 tun/dns 等系统配置）
-		if err := mergeConfig(newYml); err != nil {
+		changed, err := mergeConfig(newYml)
+		if err != nil {
 			fmt.Println("合并配置失败:", err)
 			continue
 		}
-		fmt.Println("发现配置更新，已合并到主配置 /data/s5m-next/config.yaml")
-
-		// 触发 Mihomo 重载
-		reloadMihomo()
+		if !changed {
+			continue
+		}
+		fmt.Println("主控配置同步完成，Mihomo 已成功重载")
 	}
 }

@@ -64,20 +64,14 @@
 
       if (data.has_token) {
         document.getElementById('btn').innerText = '重新绑定';
-        if (data.token && data.connected) {
-          setStatus('', '正在向主控台验证授权...');
-          try {
-            const verifyRes = await fetchWithTimeout(data.central_url + '/api/v1/agent/register', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ machine_code: currentMachineID, secret: data.token })
-            }, 3000);
-            if (verifyRes.ok) { setStatus('active', '设备已绑定，连接正常'); }
-            else { setStatus('error', '授权已失效，请重新绑定'); document.getElementById('btn').innerText = '一键绑定设备'; }
-          } catch(e) { setStatus('error', '验证超时，请检查网络'); }
-        } else if (data.connected) { setStatus('active', '设备已绑定'); }
-        else { setStatus('error', '连接已断开，请检查网络'); }
-      } else { setStatus('', '等待连接'); }
+        if (data.connected) {
+          setStatus('active', '授权已保存，等待心跳验证');
+        } else {
+          setStatus('error', '尚未连接，请检查网络');
+        }
+      } else {
+        setStatus('', '等待绑定');
+      }
     } catch(e) { document.getElementById('machineId').innerText = '获取超时'; setStatus('error', 'Agent 后端无响应'); }
   };
   function copyMachineId() {
@@ -95,11 +89,11 @@
     if (!/^https?:\/\//i.test(url)) { url = 'http://' + url; document.getElementById('url').value = url; }
     const btn = document.getElementById('btn'); btn.innerText = '正在绑定...'; btn.disabled = true; setStatus('', '通信中...');
     try {
-      const res = await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({central_url: url, secret: secret}) });
+      const res = await fetch('/api/bind', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({central_url: url, secret: secret}) });
       const text = await res.text(); let data = {};
       try { data = JSON.parse(text); } catch { data = { message: text }; }
       if (!res.ok) throw new Error(data.error || data.message || '绑定失败');
-      showMsg("绑定成功", true); btn.innerText = '重新绑定'; setStatus('active', '设备已绑定，连接正常');
+      if(res.ok){ showMsg("绑定成功", true); } else { showMsg("绑定失败：Token错误或主控台拒绝", false); } btn.innerText = '重新绑定'; setStatus('active', '设备已绑定，连接正常');
       setTimeout(() => location.reload(), 1500);
     } catch (e) { showMsg(e.message, false); btn.innerText = '重试绑定'; btn.disabled = false; setStatus('error', '绑定失败'); }
   }
