@@ -2,148 +2,101 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>S5M Proxy Service</title>
 <link rel="stylesheet" href="/vendor/element-plus.css">
 <style>
-  :root {
-    --bg: #0f172a;
-    --card-bg: #1e293b;
-    --text-main: #f1f5f9;
-    --text-sub: #94a3b8;
-    --brand: #4361ee;
-    --brand-2: #4cc9f0;
-    --success: #10b981;
-    --danger: #ef4444;
-    --border: rgba(255,255,255,0.08);
-  }
+  :root{--brand:#4361ee;--brand-2:#4cc9f0; --bg: #f5f7fa;}
+  *{box-sizing:border-box} html,body{height:100%;margin:0; background: var(--bg); font-family: -apple-system, sans-serif;}
+  .layout { height: 100vh; }
+  .main { padding: 20px; overflow-y: auto; max-width: 1200px; margin: 0 auto; }
+  .card-panel { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); }
   
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; background: var(--bg); color: var(--text-main); font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .login-layout { height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-  .app-container { max-width: 1000px; margin: 0 auto; padding: 40px 20px; }
-  .nav-bar { display: flex; justify-content: center; gap: 15px; margin-bottom: 40px; background: rgba(255,255,255,0.03); padding: 10px; border-radius: 12px; border: 1px solid var(--border); }
-  .nav-item { padding: 10px 20px; border-radius: 8px; cursor: pointer; color: var(--text-sub); font-size: 15px; font-weight: 600; transition: all 0.2s; }
-  .nav-item:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
-  .nav-item.active { background: linear-gradient(135deg, var(--brand-2), var(--brand)); color: #fff; box-shadow: 0 4px 12px rgba(76,201,240,0.3); }
-
-  .card { background: var(--card-bg); border-radius: 16px; padding: 30px; margin-bottom: 25px; box-shadow: 0 20px 40px rgba(0,0,0,0.3); border: 1px solid var(--border); }
-  .card-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; color: var(--text-main); border-bottom: 1px solid var(--border); padding-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
-
-  .el-input__wrapper { background: rgba(0,0,0,0.3) !important; box-shadow: 0 0 0 1px var(--border) inset !important; }
-  .el-input__inner { color: var(--text-main) !important; }
-  .el-textarea__inner { background: rgba(0,0,0,0.3) !important; color: var(--text-main) !important; }
-  .el-button--primary { background: linear-gradient(135deg, var(--brand-2), var(--brand)); border: none; }
+  .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 2px 12px 0 rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 10px; }
+  .stat-title { color: #909399; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .stat-value { font-size: 24px; font-weight: bold; color: #303133; }
   
-  .agent-item { background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-  .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .agent-code { font-weight: bold; font-size: 14px; color: var(--brand-2); font-family: monospace; word-break: break-all; }
-  .agent-token { background: rgba(0,0,0,0.4); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--text-sub); word-break: break-all; margin-bottom: 15px; }
-  .agent-actions { display: flex; gap: 10px; }
-  .btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none; color: #fff; font-weight: 600; }
-  .btn-sm.copy { background: var(--success); }
-  .btn-sm.delete { background: var(--danger); }
-
-  @media (max-width: 600px) {
-    .app-container { padding: 20px 15px; }
-    .nav-bar { flex-wrap: wrap; gap: 8px; padding: 8px; }
-    .nav-item { padding: 8px 12px; font-size: 14px; flex: 1; text-align: center; }
-    .card { padding: 20px; }
+  @media (max-width: 768px) {
+    .main { padding: 10px; }
+    .grid-cards { grid-template-columns: 1fr; }
   }
 </style>
 </head>
 <body>
 <div id="app" v-cloak>
-  
-  <div v-if="!token" class="login-layout">
-    <div class="card" style="width: 100%; max-width: 400px;">
-      <div class="card-title" style="justify-content: center; border: none; font-size: 22px;">S5M 控制台登录</div>
-      <el-input v-model="loginUser" placeholder="账号 (默认 admin)" style="margin-bottom: 20px;"></el-input>
-      <el-input v-model="loginPass" type="password" placeholder="密码" show-password style="margin-bottom: 25px;" @keyup.enter="doLogin"></el-input>
-      <el-button type="primary" style="width: 100%; height: 45px; border-radius: 8px; font-size: 16px;" @click="doLogin" :loading="loggingIn">登 录</el-button>
+  <!-- 登录页 -->
+  <div v-if="!token" style="height: 100vh; display: flex; align-items: center; justify-content: center; background: #0f172a;">
+    <div style="width: 100%; max-width: 400px; background: #1e293b; padding: 30px; border-radius: 12px;">
+      <h3 style="text-align: center; color: #fff; margin-top: 0;">管理员登录</h3>
+      <el-input v-model="loginUser" placeholder="账号" style="margin-bottom: 15px;"></el-input>
+      <el-input v-model="loginPass" type="password" placeholder="密码" show-password style="margin-bottom: 20px;" @keyup.enter="doLogin"></el-input>
+      <el-button type="primary" style="width: 100%;" @click="doLogin" :loading="loggingIn">登录</el-button>
     </div>
   </div>
 
-  <div v-else class="app-container">
-    <div class="nav-bar">
-      <div class="nav-item" :class="{active: page === 'dashboard'}" @click="switchPage('dashboard')">仪表盘</div>
-      <div class="nav-item" :class="{active: page === 'proxies'}" @click="switchPage('proxies')">代理管理</div>
-      <div class="nav-item" :class="{active: page === 'instances'}" @click="switchPage('instances')">远端节点</div>
-      <div class="nav-item" :class="{active: page === 'config'}" @click="switchPage('config')">配置管理</div>
-      <div class="nav-item" style="color: #ef4444;" @click="logout">退出登录</div>
-    </div>
-
-    <!-- 1. 仪表盘 -->
-    <div v-if="page === 'dashboard'">
-      <div class="card">
-        <div class="card-title">系统概览</div>
-        <p style="color: var(--text-sub);">欢迎使用 S5M 控制台。当前版本已支持全自动下发与心跳监控。</p>
+  <!-- 主界面 -->
+  <el-container v-else class="layout">
+    <el-main class="main">
+      
+      <div class="top-bar">
+        <span style="color: #666;">👤 admin</span>
+        <el-button size="small" @click="logout">退出登录</el-button>
       </div>
-    </div>
 
-    <!-- 2. 代理管理 (还原的功能) -->
-    <div v-if="page === 'proxies'">
-      <div class="card">
-        <div class="card-title">
-          代理列表
-          <el-button size="small" type="primary" @click="showAddProxy = true">添加代理</el-button>
+      <!-- 状态卡片区 -->
+      <div class="grid-cards">
+        <div class="stat-card">
+          <div class="stat-title">💻 Mihomo 内核</div>
+          <div class="stat-value">v1.19.32</div>
+          <el-button size="small" type="primary" style="margin-top: auto;">更新内核</el-button>
         </div>
-        <div v-if="proxies.length === 0" style="color: var(--text-sub); text-align: center; padding: 20px;">暂无代理节点</div>
-        <div v-else>
-          <div v-for="p in proxies" :key="p.id" class="agent-item">
-            <div class="agent-header">
-              <span class="agent-code">{{ p.name }}</span>
-              <div class="agent-actions">
-                <span style="color: var(--text-sub); font-size: 12px; margin-right: 10px;">{{ p.type }} | {{ p.server }}:{{ p.port }}</span>
-                <button class="btn-sm delete" @click="deleteProxy(p.id)">删除</button>
-              </div>
-            </div>
-          </div>
+        <div class="stat-card">
+          <div class="stat-title" style="color: #f56c6c;">⬇ 实时下载</div>
+          <div class="stat-value">0 B/s</div>
         </div>
-      </div>
-    </div>
-
-    <!-- 3. 远端节点 -->
-    <div v-if="page === 'instances'">
-      <div class="card">
-        <div class="card-title">生成专属机器码 Token</div>
-        <div style="display: flex; gap: 10px; margin-bottom: 20px;">
-          <el-input v-model="newMachineCode" placeholder="输入机器码 (Machine Code)..."></el-input>
-          <el-button type="primary" @click="generateAgentToken">生成并绑定</el-button>
+        <div class="stat-card">
+          <div class="stat-title" style="color: #8e44ad;">⬆ 实时上传</div>
+          <div class="stat-value">0 B/s</div>
         </div>
-        <div v-if="generatedToken" style="padding: 15px; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); border-radius: 8px; color: var(--success); word-break: break-all;">
-          专属 Token: <strong style="font-family: monospace; font-size: 14px; margin-right: 10px;">{{ generatedToken }}</strong>
-          <el-button size="small" type="success" @click="safeCopy(generatedToken)">复制</el-button>
+        <div class="stat-card">
+          <div class="stat-title" style="color: #409eff;">🔗 活跃连接</div>
+          <div class="stat-value">1</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title" style="color: #67c23a;">⚡ 启用节点</div>
+          <div class="stat-value">4 / 4</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-title" style="color: #e6a23c;">📄 历史配置版本</div>
+          <div class="stat-value">7 个</div>
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-title">
-          已注册节点机器码
-          <el-button size="small" @click="loadAgentsData">刷新列表</el-button>
+      <!-- 机器码列表 (经典样式) -->
+      <div class="card-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3 style="margin: 0;">已注册节点机器码</h3>
+          <el-button type="primary" size="small" @click="loadAgentsData">刷新列表</el-button>
         </div>
-        <div id="agent-list">
-          <div style="text-align: center; padding: 20px; color: var(--text-sub);">正在加载...</div>
-        </div>
+        
+        <table style="width: 100%; text-align: left; border-collapse: collapse; font-size: 14px;">
+          <thead>
+            <tr style="background: #f5f7fa; color: #909399;">
+              <th style="padding: 12px; border-bottom: 1px solid #ebeef5;">机器码 (Machine Code)</th>
+              <th style="padding: 12px; border-bottom: 1px solid #ebeef5;">分配 Token</th>
+              <th style="padding: 12px; border-bottom: 1px solid #ebeef5;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="agent-list-body">
+            <tr><td colspan="3" style="padding: 20px; text-align: center; color: #999;">加载中...</td></tr>
+          </tbody>
+        </table>
       </div>
-    </div>
 
-    <!-- 4. 配置管理 -->
-    <div v-if="page === 'config'">
-      <div class="card">
-        <div class="card-title">客户端订阅链接</div>
-        <el-input v-model="subUrl" readonly>
-          <template #prepend>订阅地址</template>
-        </el-input>
-      </div>
-      <div class="card">
-        <div class="card-title">发布全局配置 (YAML)</div>
-        <el-input v-model="configYaml" type="textarea" :rows="12" placeholder="在此粘贴或编写 Mihomo 配置..."></el-input>
-        <el-button type="primary" style="margin-top: 15px; width: 100%;" @click="publishConfig">保存并下发配置</el-button>
-      </div>
-    </div>
-
-  </div>
+    </el-main>
+  </el-container>
 </div>
 
 <script src="/vendor/vue.global.prod.js"></script>
@@ -153,24 +106,10 @@
   
   createApp({
     setup() {
-      const page = ref('dashboard'); 
-      const subUrl = ref('http://foodflow.v2net.cc/api/sub');
       const token = ref(localStorage.getItem('s5m_next_token') || '');
       const loginUser = ref('admin');
       const loginPass = ref('');
       const loggingIn = ref(false);
-      const newMachineCode = ref('');
-      const generatedToken = ref('');
-      const configYaml = ref('');
-      
-      const proxies = ref([]);
-      const showAddProxy = ref(false);
-
-      const switchPage = (v) => {
-        page.value = v;
-        if (v === 'instances') loadAgentsData();
-        if (v === 'proxies') loadProxies();
-      };
 
       const doLogin = async () => {
         if(!loginUser.value || !loginPass.value) return alert('请输入账号密码');
@@ -186,9 +125,9 @@
             localStorage.setItem('s5m_next_token', data.token);
             token.value = data.token;
             loginPass.value = '';
-            switchPage('dashboard');
+            setTimeout(() => window.loadAgentsData(), 100);
           } else {
-            alert(data.error || '账号或密码错误');
+            alert(data.error || '登录失败');
           }
         } catch(e) {
           alert('网络错误');
@@ -201,7 +140,39 @@
         token.value = '';
       };
 
-      const safeCopy = (text) => {
+      window.loadAgentsData = async () => {
+        var tb = document.getElementById('agent-list-body');
+        if (!tb) return;
+        
+        tb.innerHTML = '<tr><td colspan="3" style="padding: 20px; text-align: center; color: #999;">正在加载...</td></tr>';
+        try {
+          const res = await fetch('/api/v1/agents', { headers: { 'Authorization': 'Bearer ' + token.value } });
+          if (res.status === 401) { logout(); throw new Error('登录已过期'); }
+          
+          const data = await res.json();
+          const keys = Object.keys(data);
+          if (!keys.length) {
+            tb.innerHTML = '<tr><td colspan="3" style="padding: 20px; text-align: center; color: #999;">暂无数据</td></tr>';
+            return;
+          }
+          
+          var h = '';
+          keys.forEach(k => {
+            var v = data[k];
+            h += '<tr>';
+            h += '<td style="padding: 12px; border-bottom: 1px solid #ebeef5; font-family: monospace;">' + k + '</td>';
+            h += '<td style="padding: 12px; border-bottom: 1px solid #ebeef5; color: #909399; font-family: monospace; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + v + '</td>';
+            h += '<td style="padding: 12px; border-bottom: 1px solid #ebeef5;">';
+            h += '<el-button size="small" type="success" onclick="safeCopy(\'' + v + '\')">复制机器码</el-button>';
+            h += '</td></tr>';
+          });
+          tb.innerHTML = h;
+        } catch(e) {
+          tb.innerHTML = '<tr><td colspan="3" style="padding: 20px; text-align: center; color: red;">' + e.message + '</td></tr>';
+        }
+      };
+
+      window.safeCopy = (text) => {
         if(!text) return;
         var t = document.createElement("textarea"); t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
         document.body.appendChild(t); t.select();
@@ -209,109 +180,11 @@
         document.body.removeChild(t);
       };
 
-      // 加载代理列表 (恢复的功能)
-      const loadProxies = async () => {
-        try {
-          const res = await fetch('/api/v1/proxies', { headers: { 'Authorization': 'Bearer ' + token.value } });
-          if (res.ok) proxies.value = await res.json() || [];
-        } catch(e) {}
-      };
-
-      const deleteProxy = async (id) => {
-        if (!confirm('确定删除？')) return;
-        try {
-          await fetch('/api/v1/proxies/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token.value } });
-          loadProxies();
-        } catch(e) {}
-      };
-
-      // 加载机器码列表
-      const loadAgentsData = async () => {
-        var box = document.getElementById('agent-list');
-        if (!box) return;
-        
-        if(!token.value) return;
-        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">加载中...</div>';
-        
-        try {
-          const res = await fetch('/api/v1/agents', { headers: { 'Authorization': 'Bearer ' + token.value } });
-          if (res.status === 401) { logout(); throw new Error('登录过期'); }
-          
-          const data = await res.json();
-          const keys = Object.keys(data);
-          if (!keys.length) { box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">暂无数据</div>'; return; }
-          
-          var h = '';
-          keys.forEach(k => {
-            var item = data[k];
-            var v = item.token;
-            var lastSeen = item.last_seen || 0;
-            var isOnline = lastSeen > 0; // 这里放宽判定，有记录即为在线
-            var statusHtml = isOnline 
-                ? '<span style="color:#10b981;font-size:12px;">● 在线</span>' 
-                : '<span style="color:#ef4444;font-size:12px;">● 离线</span>';
-
-            h += '<div class="agent-item">';
-            h += '<div class="agent-header">';
-            h += '<div><span class="agent-code">' + k + '</span> ' + statusHtml + '</div>';
-            h += '<div class="agent-actions">';
-            h += '<button class="btn-sm copy" onclick="safeCopy(\'' + v + '\')">复制 Token</button>';
-            h += '<button class="btn-sm delete" onclick="deleteAgent(\'' + k + '\')">删除</button>';
-            h += '</div></div>';
-            h += '<div class="agent-token">' + v + '</div>';
-            h += '</div>';
-          });
-          box.innerHTML = h;
-        } catch(e) {
-          box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger);">' + e.message + '</div>';
-        }
-      };
-
-      const generateAgentToken = async () => {
-        if (!newMachineCode.value) return alert('请输入机器码');
-        try {
-          const res = await fetch('/api/v1/agents/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token.value },
-            body: JSON.stringify({ machine_code: newMachineCode.value })
-          });
-          const data = await res.json();
-          if (data.token) { generatedToken.value = data.token; loadAgentsData(); } 
-          else { alert(data.error || '生成失败'); }
-        } catch(e) { alert('网络错误'); }
-      };
-
-      const publishConfig = async () => {
-        if (!configYaml.value) return alert('配置不能为空');
-        try {
-          const res = await fetch('/api/v1/config/save', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token.value },
-            body: JSON.stringify({ config_yaml: configYaml.value })
-          });
-          const data = await res.json();
-          if (res.ok) alert('发布成功，Agent 将在 30 秒内更新');
-          else alert(data.error || '发布失败');
-        } catch(e) { alert('网络错误'); }
-      };
-
-      window.deleteAgent = async (code) => {
-        if (!confirm('确定删除该机器码？')) return;
-        try {
-          await fetch('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token.value } });
-          loadAgentsData();
-        } catch(e) { alert('删除失败'); }
-      };
-      window.safeCopy = safeCopy;
-
       onMounted(() => {
-        if(token.value) switchPage('dashboard');
+        if(token.value) setTimeout(() => window.loadAgentsData(), 100);
       });
 
-      return {
-        page, subUrl, token, loginUser, loginPass, loggingIn, newMachineCode, generatedToken, configYaml,
-        proxies, showAddProxy, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, safeCopy, deleteProxy, publishConfig
-      };
+      return { token, loginUser, loginPass, loggingIn, doLogin, logout };
     }
   }).use(ElementPlus).mount('#app');
 </script>
