@@ -41,9 +41,82 @@ func decrypt(cryptoText string) (string, error) {
 }
 
 // 独立的重载函数，防止变量冲突
+
+// mergeConfig 把 agent 拉到的 proxies/rules 片段合并进主配置，保留 tun/dns 等系统级设置
+func mergeConfig(agentYml []byte) error {
+	mainPath := "/data/s5m-next/config.yaml"
+	mainData, err := os.ReadFile(mainPath)
+	if err != nil {
+		return err
+	}
+	agentStr := string(agentYml)
+	mainStr := string(mainData)
+
+	// 从 agent 片段中截出 "proxies:" 到 "rules:" 的块
+	pIdx := strings.Index(agentStr, "proxies:")
+	rIdx := strings.Index(agentStr, "\nrules:")
+	var agentProxies, agentRules string
+	if pIdx < 0 {
+		return fmt.Errorf("agent 无 proxies 段")
+	}
+	if rIdx < 0 {
+		agentProxies = strings.TrimRight(agentStr[pIdx:], "\n")
+	} else {
+		agentProxies = strings.TrimRight(agentStr[pIdx:rIdx], "\n")
+		agentRules = strings.TrimLeft(agentStr[rIdx+1:], "\n")
+	}
+
+	// 在 mainStr 中定位 "proxies:" 和 "rules:"（顶层，行首）
+	mainPIdx := -1
+	mainRIdx := -1
+	lines := strings.Split(mainStr, "\n")
+	offset := 0
+	for _, ln := range lines {
+		if strings.HasPrefix(ln, "proxies:") && mainPIdx < 0 {
+			mainPIdx = offset
+		}
+		if strings.HasPrefix(ln, "rules:") && mainRIdx < 0 {
+			mainRIdx = offset
+		}
+		offset += len(ln) + 1
+	}
+
+	if mainPIdx < 0 {
+		// 没 proxies 段，追加在 rules 前或文末
+		if mainRIdx >= 0 {
+			mainStr = mainStr[:mainRIdx] + agentProxies + "\n" + mainStr[mainRIdx:]
+		} else {
+			mainStr = strings.TrimRight(mainStr, "\n") + "\n" + agentProxies + "\n"
+		}
+	} else {
+		var tail string
+		if mainRIdx >= 0 {
+			tail = mainStr[mainRIdx:]
+		} else {
+			tail = ""
+		}
+		mainStr = mainStr[:mainPIdx] + agentProxies + "\n" + tail
+	}
+
+	// 如果 agent 有 rules 段，再替换一次 rules
+	if agentRules != "" {
+		mainRIdx2 := strings.Index(mainStr, "\nrules:")
+		if mainRIdx2 < 0 && strings.HasPrefix(mainStr, "rules:") {
+			mainRIdx2 = 0
+		} else if mainRIdx2 >= 0 {
+			mainRIdx2++
+		}
+		if mainRIdx2 >= 0 {
+			mainStr = mainStr[:mainRIdx2] + agentRules
+		}
+	}
+
+	return os.WriteFile(mainPath, []byte(mainStr), 0644)
+}
+
 func reloadMihomo() {
 	// 调用 Mihomo 外部控制 API 重载配置
-	reloadBody := strings.NewReader(`{"path": "/data/config.yaml"}`)
+	reloadBody := strings.NewReader(`{"path": "/data/s5m-next/config.yaml"}`)
 	reloadReq, _ := http.NewRequest("PUT", "http://127.0.0.1:8088/configs?force=true", reloadBody)
 	reloadReq.Header.Set("Content-Type", "application/json")
 	// 注意：这里需要和你 Mihomo 的真实 Secret 保持一致，默认是 change-this-secret
@@ -169,15 +242,12 @@ func main() {
 		newYml, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
-		// 比对本地文件是否有变化
-		oldYml, _ := os.ReadFile("/data/config.yaml")
-		if string(oldYml) == string(newYml) {
+		// 合并到主配置（保留 tun/dns 等系统配置）
+		if err := mergeConfig(newYml); err != nil {
+			fmt.Println("合并配置失败:", err)
 			continue
 		}
-
-		// 写入新配置
-		os.WriteFile("/data/config.yaml", newYml, 0644)
-		fmt.Println("发现配置更新，已写入新配置")
+		fmt.Println("发现配置更新，已合并到主配置 /data/s5m-next/config.yaml")
 
 		// 触发 Mihomo 重载
 		reloadMihomo()
