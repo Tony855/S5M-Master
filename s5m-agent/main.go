@@ -228,14 +228,25 @@ func main() {
 			continue
 		}
 
-		// 请求主面板拉取最新配置 (用于心跳和配置更新)
+		fmt.Println("👉 正在向主控台发送心跳...")
 		req, _ := http.NewRequest("GET", cfg.CentralURL+"/api/v1/agent/config", nil)
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
 		resp, err := http.DefaultClient.Do(req)
-		if err != nil || resp.StatusCode != 200 {
-			if resp != nil {
-				resp.Body.Close()
-			}
+		if err != nil {
+			continue
+		}
+
+		// 如果收到 401，说明被主控台删了，自动解绑
+		if resp.StatusCode == 401 {
+			body, _ := io.ReadAll(resp.Body)
+			fmt.Printf("❌ 被踢下线！主控台返回: %d，原因: %s\n", resp.StatusCode, string(body))
+			os.Remove("/data/agent.json")
+			resp.Body.Close()
+			continue
+		}
+
+		if resp.StatusCode != 200 {
+			resp.Body.Close()
 			continue
 		}
 
