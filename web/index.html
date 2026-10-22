@@ -197,6 +197,9 @@
                 <el-option v-for="code in availableMachineCodes" :key="code" :label="code" :value="code"></el-option>
               </el-select>
             </el-form-item>
+            <el-form-item label="源 IP (CIDR)">
+              <el-input v-model="proxyForm.source_cidr" placeholder="例如 192.168.1.0/24，0.0.0.0/0 表示全部"></el-input>
+            </el-form-item>
             <el-form-item label="名称"><el-input v-model="proxyForm.name"></el-input></el-form-item>
             <el-form-item label="类型">
               <el-select v-model="proxyForm.type" style="width:100%">
@@ -321,7 +324,7 @@ createApp({
     const updatingKernel = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', username: '', password: '' });
+    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', username: '', password: '' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -442,7 +445,7 @@ createApp({
     };
 
     const openCreateProxy = () => {
-      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', username: '', password: '' });
+      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', username: '', password: '' });
       // 如果当前正在看某个机器的分组，默认绑定该机器
       if (activeGroup.value !== 'ALL' && activeGroup.value !== 'UNBOUND') {
         proxyForm.machine_code = activeGroup.value;
@@ -454,6 +457,7 @@ createApp({
       Object.assign(proxyForm, {
         id: row.id || 0, name: row.name || row.proxy_name || '', type: row.type || row.proxy_type || 'socks5',
         server: row.server || '', port: row.port || 1080, machine_code: row.machine_code || '',
+        source_cidr: row.source_cidr || '0.0.0.0/0',
         username: (row.extra && row.extra.username) ? row.extra.username : '',
         password: (row.extra && row.extra.password) ? row.extra.password : ''
       });
@@ -475,7 +479,7 @@ createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: proxyForm.name, type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
-            machine_code: proxyForm.machine_code, extra: extra
+            machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0', extra: extra
           })
         });
         if (res.ok) {
