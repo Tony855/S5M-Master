@@ -592,61 +592,84 @@ createApp({
       reader.readAsText(file);
     };
 
-    // 核心导入解析逻辑，支持表格格式和长链接格式
+    // 终极解析引擎：专治各种代理长链接（含 IPv6、空密码、特殊协议）
+    const parseProxyLine = (line) => {
+      if (!line) return null;
+
+      // 1. 匹配链接格式，例如: socks5://user:pass@2401:b60:e00e:7244:::23050
+      // 或者是 socks5://:@2401:b60:e00e:7244:::23050
+      const urlRegex = /^([a-zA-Z0-9]+):\/\/(?:(.*?)@)?([^@]+)$/;
+      const urlMatch = line.match(urlRegex);
+      
+      if (urlMatch) {
+        let protocol = urlMatch[1].toLowerCase();
+        let hostPort = urlMatch[3];
+
+        // 如果是标准的 http/https，保持原样，否则按需映射
+        // 这里可以处理 socks, ss, vmess 等变体
+        if (protocol === 'socks') protocol = 'socks5';
+
+        // 解析 host 和 port
+        let host = '';
+        let port = 1080;
+
+        // 针对 IPv6 处理（因为 IPv6 有很多冒号，且可能没有中括号）
+        if (hostPort.startsWith('[')) {
+          // 带中括号的 IPv6: [2401:...]:23050
+          const match6 = hostPort.match(/^\[([^\]]+)\](?::(\d+))?$/);
+          if (match6) {
+            host = match6[1];
+            port = parseInt(match6[2], 10) || 1080;
+          }
+        } else if (hostPort.split(':').length > 2) {
+          // 不带中括号的 IPv6: 2401:b60:e00e:7244:::23050
+          // 正则提取最后一部分为端口
+          const matchPort = hostPort.match(/(.+?):?(\d+)$/);
+          if (matchPort) {
+            host = matchPort[1];
+            port = parseInt(matchPort[2], 10);
+          } else {
+            host = hostPort;
+          }
+        } else {
+          // 普通 IPv4: 1.2.3.4:1080
+          const parts = hostPort.split(':');
+          host = parts[0];
+          port = parseInt(parts[1], 10) || 1080;
+        }
+
+        return {
+          name: `${protocol}-${host}:${port}`, // 自动生成易读的名字
+          type: protocol,
+          server: host,
+          port: port
+        };
+      }
+
+      // 2. 匹配空格/逗号分隔的格式: 名称 类型 服务器 端口
+      const parts = line.split(/[\s,]+/);
+      if (parts.length >= 4) {
+        return { name: parts[0], type: parts[1], server: parts[2], port: parseInt(parts[3], 10) || 1080 };
+      }
+      
+      // 3. 匹配裸 IP:端口 格式
+      if (line.includes(':') && !line.includes(' ')) {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+           return { name: 'socks5-' + line, type: 'socks5', server: parts[0], port: parseInt(parts[1], 10) };
+        }
+      }
+
+      return null;
+    };
+
     const importProxies = async () => {
       const lines = importText.value.split('\n').map(s => s.trim()).filter(Boolean);
       if (!lines.length) return showMsg('请输入导入内容', 'warning');
       
       const items = [];
       for (const line of lines) {
-        let parsed = null;
-        
-        // 1. 先尝试按代理链接解析 (如 socks5://user:pass@1.2.3.4:1080)
-        if (line.includes('://')) {
-          try {
-            const urlStr = line.includes('@') ? line : line.replace('://', '://dummy:dummy@');
-            const u = new URL(urlStr);
-            let host = u.hostname;
-            let port = parseInt(u.port, 10) || 1080;
-            
-            // 处理 IPv6 带中括号的情况
-            if (host.startsWith('[') && host.endsWith(']')) {
-              host = host.slice(1, -1);
-            }
-            
-            parsed = {
-              name: line, // 默认全名
-              type: u.protocol.replace(':', ''),
-              server: host,
-              port: port
-            };
-            // 如果 URL 带了 username，也可以存进名称里美观一点（视需求而定）
-            if (u.username && u.password) {
-              parsed.name = `${parsed.type}-${host}:${port}`;
-            } else {
-              parsed.name = `${parsed.type}-${host}:${port}`;
-            }
-          } catch (e) {
-            console.warn('URL 解析失败:', line);
-          }
-        }
-        
-        // 2. 如果不是链接，或者是解析失败的链接，尝试按 空格/逗号 分隔格式解析
-        if (!parsed) {
-          const p = line.split(/[\s,]+/);
-          if (p.length >= 4) {
-            parsed = { name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) };
-          }
-        }
-
-        // 3. 特殊兼容：如果只有 IP:端口 (例如 1.2.3.4:8080)
-        if (!parsed && line.includes(':') && !line.includes(' ')) {
-          const parts = line.split(':');
-          if (parts.length === 2) {
-             parsed = { name: 'socks5-' + line, type: 'socks5', server: parts[0], port: parseInt(parts[1], 10) };
-          }
-        }
-        
+        const parsed = parseProxyLine(line);
         if (parsed) {
           items.push(parsed);
         } else {
