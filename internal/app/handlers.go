@@ -596,18 +596,36 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		LastSeen int64  `json:"last_seen"`
 	}
 	result := make(map[string]AgentInfo)
-	for k, v := range settings {
-		if strings.HasPrefix(k, "agent_machine_") && v != "" {
-			code := strings.TrimPrefix(k, "agent_machine_")
-			// 读取最后在线时间
-			var lastSeen int64
-			tsStr := settings["agent_lastseen_"+code]
-			if tsStr != "" {
-				lastSeen, _ = strconv.ParseInt(tsStr, 10, 64)
-			}
-			result[code] = AgentInfo{Token: v, LastSeen: lastSeen}
+
+	// 1. 收集所有出现过的机器码（来自 agent_machine_ 或 agent_lastseen_）
+	codes := make(map[string]bool)
+	for k := range settings {
+		if strings.HasPrefix(k, "agent_machine_") {
+			codes[strings.TrimPrefix(k, "agent_machine_")] = true
+		}
+		if strings.HasPrefix(k, "agent_lastseen_") {
+			codes[strings.TrimPrefix(k, "agent_lastseen_")] = true
 		}
 	}
+
+	globalToken := settings["agent_token"]
+
+	// 2. 组装信息
+	for code := range codes {
+		token := settings["agent_machine_"+code]
+		// 如果机器专属 token 为空，前端用全局 token 顶替展示（或者留空，取决于前端逻辑）
+		if token == "" {
+			token = globalToken
+		}
+
+		var lastSeen int64
+		if tsStr := settings["agent_lastseen_"+code]; tsStr != "" {
+			lastSeen, _ = strconv.ParseInt(tsStr, 10, 64)
+		}
+
+		result[code] = AgentInfo{Token: token, LastSeen: lastSeen}
+	}
+
 	writeJSON(w, 200, result)
 }
 
