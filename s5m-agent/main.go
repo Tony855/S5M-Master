@@ -44,12 +44,12 @@ func decrypt(cryptoText string) (string, error) {
 func reloadMihomo() {
 	// 调用 Mihomo 外部控制 API 重载配置
 	reloadBody := strings.NewReader(`{"path": "/data/config.yaml"}`)
-	reloadReq, _ := http.NewRequest("PUT", "http://127.0.0.1:9090/configs?force=true", reloadBody)
+	reloadReq, _ := http.NewRequest("PUT", "http://127.0.0.1:8088/configs?force=true", reloadBody)
 	reloadReq.Header.Set("Content-Type", "application/json")
 	// 注意：这里需要和你 Mihomo 的真实 Secret 保持一致，默认是 change-this-secret
 	reloadReq.Header.Set("Authorization", "Bearer change-this-secret")
 	reloadResp, err := http.DefaultClient.Do(reloadReq)
-	if err == nil && reloadResp.StatusCode == 204 {
+	if err == nil && (reloadResp.StatusCode == 204 || reloadResp.StatusCode == 200) {
 		fmt.Println("✅ Mihomo 配置重载成功！")
 		reloadResp.Body.Close()
 	} else {
