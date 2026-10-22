@@ -533,7 +533,6 @@ func min(a, b int) int {
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	// 1. 解析 Bearer Token，拿到 machine_code
 	machineCode := ""
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
@@ -554,39 +553,20 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. 记录最后在线时间
+	// 记录最后在线时间
 	now := fmt.Sprintf("%d", time.Now().Unix())
 	a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
 
-	// 3. 按机器码过滤代理：本机专属 + 全局未绑定
-	proxies, err := a.store.ListProxies()
+	// 复用 configgen 生成完整配置（含 SRC-IP-CIDR 分流规则、REJECT 防泄漏规则）
+	yml, err := a.BuildConfigForMachine(machineCode)
 	if err != nil {
-		writeErr(w, 500, "读取代理列表失败")
+		writeErr(w, 500, "生成配置失败: "+err.Error())
 		return
 	}
-	var outs []proxyOut
-	for _, p := range proxies {
-		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
-			continue
-		}
-		if p.MachineCode != "" && p.MachineCode != machineCode {
-			continue
-		}
-		ex := map[string]any{}
-		for k, v := range p.Extra {
-			switch k {
-			case "name", "type", "server", "port":
-				continue
-			}
-			ex[k] = v
-		}
-		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
-	}
-	b, _ := yaml.Marshal(map[string]any{"proxies": outs, "rules": []string{"MATCH,DIRECT"}})
 
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+	w.Write([]byte(yml))
 }
 
 // 删除指定的机器码
