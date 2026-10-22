@@ -8,8 +8,10 @@
 <style>
   :root { --brand: #3b82f6; --bg: #f0f4f8; --card: #fff; --text: #1e293b; --sub: #64748b; --border: #e2e8f0; }
   * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; }
-  
+  [v-cloak]{ display:none !important; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Roboto, sans-serif; }
+
   .login-wrap { height: 100vh; display: flex; align-items: center; justify-content: center; }
   .login-card { width: 100%; max-width: 400px; background: var(--card); padding: 40px 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
   .login-title { text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 30px; }
@@ -20,22 +22,23 @@
   .aside .el-menu { border: none; background: transparent; }
   .aside .el-menu-item { color: #94a3b8; }
   .aside .el-menu-item.is-active { color: #fff; background: rgba(59,130,246,0.2); border-right: 3px solid var(--brand); }
-  
+
   .main { flex: 1; padding: 20px; overflow-y: auto; }
-  .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-  
+  .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 15px;
+    margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+
   .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
   .stat-card { background: var(--card); border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
   .stat-title { color: var(--sub); font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
   .stat-value { font-size: 24px; font-weight: bold; }
 
   .card-panel { background: var(--card); border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
-  .card-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-  
+  .card-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+
   .agent-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-  .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px; }
   .agent-code { font-weight: bold; font-family: monospace; color: var(--brand); word-break: break-all; }
-  .agent-token { background: #e2e8f0; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--sub); word-break: break-all; margin-bottom: 15px; }
+  .agent-token { background: #e2e8f0; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--sub); word-break: break-all; }
 
   .el-button--primary { background: var(--brand); border-color: var(--brand); }
   .el-button--primary:hover { background: #2563eb; border-color: #2563eb; }
@@ -46,7 +49,7 @@
     .logo { display: none; }
     .aside .el-menu { display: flex; flex-direction: row; }
     .aside .el-menu-item { border-right: none !important; border-bottom: 3px solid transparent; height: 50px; line-height: 50px; }
-    .aside .el-menu-item.is-active { border-bottom: 3px solid var(--brand); border-right: none; background: transparent; color: #60a5fa;}
+    .aside .el-menu-item.is-active { border-bottom: 3px solid var(--brand); border-right: none; background: transparent; color: #60a5fa; }
     .main { padding: 15px; }
     .grid-cards { grid-template-columns: 1fr; }
   }
@@ -58,9 +61,12 @@
   <div v-if="!token" class="login-wrap">
     <div class="login-card">
       <div class="login-title">管理员登录</div>
-      <el-input v-model="loginUser" placeholder="账号 (默认 admin)" style="margin-bottom: 20px;"></el-input>
-      <el-input v-model="loginPass" type="password" placeholder="密码" show-password style="margin-bottom: 25px;" @keyup.enter="doLogin"></el-input>
-      <el-button type="primary" style="width: 100%; height: 40px; font-size: 16px;" @click="doLogin" :loading="loggingIn">登 录</el-button>
+      <el-input v-model="loginUser" placeholder="账号 (默认 admin)" autocomplete="username"
+                style="margin-bottom: 20px;" @keyup.enter="doLogin"></el-input>
+      <el-input v-model="loginPass" type="password" placeholder="密码" show-password
+                autocomplete="current-password" style="margin-bottom: 25px;" @keyup.enter="doLogin"></el-input>
+      <el-button type="primary" style="width: 100%; height: 40px; font-size: 16px;"
+                 @click="doLogin" :loading="loggingIn">登 录</el-button>
     </div>
   </div>
 
@@ -78,7 +84,7 @@
 
     <el-main class="main">
       <div class="top-bar">
-        <span style="color: var(--sub);">👤 admin</span>
+        <span style="color: var(--sub);">👤 {{ currentUser || 'admin' }}</span>
         <el-button size="small" @click="logout">退出登录</el-button>
       </div>
 
@@ -87,24 +93,25 @@
         <div class="grid-cards">
           <div class="stat-card">
             <div class="stat-title">💻 Mihomo 内核</div>
-            <div class="stat-value">{{ overview.version || 'v1.19.32' }}</div>
-            <el-button size="small" type="primary" style="margin-top: 10px; width: 100%;">更新内核</el-button>
+            <div class="stat-value">{{ overview.version || '-' }}</div>
+            <el-button size="small" type="primary" style="margin-top: 10px; width: 100%;"
+                       :loading="updatingKernel" @click="updateKernel">检查并更新内核</el-button>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #ef4444;">⬇ 实时下载</div>
-            <div class="stat-value">{{ overview.download || '0 B/s' }}</div>
+            <div class="stat-title" style="color: #ef4444;">⬇ 累计下载</div>
+            <div class="stat-value">{{ fmtBytes(overview.downloadTotal) }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #8b5cf6;">⬆ 实时上传</div>
-            <div class="stat-value">{{ overview.upload || '0 B/s' }}</div>
+            <div class="stat-title" style="color: #8b5cf6;">⬆ 累计上传</div>
+            <div class="stat-value">{{ fmtBytes(overview.uploadTotal) }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-title" style="color: #3b82f6;">🔗 活跃连接</div>
-            <div class="stat-value">{{ overview.connections || 1 }}</div>
+            <div class="stat-value">{{ overview.connections ? overview.connections.length : 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #10b981;">⚡ 启用节点</div>
-            <div class="stat-value">{{ overview.nodes || '4 / 4' }}</div>
+            <div class="stat-title" style="color: #10b981;">⚡ 节点总数</div>
+            <div class="stat-value">{{ proxies.length }}</div>
           </div>
         </div>
       </div>
@@ -113,48 +120,105 @@
       <div v-if="page === 'proxies'">
         <div class="card-panel">
           <div class="card-title">
-            代理列表 ({{ proxies.length }} 个)
+            <span>代理列表 ({{ proxies.length }} 个)</span>
             <div>
-              <el-button size="small" type="primary" style="margin-right: 10px;">批量导入</el-button>
-              <el-button size="small" type="success">新增节点</el-button>
+              <el-button size="small" type="primary" style="margin-right: 10px;"
+                         @click="showImport = true">批量导入</el-button>
+              <el-button size="small" type="success" @click="openCreateProxy">新增节点</el-button>
             </div>
           </div>
-          <el-table :data="proxies" style="width: 100%" stripe>
-            <el-table-column prop="name" label="名称" min-width="150"></el-table-column>
-            <el-table-column prop="type" label="类型" width="100"></el-table-column>
-            <el-table-column label="服务器" min-width="200">
+          <el-table :data="proxies" style="width: 100%" stripe v-loading="loadingProxies">
+            <el-table-column prop="id" label="ID" width="70"></el-table-column>
+            <el-table-column prop="name" label="名称" min-width="140"></el-table-column>
+            <el-table-column prop="type" label="类型" width="90"></el-table-column>
+            <el-table-column prop="mode" label="模式" width="90"></el-table-column>
+            <el-table-column label="服务器" min-width="180">
               <template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+            <el-table-column prop="machine_code" label="绑定机器码" min-width="140"></el-table-column>
+            <el-table-column label="操作" width="160">
               <template #default="scope">
-                <el-button size="small" type="danger" plain>删除</el-button>
+                <el-button size="small" type="primary" plain @click="openEditProxy(scope.row)">编辑</el-button>
+                <el-button size="small" type="danger" plain style="margin-left: 6px;"
+                           @click="deleteProxy(scope.row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
         </div>
+
+        <!-- 新增/编辑代理弹窗 -->
+        <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="520px">
+          <el-form :model="proxyForm" label-width="90px">
+            <el-form-item label="名称"><el-input v-model="proxyForm.name"></el-input></el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="proxyForm.type" style="width:100%">
+                <el-option label="socks5" value="socks5"></el-option>
+                <el-option label="http" value="http"></el-option>
+                <el-option label="ss" value="ss"></el-option>
+                <el-option label="vmess" value="vmess"></el-option>
+                <el-option label="trojan" value="trojan"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="服务器"><el-input v-model="proxyForm.server"></el-input></el-form-item>
+            <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%"></el-input-number></el-form-item>
+            <el-form-item label="机器码"><el-input v-model="proxyForm.machine_code" placeholder="可选，绑定到实例"></el-input></el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="proxyDialog = false">取消</el-button>
+            <el-button type="primary" @click="saveProxy" :loading="savingProxy">保存</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- 批量导入弹窗 -->
+        <el-dialog v-model="showImport" title="批量导入代理" width="560px">
+          <p style="color:var(--sub);font-size:13px;">每行一个，格式：<code>名称 类型 服务器 端口</code>（空格分隔）</p>
+          <el-input v-model="importText" type="textarea" :rows="10"
+                    placeholder="node1 socks5 1.2.3.4 1080&#10;node2 http 5.6.7.8 8080"></el-input>
+          <template #footer>
+            <el-button @click="showImport = false">取消</el-button>
+            <el-button type="primary" @click="importProxies" :loading="importing">导入</el-button>
+          </template>
+        </el-dialog>
       </div>
 
-      <!-- 远端节点 (修复加载卡死，加入生成绑定功能) -->
+      <!-- 远端节点 -->
       <div v-if="page === 'instances'">
         <div class="card-panel">
           <div class="card-title">生成专属机器码 Token</div>
           <div style="display: flex; gap: 10px; margin-bottom: 20px;">
             <el-input v-model="newMachineCode" placeholder="输入机器码 (Machine Code)..."></el-input>
-            <el-button type="primary" @click="generateAgentToken">生成并绑定</el-button>
+            <el-button type="primary" @click="generateAgentToken" :loading="generating">生成并绑定</el-button>
           </div>
           <div v-if="generatedToken" style="padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; word-break: break-all;">
-            专属 Token: <strong style="font-family: monospace; font-size: 14px; margin-right: 10px;">{{ generatedToken }}</strong>
+            专属 Token:
+            <strong style="font-family: monospace; font-size: 14px; margin-right: 10px;">{{ generatedToken }}</strong>
             <el-button size="small" type="success" @click="safeCopy(generatedToken)">复制</el-button>
           </div>
         </div>
 
         <div class="card-panel">
           <div class="card-title">
-            已注册节点机器码
+            <span>已注册节点机器码</span>
             <el-button size="small" type="primary" @click="loadAgentsData">刷新列表</el-button>
           </div>
-          <div id="agent-list">
-            <div style="text-align:center; padding:20px; color:var(--sub);">加载中...</div>
+          <div v-if="agentLoading" style="text-align:center;padding:20px;color:var(--sub);">加载中...</div>
+          <div v-else-if="!agentEntries.length" style="text-align:center;padding:20px;color:var(--sub);">暂无数据</div>
+          <div v-else>
+            <div v-for="item in agentEntries" :key="item.code" class="agent-item">
+              <div class="agent-header">
+                <div>
+                  <span class="agent-code">{{ item.code }}</span>
+                  <span v-if="item.online" style="color:#10b981;font-size:12px;margin-left:8px;">● 在线</span>
+                  <span v-else style="color:#ef4444;font-size:12px;margin-left:8px;">● 离线</span>
+                </div>
+                <div>
+                  <el-button size="small" type="success" @click="safeCopy(item.token)">复制</el-button>
+                  <el-button size="small" type="danger" style="margin-left:8px;"
+                             @click="deleteAgent(item.code)">删除</el-button>
+                </div>
+              </div>
+              <div class="agent-token">{{ item.token }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -166,10 +230,18 @@
           <el-input v-model="subUrl" readonly style="margin-bottom: 20px;">
             <template #prepend>订阅地址</template>
           </el-input>
-          
-          <div class="card-title" style="margin-top: 30px;">发布全局配置 (YAML)</div>
-          <el-input v-model="configYaml" type="textarea" :rows="10" placeholder="在此粘贴或编写 Mihomo 配置..."></el-input>
-          <el-button type="primary" style="margin-top: 15px; width: 100%;" @click="publishConfig">保存并下发配置</el-button>
+
+          <div class="card-title" style="margin-top: 30px;">
+            <span>全局配置 (YAML)</span>
+            <el-button size="small" @click="loadConfig">重新加载</el-button>
+          </div>
+          <el-input v-model="configYaml" type="textarea" :rows="14"
+                    placeholder="在此粘贴或编写 Mihomo 配置..."></el-input>
+          <div style="display:flex;gap:10px;margin-top:15px;">
+            <el-button type="primary" style="flex:1;" @click="saveConfig" :loading="savingConfig">保存草稿</el-button>
+            <el-button type="success" style="flex:1;" @click="publishConfig" :loading="publishing">保存并下发到 Agent</el-button>
+          </div>
+          <p style="color:var(--sub);font-size:12px;margin-top:10px;">下发后 Agent 将在 30 秒内拉取新配置。</p>
         </div>
       </div>
 
@@ -180,125 +252,387 @@
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/element-plus.full.js"></script>
 <script>
-  const { createApp, ref, onMounted } = Vue;
-  createApp({
-    setup() {
-      const page = ref('dashboard');
-      const subUrl = ref('http://foodflow.v2net.cc/api/sub');
-      const token = ref(localStorage.getItem('s5m_next_token') || '');
-      const loginUser = ref('admin');
-      const loginPass = ref('');
-      const loggingIn = ref(false);
-      const configYaml = ref('');
-      const proxies = ref([]);
-      const overview = ref({});
-      const newMachineCode = ref('');
-      const generatedToken = ref('');
+const { createApp, ref, reactive, onMounted } = Vue;
 
-      const switchPage = (v) => {
-        page.value = v;
-        if (v === 'instances') loadAgentsData();
-        if (v === 'proxies') loadProxies();
-        if (v === 'dashboard') loadOverview();
-      };
+createApp({
+  setup() {
+    // ---- 状态 ----
+    const page = ref('dashboard');
+    const token = ref(localStorage.getItem('s5m_next_token') || '');
+    const loginUser = ref('admin');
+    const loginPass = ref('');
+    const loggingIn = ref(false);
+    const currentUser = ref(localStorage.getItem('s5m_next_user') || '');
 
-      const doLogin = async () => {
-        if(!loginUser.value || !loginPass.value) return alert('请输入账号密码');
-        loggingIn.value = true;
-        try {
-          const res = await fetch('/api/v1/auth/login', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: loginUser.value, password: loginPass.value })
-          });
-          const data = await res.json();
-          if (res.ok && data.token) {
-            localStorage.setItem('s5m_next_token', data.token);
-            token.value = data.token; loginPass.value = ''; switchPage('dashboard');
-          } else { alert(data.error || '账号或密码错误'); }
-        } catch(e) { alert('网络错误'); }
-        loggingIn.value = false;
-      };
+    const overview = ref({});
+    const proxies = ref([]);
+    const loadingProxies = ref(false);
 
-      const logout = () => { localStorage.removeItem('s5m_next_token'); token.value = ''; };
+    const newMachineCode = ref('');
+    const generatedToken = ref('');
+    const generating = ref(false);
+    const agentEntries = ref([]);
+    const agentLoading = ref(false);
 
-      const loadOverview = async () => {
-        try {
-          const res = await fetch('/api/v1/monitor/overview?t=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + token.value } });
-          if (res.ok) overview.value = await res.json() || {};
-        } catch(e) { console.log(e); }
-      };
+    const subUrl = ref('');
+    const configYaml = ref('');
+    const savingConfig = ref(false);
+    const publishing = ref(false);
+    const updatingKernel = ref(false);
 
-      const loadProxies = async () => {
-        try {
-          const res = await fetch('/api/v1/proxies?t=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + token.value } });
-          if (res.ok) proxies.value = await res.json() || [];
-        } catch(e) { console.log(e); }
-      };
+    // 代理弹窗
+    const proxyDialog = ref(false);
+    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '' });
+    const savingProxy = ref(false);
 
-      const loadAgentsData = async () => {
-        var box = document.getElementById('agent-list');
-        if (!box) return;
-        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--sub);">加载中...</div>';
-        try {
-          const res = await fetch('/api/v1/agents?t=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + token.value } });
-          if (res.status === 401) { logout(); throw new Error('登录过期'); }
-          const data = await res.json();
-          const keys = Object.keys(data);
-          if (!keys.length) { box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--sub);">暂无数据</div>'; return; }
-          var h = '';
-          keys.forEach(k => {
-            var item = data[k]; var v = item.token; var lastSeen = item.last_seen || 0;
-            var isOnline = lastSeen > 0;
-            var statusHtml = isOnline ? '<span style="color:#10b981;font-size:12px;margin-left:8px;">● 在线</span>' : '<span style="color:#ef4444;font-size:12px;margin-left:8px;">● 离线</span>';
-            h += '<div class="agent-item"><div class="agent-header"><div><span class="agent-code">' + k + '</span> ' + statusHtml + '</div>';
-            h += '<div><el-button size="small" type="success" onclick="safeCopy(\'' + v + '\')">复制</el-button>';
-            h += '<el-button size="small" type="danger" onclick="deleteAgent(\'' + k + '\')" style="margin-left:8px;">删除</el-button></div></div>';
-            h += '<div class="agent-token">' + v + '</div></div>';
-          });
-          box.innerHTML = h;
-        } catch(e) { box.innerHTML = '<div style="text-align:center;padding:20px;color:#ef4444;">' + e.message + '</div>'; }
-      };
+    // 批量导入
+    const showImport = ref(false);
+    const importText = ref('');
+    const importing = ref(false);
 
-      const generateAgentToken = async () => {
-        if (!newMachineCode.value) return alert('请输入机器码');
-        try {
-          const res = await fetch('/api/v1/agents/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token.value },
-            body: JSON.stringify({ machine_code: newMachineCode.value })
-          });
-          const data = await res.json();
-          if (data.token) {
-            generatedToken.value = data.token;
-            loadAgentsData();
-          } else { alert(data.error || '生成失败'); }
-        } catch(e) { alert('网络错误'); }
-      };
+    // ---- 工具 ----
+    const fmtBytes = (n) => {
+      n = Number(n) || 0;
+      if (n < 1024) return n + ' B';
+      const units = ['KB','MB','GB','TB'];
+      let i = -1;
+      do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+      return n.toFixed(2) + ' ' + units[i];
+    };
 
-      const publishConfig = async () => {
-        if (!configYaml.value) return alert('配置不能为空');
-        try {
-          const res = await fetch('/api/v1/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token.value }, body: JSON.stringify({ config_yaml: configYaml.value }) });
-          const data = await res.json();
-          if (res.ok) alert('发布成功，Agent 将在 30 秒内更新'); else alert(data.error || '发布失败');
-        } catch(e) { alert('网络错误'); }
-      };
+    const authHeaders = (extra) => Object.assign(
+      { 'Authorization': 'Bearer ' + token.value }, extra || {}
+    );
 
-      window.deleteAgent = async (code) => {
-        if (!confirm('确定删除该机器码？')) return;
-        try { await fetch('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + token.value } }); loadAgentsData(); }
-        catch(e) { alert('删除失败'); }
-      };
-      window.safeCopy = (text) => {
-        if(!text) return; var t = document.createElement("textarea"); t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
-        document.body.appendChild(t); t.select(); try { document.execCommand('copy'); alert('复制成功'); } catch (e) { alert('复制失败'); } document.body.removeChild(t);
-      };
-
-      onMounted(() => { if(token.value) switchPage('dashboard'); });
-
-      return { page, subUrl, token, loginUser, loginPass, loggingIn, configYaml, proxies, overview, newMachineCode, generatedToken, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, publishConfig };
+    async function api(path, opts) {
+      opts = opts || {};
+      opts.headers = authHeaders(opts.headers || {});
+      const res = await fetch(path, opts);
+      if (res.status === 401) {
+        logout();
+        throw new Error('登录已失效');
+      }
+      return res;
     }
-  }).use(ElementPlus).mount('#app');
+
+    async function parseErr(res) {
+      try { const d = await res.json(); return d.error || d.message || ('HTTP ' + res.status); }
+      catch (e) { return 'HTTP ' + res.status; }
+    }
+
+    const logout = () => {
+      localStorage.removeItem('s5m_next_token');
+      localStorage.removeItem('s5m_next_user');
+      token.value = ''; currentUser.value = ''; loginPass.value = '';
+    };
+
+    // ---- 登录 ----
+    const doLogin = async () => {
+      if (!loginUser.value || !loginPass.value) return alert('请输入账号密码');
+      loggingIn.value = true;
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: loginUser.value, password: loginPass.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.token) {
+          localStorage.setItem('s5m_next_token', data.token);
+          localStorage.setItem('s5m_next_user', loginUser.value);
+          token.value = data.token;
+          currentUser.value = loginUser.value;
+          loginPass.value = '';
+          switchPage('dashboard');
+        } else {
+          alert(data.error || data.message || '账号或密码错误');
+        }
+      } catch (e) { alert('网络错误'); }
+      loggingIn.value = false;
+    };
+
+    // ---- 页面切换 ----
+    const PAGES = ['dashboard','proxies','instances','config'];
+    const switchPage = (v) => {
+      if (!PAGES.includes(v)) v = 'dashboard';
+      page.value = v;
+      if (v === 'dashboard') loadOverview();
+      if (v === 'proxies') loadProxies();
+      if (v === 'instances') loadAgentsData();
+      if (v === 'config') { loadConfig(); loadSettings(); }
+    };
+
+    // ---- 仪表盘 ----
+    const loadOverview = async () => {
+      try {
+        const res = await api('/api/v1/monitor/overview?t=' + Date.now());
+        if (res.ok) overview.value = await res.json() || {};
+      } catch (e) { console.warn(e); }
+    };
+
+    const updateKernel = async () => {
+      if (!confirm('确定检查并更新 Mihomo 内核？更新期间会短暂停止 mihomo 服务。')) return;
+      updatingKernel.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        alert(res.ok ? (d.message || '操作成功') : (d.error || '更新失败'));
+        loadOverview();
+      } catch (e) { alert(e.message || '网络错误'); }
+      updatingKernel.value = false;
+    };
+
+    // ---- 代理 ----
+    const loadProxies = async () => {
+      loadingProxies.value = true;
+      try {
+        const res = await api('/api/v1/proxies?t=' + Date.now());
+        if (res.ok) {
+          const d = await res.json();
+          proxies.value = Array.isArray(d) ? d : (d.data || d.proxies || []);
+        }
+      } catch (e) { console.warn(e); }
+      loadingProxies.value = false;
+    };
+
+    const openCreateProxy = () => {
+      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '' });
+      proxyDialog.value = true;
+    };
+
+    const openEditProxy = (row) => {
+      Object.assign(proxyForm, {
+        id: row.id || 0,
+        name: row.name || '',
+        type: row.type || 'socks5',
+        server: row.server || '',
+        port: row.port || 1080,
+        machine_code: row.machine_code || ''
+      });
+      proxyDialog.value = true;
+    };
+
+    const saveProxy = async () => {
+      if (!proxyForm.name || !proxyForm.server || !proxyForm.port) return alert('请填写名称/服务器/端口');
+      savingProxy.value = true;
+      try {
+        const isEdit = proxyForm.id > 0;
+        const url = isEdit ? ('/api/v1/proxies/' + proxyForm.id) : '/api/v1/proxies';
+        const res = await api(url, {
+          method: isEdit ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: proxyForm.name,
+            type: proxyForm.type,
+            server: proxyForm.server,
+            port: proxyForm.port,
+            machine_code: proxyForm.machine_code
+          })
+        });
+        if (res.ok) {
+          proxyDialog.value = false;
+          loadProxies();
+        } else {
+          alert(await parseErr(res));
+        }
+      } catch (e) { alert(e.message || '网络错误'); }
+      savingProxy.value = false;
+    };
+
+    const deleteProxy = async (row) => {
+      if (!row.id) return alert('该节点无 id，无法删除');
+      if (!confirm('确定删除节点 "' + row.name + '" ？')) return;
+      try {
+        const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
+        if (res.ok) { loadProxies(); }
+        else alert(await parseErr(res));
+      } catch (e) { alert(e.message || '删除失败'); }
+    };
+
+    const importProxies = async () => {
+      const lines = importText.value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!lines.length) return alert('请输入导入内容');
+      const items = [];
+      for (const line of lines) {
+        const p = line.split(/\s+/);
+        if (p.length < 4) return alert('格式错误：' + line + '（需要 名称 类型 服务器 端口）');
+        items.push({ name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) });
+      }
+      importing.value = true;
+      try {
+        const res = await api('/api/v1/proxies/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proxies: items })
+        });
+        if (res.ok) {
+          showImport.value = false;
+          importText.value = '';
+          loadProxies();
+          alert('导入成功');
+        } else alert(await parseErr(res));
+      } catch (e) { alert(e.message || '导入失败'); }
+      importing.value = false;
+    };
+
+    // ---- 远端节点 / Agent ----
+    const loadAgentsData = async () => {
+      agentLoading.value = true;
+      try {
+        const res = await api('/api/v1/agents?t=' + Date.now());
+        if (!res.ok) { agentEntries.value = []; return; }
+        const data = await res.json();
+        const now = Math.floor(Date.now() / 1000);
+        const list = [];
+        Object.keys(data || {}).forEach(code => {
+          const item = data[code] || {};
+          const last = Number(item.last_seen) || 0;
+          // 5 分钟内上报视为在线
+          const online = last > 0 && (now - last) < 300;
+          list.push({ code: code, token: item.token || '', online: online, last_seen: last });
+        });
+        list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+        agentEntries.value = list;
+      } catch (e) {
+        console.warn(e);
+        agentEntries.value = [];
+      }
+      agentLoading.value = false;
+    };
+
+    const generateAgentToken = async () => {
+      if (!newMachineCode.value) return alert('请输入机器码');
+      generating.value = true;
+      try {
+        const res = await api('/api/v1/agents/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machine_code: newMachineCode.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.token) {
+          generatedToken.value = data.token;
+          newMachineCode.value = '';
+          loadAgentsData();
+        } else {
+          alert(data.error || data.message || '生成失败');
+        }
+      } catch (e) { alert(e.message || '网络错误'); }
+      generating.value = false;
+    };
+
+    const deleteAgent = async (code) => {
+      if (!confirm('确定删除机器码 "' + code + '" 的 Token？')) return;
+      try {
+        const res = await api('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' });
+        if (res.ok) loadAgentsData();
+        else alert(await parseErr(res));
+      } catch (e) { alert(e.message || '删除失败'); }
+    };
+
+    const safeCopy = async (text) => {
+      if (!text) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const t = document.createElement('textarea');
+          t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
+          document.body.appendChild(t); t.select();
+          document.execCommand('copy'); document.body.removeChild(t);
+        }
+        alert('复制成功');
+      } catch (e) { alert('复制失败'); }
+    };
+
+    // ---- 配置 / 设置 ----
+    const loadConfig = async () => {
+      try {
+        const res = await api('/api/v1/config/preview?t=' + Date.now());
+        if (res.ok) {
+          const d = await res.json().catch(() => ({}));
+          configYaml.value = d.config_yaml || d.yaml || d.yaml_text || '';
+        }
+      } catch (e) { console.warn(e); }
+    };
+
+    const loadSettings = async () => {
+      try {
+        const res = await api('/api/v1/settings?t=' + Date.now());
+        if (res.ok) {
+          const s = await res.json().catch(() => ({}));
+          subUrl.value = s.subscribe_url || s.sub_url || (location.origin + '/api/v1/subscribe');
+        } else {
+          subUrl.value = location.origin + '/api/v1/subscribe';
+        }
+      } catch (e) {
+        subUrl.value = location.origin + '/api/v1/subscribe';
+      }
+    };
+
+    const saveConfig = async () => {
+      if (!configYaml.value) return alert('配置不能为空');
+      savingConfig.value = true;
+      try {
+        const res = await api('/api/v1/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: configYaml.value })
+        });
+        if (res.ok) alert('已保存草稿');
+        else alert(await parseErr(res));
+      } catch (e) { alert(e.message || '保存失败'); }
+      savingConfig.value = false;
+    };
+
+    const publishConfig = async () => {
+      if (!configYaml.value) return alert('配置不能为空');
+      publishing.value = true;
+      try {
+        // 先保存
+        let res = await api('/api/v1/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: configYaml.value })
+        });
+        if (!res.ok) { alert('保存失败：' + (await parseErr(res))); publishing.value = false; return; }
+        // 再发布
+        res = await api('/api/v1/config/publish', { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        if (res.ok) alert(d.message || '已下发，Agent 将在 30 秒内拉取');
+        else alert(d.error || d.message || '发布失败');
+      } catch (e) { alert(e.message || '发布失败'); }
+      publishing.value = false;
+    };
+
+    // ---- 启动 ----
+    onMounted(() => {
+      if (token.value) {
+        // 校验 token 是否有效
+        fetch('/api/v1/auth/me', { headers: authHeaders() })
+          .then(r => { if (r.status === 401) logout(); else if (r.ok) r.json().then(d => { currentUser.value = d.username || currentUser.value; }).catch(()=>{}); })
+          .catch(() => {});
+        switchPage('dashboard');
+      }
+    });
+
+    return {
+      // 状态
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      overview, proxies, loadingProxies,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading,
+      subUrl, configYaml, savingConfig, publishing, updatingKernel,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importText, importing,
+      // 方法
+      switchPage, doLogin, logout,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadConfig, loadSettings, saveConfig, publishConfig,
+      fmtBytes
+    };
+  }
+}).use(ElementPlus).mount('#app');
 </script>
 </body>
 </html>
