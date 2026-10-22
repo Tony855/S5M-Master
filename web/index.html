@@ -232,7 +232,7 @@
           </template>
         </el-dialog>
 
-        <!-- 批量导入弹窗 (支持文本和文件) -->
+        <!-- 批量导入弹窗 (支持文本和多种文件格式) -->
         <el-dialog v-model="showImport" title="批量导入代理" width="90%" style="max-width: 560px;">
           <el-tabs v-model="importTab">
             <el-tab-pane label="文本粘贴" name="text">
@@ -241,8 +241,11 @@
                         placeholder="node1 socks5 1.2.3.4 1080&#10;node2 http 5.6.7.8 8080"></el-input>
             </el-tab-pane>
             <el-tab-pane label="上传文件" name="file">
-              <p style="color:var(--sub);font-size:13px;margin-bottom:10px;">支持 .txt 或 .csv 格式，内容要求同上。</p>
-              <input type="file" accept=".txt,.csv" @change="handleFileUpload" style="margin-top: 10px;" />
+              <p style="color:var(--sub);font-size:13px;margin-bottom:10px;">支持上传 <strong>.json</strong>、<strong>.txt</strong> 或 <strong>.csv</strong> 文件。</p>
+              <input type="file" accept=".txt,.csv,.json" @change="handleFileUpload" style="margin-top: 10px;" />
+              <div v-if="importTab === 'file' && importText" style="margin-top: 15px; padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534; font-size: 13px;">
+                文件已读取并解析成功，点击“导入”即可生效。
+              </div>
             </el-tab-pane>
           </el-tabs>
           <template #footer>
@@ -354,7 +357,7 @@ createApp({
 
     const showImport = ref(false);
     const importTab = ref('text');
-    const importText = ref('');
+    const importText = ref('');      // 用于存放待提交的纯文本数据
     const importing = ref(false);
 
     const fmtBytes = (n) => {
@@ -516,27 +519,66 @@ createApp({
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
+    // 文件上传处理（支持 txt/csv/json）
     const handleFileUpload = (e) => {
       const file = e.target.files[0];
       if (!file) return;
+      
       const reader = new FileReader();
       reader.onload = (evt) => {
-        importText.value = evt.target.result;
-        showMsg('文件已读取，请点击导入', 'success');
+        const content = evt.target.result;
+        
+        // 如果是 JSON 文件，自动解析并转成兼容的文本格式
+        if (file.name.endsWith('.json')) {
+          try {
+            const json = JSON.parse(content);
+            let arr = [];
+            if (Array.isArray(json)) {
+              arr = json;
+            } else if (json.proxies && Array.isArray(json.proxies)) {
+              arr = json.proxies;
+            } else {
+              throw new Error('JSON 格式不正确，找不到节点数组');
+            }
+            
+            // 将 JSON 数组拼回文本给后端（防止后端 import 只接收文本或对象）
+            // 注意：由于你的前端 importProxies 是按照文本行解析的，我们要在这里转为文本
+            const lines = arr.map(item => {
+              const name = item.name || item.proxy_name || '未命名';
+              const type = item.type || item.proxy_type || 'socks5';
+              const server = item.server || '';
+              const port = item.port || 1080;
+              return `${name} ${type} ${server} ${port}`;
+            });
+            importText.value = lines.join('\n');
+            showMsg('JSON 解析成功，点击导入即可生效', 'success');
+            
+          } catch (err) {
+            showMsg('JSON 解析失败：' + err.message, 'error');
+            importText.value = '';
+          }
+        } else {
+          // 普通 txt 或 csv
+          importText.value = content;
+          showMsg('文件读取成功，请点击导入', 'success');
+        }
       };
       reader.readAsText(file);
     };
 
+    // 提交导入
     const importProxies = async () => {
       const lines = importText.value.split('\n').map(s => s.trim()).filter(Boolean);
-      if (!lines.length) return showMsg('请输入导入内容', 'warning');
+      if (!lines.length) return showMsg('没有解析到有效的节点数据', 'warning');
+      
       const items = [];
       for (const line of lines) {
         // 兼容空格、Tab 和逗号分隔
         const p = line.split(/[\s,]+/);
-        if (p.length < 4) return showMsg('格式错误：' + line, 'error');
+        if (p.length < 4) return showMsg('格式错误，列数不足：' + line, 'error');
         items.push({ name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) });
       }
+      
       importing.value = true;
       try {
         const res = await api('/api/v1/proxies/import', {
