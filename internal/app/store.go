@@ -301,3 +301,13 @@ func (s *Store) VersionYAML(version int) (string, error) {
 	err := s.db.QueryRow(`SELECT yaml_text FROM config_versions WHERE version=?`, version).Scan(&y)
 	return y, err
 }
+
+func (s *Store) DeleteSettings(keys []string) error {
+tx, err := s.db.Begin()
+if err != nil { return err }
+defer tx.Rollback()
+for _, k := range keys {
+if _, err := tx.Exec("DELETE FROM settings WHERE key=?", k); err != nil { return err }
+}
+return tx.Commit()
+}
