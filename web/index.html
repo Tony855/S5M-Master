@@ -43,6 +43,11 @@
   .el-button--primary { background: var(--brand); border-color: var(--brand); }
   .el-button--primary:hover { background: #2563eb; border-color: #2563eb; }
 
+  /* 状态小圆点和文字 */
+  .status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 8px; border-radius: 12px; font-weight: normal; margin-left: 10px; }
+  .status-online { background: #dcfce7; color: #166534; }
+  .status-offline { background: #fee2e2; color: #991b1b; }
+
   @media (max-width: 768px) {
     .layout { flex-direction: column; }
     .aside { width: 100%; flex-direction: row; overflow-x: auto; border-bottom: 1px solid rgba(255,255,255,0.1); }
@@ -57,7 +62,6 @@
 </head>
 <body>
 <div id="app" v-cloak>
-  <!-- 登录页 -->
   <div v-if="!token" class="login-wrap">
     <div class="login-card">
       <div class="login-title">管理员登录</div>
@@ -70,7 +74,6 @@
     </div>
   </div>
 
-  <!-- 主界面 -->
   <el-container v-else class="layout">
     <el-aside class="aside">
       <div class="logo">S5M Proxy</div>
@@ -88,29 +91,38 @@
         <el-button size="small" @click="logout">退出登录</el-button>
       </div>
 
-      <!-- 仪表盘 -->
       <div v-if="page === 'dashboard'">
         <div class="grid-cards">
           <div class="stat-card">
-            <div class="stat-title">💻 Mihomo 内核</div>
-            <div class="stat-value" :style="{ color: overview.mihomo && overview.mihomo.online ? '#10b981' : '#ef4444' }">
-              {{ getVersion(overview) }}
+            <div class="stat-title">
+              💻 Mihomo 内核
+              <!-- 这里加入了状态徽章 -->
+              <span v-if="overview.mihomo && overview.mihomo.online" class="status-badge status-online">🟢 已运行</span>
+              <span v-else class="status-badge status-offline">🔴 已停止</span>
+            </div>
+            <!-- 只显示版本号，如果离线则显示 -- -->
+            <div class="stat-value" style="color: var(--text);">
+              {{ overview.mihomo && overview.mihomo.online ? (overview.mihomo.version ? overview.mihomo.version.version : '未知版本') : '--' }}
             </div>
             <el-button size="small" type="primary" style="margin-top: 10px; width: 100%;"
                        :loading="updatingKernel" @click="updateKernel">检查并更新内核</el-button>
           </div>
+          
           <div class="stat-card">
             <div class="stat-title" style="color: #ef4444;">⬇ 实时下载</div>
             <div class="stat-value">{{ fmtBytes(overview.downloadTotal) }}</div>
           </div>
+          
           <div class="stat-card">
             <div class="stat-title" style="color: #8b5cf6;">⬆ 实时上传</div>
             <div class="stat-value">{{ fmtBytes(overview.uploadTotal) }}</div>
           </div>
+          
           <div class="stat-card">
             <div class="stat-title" style="color: #3b82f6;">🔗 活跃连接</div>
             <div class="stat-value">{{ overview.connections ? overview.connections.length : 0 }}</div>
           </div>
+          
           <div class="stat-card">
             <div class="stat-title" style="color: #10b981;">⚡ 启用节点</div>
             <div class="stat-value">{{ overview.proxy_enabled || 0 }} / {{ overview.proxy_total || 0 }}</div>
@@ -118,7 +130,6 @@
         </div>
       </div>
 
-      <!-- 代理管理 -->
       <div v-if="page === 'proxies'">
         <div class="card-panel">
           <div class="card-title">
@@ -148,7 +159,6 @@
           </el-table>
         </div>
 
-        <!-- 新增/编辑代理弹窗 -->
         <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="520px">
           <el-form :model="proxyForm" label-width="90px">
             <el-form-item label="名称"><el-input v-model="proxyForm.name"></el-input></el-form-item>
@@ -171,7 +181,6 @@
           </template>
         </el-dialog>
 
-        <!-- 批量导入弹窗 -->
         <el-dialog v-model="showImport" title="批量导入代理" width="560px">
           <p style="color:var(--sub);font-size:13px;">每行一个，格式：<code>名称 类型 服务器 端口</code>（空格分隔）</p>
           <el-input v-model="importText" type="textarea" :rows="10"
@@ -183,7 +192,6 @@
         </el-dialog>
       </div>
 
-      <!-- 远端节点 -->
       <div v-if="page === 'instances'">
         <div class="card-panel">
           <div class="card-title">生成专属机器码 Token</div>
@@ -225,7 +233,6 @@
         </div>
       </div>
 
-      <!-- 配置管理 -->
       <div v-if="page === 'config'">
         <div class="card-panel">
           <div class="card-title">客户端订阅链接</div>
@@ -289,7 +296,6 @@ createApp({
     const importText = ref('');
     const importing = ref(false);
 
-    // ===== 工具函数 =====
     const fmtBytes = (n) => {
       n = Number(n) || 0;
       if (n < 1024) return n + ' B';
@@ -299,18 +305,10 @@ createApp({
       return n.toFixed(2) + ' ' + units[i];
     };
 
-    const getVersion = (ov) => {
-      if (ov.mihomo && ov.mihomo.version && ov.mihomo.version.version) {
-        return ov.mihomo.version.version;
-      }
-      return ov.mihomo && ov.mihomo.online ? '已在线 (未知版本)' : '离线';
-    };
-
     const authHeaders = (extra) => Object.assign(
       { 'Authorization': 'Bearer ' + token.value }, extra || {}
     );
 
-    // 统一错误提示
     const showMsg = (msg, type) => {
       ElementPlus.ElMessage({ message: msg, type: type || 'info', duration: 3000 });
     };
@@ -337,7 +335,6 @@ createApp({
       token.value = ''; currentUser.value = ''; loginPass.value = '';
     };
 
-    // ===== 登录 =====
     const doLogin = async () => {
       if (!loginUser.value || !loginPass.value) return showMsg('请输入账号密码', 'warning');
       loggingIn.value = true;
@@ -362,7 +359,6 @@ createApp({
       loggingIn.value = false;
     };
 
-    // ===== 页面切换 =====
     const PAGES = ['dashboard','proxies','instances','config'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
@@ -373,7 +369,6 @@ createApp({
       if (v === 'config') { loadConfig(); loadSettings(); }
     };
 
-    // ===== 仪表盘 =====
     const loadOverview = async () => {
       try {
         const res = await api('/api/v1/monitor/overview?t=' + Date.now());
@@ -386,17 +381,13 @@ createApp({
       try {
         const res = await api('/api/v1/mihomo/update', { method: 'POST' });
         const d = await res.json().catch(() => ({}));
-        if (res.ok) {
-          showMsg(d.message || '操作成功', 'success');
-        } else {
-          showMsg(d.error || '更新失败', 'error');
-        }
+        if (res.ok) showMsg(d.message || '操作成功', 'success');
+        else showMsg(d.error || '更新失败', 'error');
         loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       updatingKernel.value = false;
     };
 
-    // ===== 代理 =====
     const loadProxies = async () => {
       loadingProxies.value = true;
       try {
@@ -490,7 +481,6 @@ createApp({
       importing.value = false;
     };
 
-    // ===== 远端节点 =====
     const loadAgentsData = async () => {
       agentLoading.value = true;
       try {
@@ -558,7 +548,6 @@ createApp({
       } catch (e) { showMsg('复制失败', 'error'); }
     };
 
-    // ===== 配置管理 =====
     const loadConfig = async () => {
       try {
         const res = await api('/api/v1/config/preview?t=' + Date.now());
@@ -637,7 +626,7 @@ createApp({
       updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadConfig, loadSettings, saveConfig, publishConfig,
-      fmtBytes, getVersion
+      fmtBytes
     };
   }
 }).use(ElementPlus).mount('#app');
