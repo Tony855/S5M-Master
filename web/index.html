@@ -171,7 +171,9 @@
             <el-table-column label="服务器" min-width="180">
               <template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template>
             </el-table-column>
-            <el-table-column prop="machine_code" label="绑定机器码" min-width="140"></el-table-column>
+            <el-table-column label="账号" width="100">
+              <template #default="scope">{{ scope.row.extra && scope.row.extra.username ? scope.row.extra.username : '-' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="160">
               <template #default="scope">
                 <el-button size="small" class="btn-action-edit" @click="openEditProxy(scope.row)">编辑</el-button>
@@ -196,9 +198,9 @@
                 <div class="proxy-mobile-label">服务器</div>
                 <div class="proxy-mobile-value">{{ item.server }}:{{ item.port }}</div>
               </div>
-              <div class="proxy-mobile-row" v-if="item.machine_code">
-                <div class="proxy-mobile-label">机器码</div>
-                <div class="proxy-mobile-value">{{ item.machine_code }}</div>
+              <div class="proxy-mobile-row" v-if="item.extra && item.extra.username">
+                <div class="proxy-mobile-label">账号</div>
+                <div class="proxy-mobile-value">{{ item.extra.username }}</div>
               </div>
               <div class="proxy-mobile-actions">
                 <el-button size="small" class="btn-action-edit" @click="openEditProxy(item)">编辑</el-button>
@@ -224,6 +226,10 @@
             </el-form-item>
             <el-form-item label="服务器"><el-input v-model="proxyForm.server"></el-input></el-form-item>
             <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%"></el-input-number></el-form-item>
+            
+            <el-form-item label="账号"><el-input v-model="proxyForm.username" placeholder="可选"></el-input></el-form-item>
+            <el-form-item label="密码"><el-input v-model="proxyForm.password" placeholder="可选"></el-input></el-form-item>
+            
             <el-form-item label="机器码"><el-input v-model="proxyForm.machine_code" placeholder="可选，绑定到实例"></el-input></el-form-item>
           </el-form>
           <template #footer>
@@ -356,7 +362,8 @@ createApp({
     const updatingKernel = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '' });
+    // 代理表单增加 username 和 password 字段
+    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', username: '', password: '' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -469,7 +476,7 @@ createApp({
     };
 
     const openCreateProxy = () => {
-      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '' });
+      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', username: '', password: '' });
       proxyDialog.value = true;
     };
 
@@ -480,7 +487,9 @@ createApp({
         type: row.type || row.proxy_type || 'socks5',
         server: row.server || '',
         port: row.port || 1080,
-        machine_code: row.machine_code || ''
+        machine_code: row.machine_code || '',
+        username: (row.extra && row.extra.username) ? row.extra.username : '',
+        password: (row.extra && row.extra.password) ? row.extra.password : ''
       });
       proxyDialog.value = true;
     };
@@ -491,6 +500,12 @@ createApp({
       try {
         const isEdit = proxyForm.id > 0;
         const url = isEdit ? ('/api/v1/proxies/' + proxyForm.id) : '/api/v1/proxies';
+        
+        // 组装 extra 字段
+        const extra = {};
+        if (proxyForm.username) extra.username = proxyForm.username;
+        if (proxyForm.password) extra.password = proxyForm.password;
+
         const res = await api(url, {
           method: isEdit ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -499,7 +514,8 @@ createApp({
             type: proxyForm.type,
             server: proxyForm.server,
             port: proxyForm.port,
-            machine_code: proxyForm.machine_code
+            machine_code: proxyForm.machine_code,
+            extra: extra
           })
         });
         if (res.ok) {
@@ -584,7 +600,6 @@ createApp({
             importText.value = '';
           }
         } else {
-          // 普通 txt 或 csv（可能是代理链接）
           importText.value = content;
           showMsg('文件读取成功，请点击导入', 'success');
         }
@@ -592,38 +607,44 @@ createApp({
       reader.readAsText(file);
     };
 
-    // 终极解析引擎：专治各种代理长链接（含 IPv6、空密码、特殊协议）
+    // 终极解析引擎：提取包含账号密码的链接
     const parseProxyLine = (line) => {
       if (!line) return null;
 
-      // 1. 匹配链接格式，例如: socks5://user:pass@2401:b60:e00e:7244:::23050
-      // 或者是 socks5://:@2401:b60:e00e:7244:::23050
+      // 匹配协议、账号密码、IP端口
       const urlRegex = /^([a-zA-Z0-9]+):\/\/(?:(.*?)@)?([^@]+)$/;
       const urlMatch = line.match(urlRegex);
       
       if (urlMatch) {
         let protocol = urlMatch[1].toLowerCase();
+        let authStr = urlMatch[2] || '';
         let hostPort = urlMatch[3];
 
-        // 如果是标准的 http/https，保持原样，否则按需映射
-        // 这里可以处理 socks, ss, vmess 等变体
+        // 解析账号密码
+        let username = '';
+        let password = '';
+        if (authStr) {
+          const authParts = authStr.split(':');
+          if (authParts.length >= 2) {
+            username = authParts[0];
+            password = authParts.slice(1).join(':'); // 防止密码里有冒号
+          } else {
+            username = authStr;
+          }
+        }
+
         if (protocol === 'socks') protocol = 'socks5';
 
-        // 解析 host 和 port
         let host = '';
         let port = 1080;
 
-        // 针对 IPv6 处理（因为 IPv6 有很多冒号，且可能没有中括号）
         if (hostPort.startsWith('[')) {
-          // 带中括号的 IPv6: [2401:...]:23050
           const match6 = hostPort.match(/^\[([^\]]+)\](?::(\d+))?$/);
           if (match6) {
             host = match6[1];
             port = parseInt(match6[2], 10) || 1080;
           }
         } else if (hostPort.split(':').length > 2) {
-          // 不带中括号的 IPv6: 2401:b60:e00e:7244:::23050
-          // 正则提取最后一部分为端口
           const matchPort = hostPort.match(/(.+?):?(\d+)$/);
           if (matchPort) {
             host = matchPort[1];
@@ -632,27 +653,31 @@ createApp({
             host = hostPort;
           }
         } else {
-          // 普通 IPv4: 1.2.3.4:1080
           const parts = hostPort.split(':');
           host = parts[0];
           port = parseInt(parts[1], 10) || 1080;
         }
 
+        const extra = {};
+        if (username) extra.username = username;
+        if (password) extra.password = password;
+
         return {
-          name: `${protocol}-${host}:${port}`, // 自动生成易读的名字
+          name: `${protocol}-${host}:${port}`,
           type: protocol,
           server: host,
-          port: port
+          port: port,
+          extra: Object.keys(extra).length > 0 ? extra : undefined
         };
       }
 
-      // 2. 匹配空格/逗号分隔的格式: 名称 类型 服务器 端口
+      // 空格分隔格式
       const parts = line.split(/[\s,]+/);
       if (parts.length >= 4) {
         return { name: parts[0], type: parts[1], server: parts[2], port: parseInt(parts[3], 10) || 1080 };
       }
       
-      // 3. 匹配裸 IP:端口 格式
+      // 裸 IP:端口
       if (line.includes(':') && !line.includes(' ')) {
         const parts = line.split(':');
         if (parts.length === 2) {
