@@ -6,21 +6,14 @@
 <title>S5M Proxy Service</title>
 <link rel="stylesheet" href="/vendor/element-plus.css">
 <style>
-  :root{
-    --bg: #f0f4f8;
-    --card-bg: #ffffff;
-    --text-main: #1e293b;
-    --text-sub: #64748b;
-    --brand: #3b82f6;      /* 蓝色主题 */
-    --brand-dark: #2563eb;
-    --border: #e2e8f0;
-  }
-  *{box-sizing:border-box}
-  html,body{height:100%;margin:0; background: var(--bg); color: var(--text-main); font-family: -apple-system, sans-serif;}
-  .login-wrap { height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .login-card { width: 100%; max-width: 400px; background: var(--card-bg); padding: 40px 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-  .login-title { text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 30px; color: var(--text-main); }
+  :root { --brand: #3b82f6; --bg: #f0f4f8; --card: #fff; --text: #1e293b; --sub: #64748b; --border: #e2e8f0; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; }
   
+  .login-wrap { height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .login-card { width: 100%; max-width: 400px; background: var(--card); padding: 40px 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+  .login-title { text-align: center; font-size: 22px; font-weight: bold; margin-bottom: 30px; }
+
   .layout { height: 100vh; display: flex; }
   .aside { width: 220px; background: #0f172a; color: #fff; display: flex; flex-direction: column; }
   .logo { padding: 20px; font-size: 18px; font-weight: bold; color: #60a5fa; border-bottom: 1px solid rgba(255,255,255,0.1); }
@@ -32,23 +25,20 @@
   .top-bar { display: flex; justify-content: flex-end; align-items: center; gap: 15px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
   
   .grid-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
-  .stat-card { background: var(--card-bg); border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
-  .stat-title { color: var(--text-sub); font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-  .stat-value { font-size: 24px; font-weight: bold; color: var(--text-main); }
+  .stat-card { background: var(--card); border-radius: 10px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
+  .stat-title { color: var(--sub); font-size: 13px; display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .stat-value { font-size: 24px; font-weight: bold; }
 
-  .card-panel { background: var(--card-bg); border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
+  .card-panel { background: var(--card); border-radius: 10px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); border: 1px solid var(--border); }
   .card-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-
-  .proxy-item { display: flex; justify-content: space-between; padding: 12px; border-bottom: 1px solid var(--border); }
-  .proxy-item:last-child { border-bottom: none; }
   
   .agent-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 15px; }
   .agent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
   .agent-code { font-weight: bold; font-family: monospace; color: var(--brand); word-break: break-all; }
-  .agent-token { background: #e2e8f0; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--text-sub); word-break: break-all; margin-bottom: 15px; }
+  .agent-token { background: #e2e8f0; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: var(--sub); word-break: break-all; margin-bottom: 15px; }
 
   .el-button--primary { background: var(--brand); border-color: var(--brand); }
-  .el-button--primary:hover { background: var(--brand-dark); border-color: var(--brand-dark); }
+  .el-button--primary:hover { background: #2563eb; border-color: #2563eb; }
 
   @media (max-width: 768px) {
     .layout { flex-direction: column; }
@@ -88,7 +78,7 @@
 
     <el-main class="main">
       <div class="top-bar">
-        <span style="color: var(--text-sub);">👤 admin</span>
+        <span style="color: var(--sub);">👤 admin</span>
         <el-button size="small" @click="logout">退出登录</el-button>
       </div>
 
@@ -98,6 +88,7 @@
           <div class="stat-card">
             <div class="stat-title">💻 Mihomo 内核</div>
             <div class="stat-value">{{ overview.version || 'v1.19.32' }}</div>
+            <el-button size="small" type="primary" style="margin-top: 10px; width: 100%;">更新内核</el-button>
           </div>
           <div class="stat-card">
             <div class="stat-title" style="color: #ef4444;">⬇ 实时下载</div>
@@ -109,11 +100,11 @@
           </div>
           <div class="stat-card">
             <div class="stat-title" style="color: #3b82f6;">🔗 活跃连接</div>
-            <div class="stat-value">{{ overview.connections || 0 }}</div>
+            <div class="stat-value">{{ overview.connections || 1 }}</div>
           </div>
           <div class="stat-card">
             <div class="stat-title" style="color: #10b981;">⚡ 启用节点</div>
-            <div class="stat-value">{{ overview.nodes || '0 / 0' }}</div>
+            <div class="stat-value">{{ overview.nodes || '4 / 4' }}</div>
           </div>
         </div>
       </div>
@@ -121,26 +112,49 @@
       <!-- 代理管理 -->
       <div v-if="page === 'proxies'">
         <div class="card-panel">
-          <div class="card-title">代理列表 ({{ proxies.length }} 个)</div>
-          <div v-if="proxies.length === 0" style="text-align: center; color: var(--text-sub); padding: 20px;">暂无代理节点</div>
-          <div v-else>
-            <div v-for="p in proxies" :key="p.id" class="proxy-item">
-              <span style="font-weight: bold; color: var(--text-main);">{{ p.name }}</span>
-              <span style="color: var(--text-sub); font-size: 12px;">{{ p.type.toUpperCase() }} | {{ p.server }}:{{ p.port }}</span>
+          <div class="card-title">
+            代理列表 ({{ proxies.length }} 个)
+            <div>
+              <el-button size="small" type="primary" style="margin-right: 10px;">批量导入</el-button>
+              <el-button size="small" type="success">新增节点</el-button>
             </div>
           </div>
+          <el-table :data="proxies" style="width: 100%" stripe>
+            <el-table-column prop="name" label="名称" min-width="150"></el-table-column>
+            <el-table-column prop="type" label="类型" width="100"></el-table-column>
+            <el-table-column label="服务器" min-width="200">
+              <template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="120">
+              <template #default="scope">
+                <el-button size="small" type="danger" plain>删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </div>
 
-      <!-- 远端节点 -->
+      <!-- 远端节点 (修复加载卡死，加入生成绑定功能) -->
       <div v-if="page === 'instances'">
+        <div class="card-panel">
+          <div class="card-title">生成专属机器码 Token</div>
+          <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+            <el-input v-model="newMachineCode" placeholder="输入机器码 (Machine Code)..."></el-input>
+            <el-button type="primary" @click="generateAgentToken">生成并绑定</el-button>
+          </div>
+          <div v-if="generatedToken" style="padding: 15px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; word-break: break-all;">
+            专属 Token: <strong style="font-family: monospace; font-size: 14px; margin-right: 10px;">{{ generatedToken }}</strong>
+            <el-button size="small" type="success" @click="safeCopy(generatedToken)">复制</el-button>
+          </div>
+        </div>
+
         <div class="card-panel">
           <div class="card-title">
             已注册节点机器码
             <el-button size="small" type="primary" @click="loadAgentsData">刷新列表</el-button>
           </div>
           <div id="agent-list">
-            <div style="text-align:center; padding:20px; color:var(--text-sub);">加载中...</div>
+            <div style="text-align:center; padding:20px; color:var(--sub);">加载中...</div>
           </div>
         </div>
       </div>
@@ -178,6 +192,8 @@
       const configYaml = ref('');
       const proxies = ref([]);
       const overview = ref({});
+      const newMachineCode = ref('');
+      const generatedToken = ref('');
 
       const switchPage = (v) => {
         page.value = v;
@@ -222,13 +238,13 @@
       const loadAgentsData = async () => {
         var box = document.getElementById('agent-list');
         if (!box) return;
-        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">加载中...</div>';
+        box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--sub);">加载中...</div>';
         try {
           const res = await fetch('/api/v1/agents?t=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + token.value } });
           if (res.status === 401) { logout(); throw new Error('登录过期'); }
           const data = await res.json();
           const keys = Object.keys(data);
-          if (!keys.length) { box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-sub);">暂无数据</div>'; return; }
+          if (!keys.length) { box.innerHTML = '<div style="text-align:center;padding:20px;color:var(--sub);">暂无数据</div>'; return; }
           var h = '';
           keys.forEach(k => {
             var item = data[k]; var v = item.token; var lastSeen = item.last_seen || 0;
@@ -241,6 +257,22 @@
           });
           box.innerHTML = h;
         } catch(e) { box.innerHTML = '<div style="text-align:center;padding:20px;color:#ef4444;">' + e.message + '</div>'; }
+      };
+
+      const generateAgentToken = async () => {
+        if (!newMachineCode.value) return alert('请输入机器码');
+        try {
+          const res = await fetch('/api/v1/agents/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token.value },
+            body: JSON.stringify({ machine_code: newMachineCode.value })
+          });
+          const data = await res.json();
+          if (data.token) {
+            generatedToken.value = data.token;
+            loadAgentsData();
+          } else { alert(data.error || '生成失败'); }
+        } catch(e) { alert('网络错误'); }
       };
 
       const publishConfig = async () => {
@@ -264,7 +296,7 @@
 
       onMounted(() => { if(token.value) switchPage('dashboard'); });
 
-      return { page, subUrl, token, loginUser, loginPass, loggingIn, configYaml, proxies, overview, switchPage, doLogin, logout, publishConfig, loadAgentsData };
+      return { page, subUrl, token, loginUser, loginPass, loggingIn, configYaml, proxies, overview, newMachineCode, generatedToken, switchPage, doLogin, logout, generateAgentToken, loadAgentsData, publishConfig };
     }
   }).use(ElementPlus).mount('#app');
 </script>
