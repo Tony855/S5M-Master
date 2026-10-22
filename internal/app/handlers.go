@@ -486,16 +486,20 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 校验：必须等于全局 Token，或者等于该机器码的专属 Token
+	// 严格校验：只允许全局 Token，或者已经存在的专属 Token
 	machineToken := settings["agent_machine_"+in.MachineCode]
-	if in.Secret != expectedSecret && (machineToken == "" || in.Secret != machineToken) {
-		writeErr(w, 403, "密钥错误")
+
+	isGlobalValid := in.Secret == expectedSecret
+	isMachineValid := (machineToken != "" && in.Secret == machineToken)
+
+	if !isGlobalValid && !isMachineValid {
+		writeErr(w, 403, "密钥错误：输入的 Token 不匹配")
 		return
 	}
 
-	// 核心修复：如果数据库里没有该机器码，自动用其输入的密钥写入记录，避免心跳被 401 拦截
-	if machineToken == "" {
-		a.store.UpdateSettings(map[string]string{"agent_machine_" + in.MachineCode: in.Secret})
+	// 如果使用的是全局 Token，自动给这个新机器码生成一个专属记录
+	if isGlobalValid && machineToken == "" {
+		a.store.UpdateSettings(map[string]string{"agent_machine_" + in.MachineCode: expectedSecret})
 	}
 
 	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}
