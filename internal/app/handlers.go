@@ -482,54 +482,25 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	settings, _ := a.store.GetSettings()
 	expectedSecret := settings["agent_token"]
 	if expectedSecret == "" {
-		buf := make([]byte, 16)
-		if _, err := rand.Read(buf); err != nil {
-			writeErr(w, 500, "生成 Agent Token 失败")
-			return
-		}
-		expectedSecret = fmt.Sprintf("s5m-%x", buf)
-		if err := a.store.UpdateSettings(map[string]string{"agent_token": expectedSecret}); err != nil {
-			writeErr(w, 500, "持久化 Agent Token 失败: "+err.Error())
-			return
-		}
-	}
-
-	// 获取该机器的专属 Token
-	machineToken := settings["agent_machine_"+in.MachineCode]
-
-	// 校验：必须等于全局 Token，或者等于该机器码的专属 Token
-	isGlobalValid := in.Secret == expectedSecret
-	isMachineValid := (machineToken != "" && in.Secret == machineToken)
-
-	if !isGlobalValid && !isMachineValid {
-		writeErr(w, 403, "密钥错误：填入的 Token 与机器码不匹配，请检查主控台生成的专属 Token")
+		writeErr(w, 500, "主控台未初始化全局 Token")
 		return
 	}
+
+	// 校验：必须等于全局 Token，或者等于该机器码的专属 Token
+	machineToken := settings["agent_machine_"+in.MachineCode]
+	if in.Secret != expectedSecret && (machineToken == "" || in.Secret != machineToken) {
+		writeErr(w, 403, "密钥错误")
+		return
+	}
+
+	// 核心修复：如果数据库里没有该机器码，自动用其输入的密钥写入记录，避免心跳被 401 拦截
+	if machineToken == "" {
+		a.store.UpdateSettings(map[string]string{"agent_machine_" + in.MachineCode: in.Secret})
+	}
+
 	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}
 	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
-	// 注释掉这行，防止长 JWT 覆盖掉主控台生成的专属短 Token
-	// a.store.UpdateSettings(map[string]string{"agent_machine_" + in.MachineCode: token})
-
-	instName := "Agent-" + in.MachineCode[:min(6, len(in.MachineCode))]
-	instances, _ := a.store.ListInstances()
-	exists := false
-	for _, inst := range instances {
-		if inst.Name == instName {
-			exists = true
-			break
-		}
-	}
-	if !exists {
-		a.store.CreateInstance(&Instance{Name: instName, MachineCode: in.MachineCode, APIURL: "http://" + strings.Split(r.RemoteAddr, ":")[0] + ":9090"})
-	}
 	writeJSON(w, 200, map[string]string{"message": "注册成功", "token": token})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
