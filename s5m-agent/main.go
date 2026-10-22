@@ -155,14 +155,9 @@ func main() {
 			continue
 		}
 
-		decToken, err := decrypt(cfg.Token)
-		if err != nil {
-			continue
-		}
-
 		// 请求主面板拉取最新配置 (用于心跳和配置更新)
 		req, _ := http.NewRequest("GET", cfg.CentralURL+"/api/v1/agent/config", nil)
-		req.Header.Set("Authorization", "Bearer "+decToken)
+		req.Header.Set("Authorization", "Bearer "+cfg.Token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil || resp.StatusCode != 200 {
 			if resp != nil {
