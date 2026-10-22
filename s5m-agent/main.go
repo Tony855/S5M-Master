@@ -160,7 +160,7 @@ func main() {
 			continue
 		}
 
-		// 请求主面板拉取最新配置
+		// 请求主面板拉取最新配置 (用于心跳和配置更新)
 		req, _ := http.NewRequest("GET", cfg.CentralURL+"/api/v1/agent/config", nil)
 		req.Header.Set("Authorization", "Bearer "+decToken)
 		resp, err := http.DefaultClient.Do(req)

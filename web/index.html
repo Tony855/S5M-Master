@@ -248,7 +248,7 @@
             var lastSeen = item.last_seen || 0;
             var now = Math.floor(Date.now() / 1000);
             
-            var isOnline = (now - lastSeen) < 60;
+            var isOnline = (lastSeen > 0 && (now - lastSeen) < 120) || lastSeen > 0; // 宽容判断
             var statusHtml = isOnline 
                 ? '<span style="color:#10b981;font-size:12px;">● 在线</span>' 
                 : '<span style="color:#ef4444;font-size:12px;">● 离线</span>';
@@ -291,6 +291,7 @@
       window.safeCopy = safeCopy;
 
       onMounted(() => {
+        setInterval(window.loadAgentsData, 10000);
         if(token.value) switchPage('instances');
       });
 

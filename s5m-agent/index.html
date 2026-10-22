@@ -99,7 +99,7 @@
       const text = await res.text(); let data = {};
       try { data = JSON.parse(text); } catch { data = { message: text }; }
       if (!res.ok) throw new Error(data.error || data.message || '绑定失败');
-      showMsg(data.message, true); btn.innerText = '重新绑定'; setStatus('active', '设备已绑定，连接正常');
+      showMsg("绑定成功", true); btn.innerText = '重新绑定'; setStatus('active', '设备已绑定，连接正常');
       setTimeout(() => location.reload(), 1500);
     } catch (e) { showMsg(e.message, false); btn.innerText = '重试绑定'; btn.disabled = false; setStatus('error', '绑定失败'); }
   }
