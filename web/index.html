@@ -236,15 +236,19 @@
         <el-dialog v-model="showImport" title="批量导入代理" width="90%" style="max-width: 560px;">
           <el-tabs v-model="importTab">
             <el-tab-pane label="文本粘贴" name="text">
-              <p style="color:var(--sub);font-size:13px;margin-bottom:10px;">每行一个，空格或逗号分隔：<code>名称 类型 服务器 端口</code></p>
+              <p style="color:var(--sub);font-size:13px;margin-bottom:10px;">
+                支持以下两种格式（每行一个）：<br/>
+                1. <code>名称 类型 服务器 端口</code> (如: node1 socks5 1.2.3.4 1080)<br/>
+                2. 代理链接 (如: <code>socks5://user:pass@1.2.3.4:1080</code>)
+              </p>
               <el-input v-model="importText" type="textarea" :rows="8"
-                        placeholder="node1 socks5 1.2.3.4 1080&#10;node2 http 5.6.7.8 8080"></el-input>
+                        placeholder="node1 socks5 1.2.3.4 1080&#10;socks5://user:pass@5.6.7.8:1080"></el-input>
             </el-tab-pane>
             <el-tab-pane label="上传文件" name="file">
               <p style="color:var(--sub);font-size:13px;margin-bottom:10px;">支持上传 <strong>.json</strong>、<strong>.txt</strong> 或 <strong>.csv</strong> 文件。</p>
               <input type="file" accept=".txt,.csv,.json" @change="handleFileUpload" style="margin-top: 10px;" />
               <div v-if="importTab === 'file' && importText" style="margin-top: 15px; padding: 10px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; color: #166534; font-size: 13px;">
-                文件已读取并解析，共提取到 {{ importText.split('\n').filter(Boolean).length }} 条节点，点击“导入”即可生效。
+                文件已读取并解析，共提取到 {{ importText.split('\n').filter(Boolean).length }} 行待处理数据，点击“导入”即可生效。
               </div>
             </el-tab-pane>
           </el-tabs>
@@ -519,27 +523,22 @@ createApp({
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
-    // 深度递归查找数组的辅助函数，兼容各种奇奇怪怪的 JSON
     const findProxyArray = (obj) => {
       if (Array.isArray(obj)) {
-        // 如果是数组，检查它里面有没有类似节点的对象
         if (obj.length > 0 && typeof obj[0] === 'object' && (obj[0].server || obj[0].address)) {
           return obj;
         }
-        // 如果不是，则继续往里找
         for (let item of obj) {
           const res = findProxyArray(item);
           if (res) return res;
         }
       } else if (obj !== null && typeof obj === 'object') {
-        // 优先检查常见字段名
         for (let key of ['proxies', 'nodes', 'servers', 'list', 'items', 'data']) {
           if (obj[key]) {
             const res = findProxyArray(obj[key]);
             if (res) return res;
           }
         }
-        // 如果没找到，遍历所有属性继续找
         for (let key in obj) {
           if (Object.prototype.hasOwnProperty.call(obj, key)) {
             const res = findProxyArray(obj[key]);
@@ -574,7 +573,7 @@ createApp({
               const server = item.server || item.address || item.host || '';
               const port = item.port || 1080;
               return `${name} ${type} ${server} ${port}`;
-            }).filter(line => line.split(' ')[2] !== ''); // 过滤掉没 server 的无效行
+            }).filter(line => line.split(' ')[2] !== ''); 
             
             if (!lines.length) throw new Error('解析出了节点但缺少有效字段');
             
@@ -585,7 +584,7 @@ createApp({
             importText.value = '';
           }
         } else {
-          // 普通 txt 或 csv
+          // 普通 txt 或 csv（可能是代理链接）
           importText.value = content;
           showMsg('文件读取成功，请点击导入', 'success');
         }
@@ -593,16 +592,70 @@ createApp({
       reader.readAsText(file);
     };
 
+    // 核心导入解析逻辑，支持表格格式和长链接格式
     const importProxies = async () => {
       const lines = importText.value.split('\n').map(s => s.trim()).filter(Boolean);
       if (!lines.length) return showMsg('请输入导入内容', 'warning');
+      
       const items = [];
       for (const line of lines) {
-        // 兼容空格、Tab 和逗号分隔
-        const p = line.split(/[\s,]+/);
-        if (p.length < 4) return showMsg('格式错误：' + line, 'error');
-        items.push({ name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) });
+        let parsed = null;
+        
+        // 1. 先尝试按代理链接解析 (如 socks5://user:pass@1.2.3.4:1080)
+        if (line.includes('://')) {
+          try {
+            const urlStr = line.includes('@') ? line : line.replace('://', '://dummy:dummy@');
+            const u = new URL(urlStr);
+            let host = u.hostname;
+            let port = parseInt(u.port, 10) || 1080;
+            
+            // 处理 IPv6 带中括号的情况
+            if (host.startsWith('[') && host.endsWith(']')) {
+              host = host.slice(1, -1);
+            }
+            
+            parsed = {
+              name: line, // 默认全名
+              type: u.protocol.replace(':', ''),
+              server: host,
+              port: port
+            };
+            // 如果 URL 带了 username，也可以存进名称里美观一点（视需求而定）
+            if (u.username && u.password) {
+              parsed.name = `${parsed.type}-${host}:${port}`;
+            } else {
+              parsed.name = `${parsed.type}-${host}:${port}`;
+            }
+          } catch (e) {
+            console.warn('URL 解析失败:', line);
+          }
+        }
+        
+        // 2. 如果不是链接，或者是解析失败的链接，尝试按 空格/逗号 分隔格式解析
+        if (!parsed) {
+          const p = line.split(/[\s,]+/);
+          if (p.length >= 4) {
+            parsed = { name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) };
+          }
+        }
+
+        // 3. 特殊兼容：如果只有 IP:端口 (例如 1.2.3.4:8080)
+        if (!parsed && line.includes(':') && !line.includes(' ')) {
+          const parts = line.split(':');
+          if (parts.length === 2) {
+             parsed = { name: 'socks5-' + line, type: 'socks5', server: parts[0], port: parseInt(parts[1], 10) };
+          }
+        }
+        
+        if (parsed) {
+          items.push(parsed);
+        } else {
+          return showMsg('无法识别该行格式：' + line, 'error');
+        }
       }
+      
+      if (!items.length) return showMsg('没有解析到有效的节点数据', 'warning');
+      
       importing.value = true;
       try {
         const res = await api('/api/v1/proxies/import', {
