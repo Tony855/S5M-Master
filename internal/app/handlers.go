@@ -533,42 +533,60 @@ func min(a, b int) int {
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	// 1. 从 Authorization Header 提取 Bearer Token
+	// 1. 解析 Bearer Token，拿到 machine_code
+	machineCode := ""
 	authHeader := r.Header.Get("Authorization")
 	if strings.HasPrefix(authHeader, "Bearer ") {
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-
-		// 2. 解析 JWT，获取 machine_code (sub 字段)
 		token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
 			return a.jwtKey, nil
 		})
-
 		if err == nil && token.Valid {
 			if claims, ok := token.Claims.(jwt.MapClaims); ok {
-				if machineCode, ok := claims["sub"].(string); ok && machineCode != "" {
-					// 3. 记录最后在线时间到数据库
-					now := fmt.Sprintf("%d", time.Now().Unix())
-					a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
+				if mc, ok := claims["sub"].(string); ok && mc != "" {
+					machineCode = mc
 				}
 			}
 		}
 	}
-
-	// 4. 返回真实的配置给 Agent
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		writeErr(w, 500, "读取配置失败")
+	if machineCode == "" {
+		writeErr(w, 401, "无效的 Agent Token")
 		return
 	}
 
-	yamlContent := settings["config_yaml"]
-	if yamlContent == "" {
-		yamlContent = "proxies: []\nmode: rule\n"
-	}
+	// 2. 记录最后在线时间
+	now := fmt.Sprintf("%d", time.Now().Unix())
+	a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: now})
 
-	w.Header().Set("Content-Type", "text/yaml")
+	// 3. 按机器码过滤代理：本机专属 + 全局未绑定
+	proxies, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, 500, "读取代理列表失败")
+		return
+	}
+	var outs []proxyOut
+	for _, p := range proxies {
+		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
+			continue
+		}
+		if p.MachineCode != "" && p.MachineCode != machineCode {
+			continue
+		}
+		ex := map[string]any{}
+		for k, v := range p.Extra {
+			switch k {
+			case "name", "type", "server", "port":
+				continue
+			}
+			ex[k] = v
+		}
+		outs = append(outs, proxyOut{Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port, Extra: ex})
+	}
+	b, _ := yaml.Marshal(map[string]any{"proxies": outs, "rules": []string{"MATCH,DIRECT"}})
+
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(yamlContent))
+	w.Write(b)
 }
 
 // 删除指定的机器码
