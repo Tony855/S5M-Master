@@ -266,9 +266,16 @@
           <div v-else-if="!agentEntries.length" style="text-align:center;padding:20px;color:var(--sub);">暂无数据</div>
           <div v-else>
             <div v-for="item in agentEntries" :key="item.code" class="agent-item">
-              <div class="agent-header">
-                <div><span class="agent-code">{{ item.code }}</span><span v-if="item.online" style="color:#10b981;font-size:12px;margin-left:8px;">● 在线</span><span v-else style="color:#ef4444;font-size:12px;margin-left:8px;">● 离线</span></div>
-                <div><el-button size="small" type="success" @click="safeCopy(item.token)">复制</el-button><el-button size="small" class="btn-action-del" style="margin-left:8px;" @click="deleteAgent(item.code)">删除</el-button></div>
+              <div class="agent-header" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; align-items: center; flex-wrap: wrap;">
+                  <span class="agent-code" style="word-break: break-all; margin-right: 8px;">{{ item.code }}</span>
+                  <span v-if="item.online" style="color:#10b981;font-size:12px;white-space:nowrap;">● 在线</span>
+                  <span v-else style="color:#ef4444;font-size:12px;white-space:nowrap;">● 离线</span>
+                </div>
+                <div style="display: flex; justify-content: flex-end; width: 100%;">
+                  <el-button size="small" type="success" @click="safeCopy(item.token)">复制</el-button>
+                  <el-button size="small" type="danger" style="margin-left:8px;" @click="deleteAgent(item.code)">删除</el-button>
+                </div>
               </div>
               <div class="agent-token">{{ item.token }}</div>
             </div>

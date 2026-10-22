@@ -475,8 +475,8 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		MachineCode string `json:"machine_code"`
 		Secret      string `json:"secret"`
 	}
-	if err := decode(r, &in); err != nil || in.MachineCode == "" {
-		writeErr(w, 400, "机器码不能为空")
+	if err := decode(r, &in); err != nil || in.MachineCode == "" || in.Secret == "" {
+		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
 	settings, _ := a.store.GetSettings()
@@ -573,14 +573,16 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		writeErr(w, 400, "机器码不能为空")
+		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// 将对应的值设为空字符串，实现软删除（配合读取时的空值过滤）
-	a.store.UpdateSettings(map[string]string{
-		"agent_machine_" + code: "",
-	})
-	writeJSON(w, 200, map[string]string{"message": "删除成功"})
+	// 彻底从数据库删除机器码的 Token 和心跳记录
+	err := a.store.DeleteSettings([]string{"agent_machine_" + code, "agent_lastseen_" + code})
+	if err != nil {
+		writeErr(w, 500, "删除失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
 
 // 返回所有已注册的机器码 -> Token 映射
