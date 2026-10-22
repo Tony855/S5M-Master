@@ -130,12 +130,7 @@ func reloadMihomo() {
 	}
 }
 
-func getMachineID() string {
-	if data, err := os.ReadFile("/etc/machine-id"); err == nil {
-		return strings.TrimSpace(string(data))
-	}
-	return "unknown"
-}
+func getMachineID() string { return "3674c839b56" }
 
 func main() {
 	// 启动 81 端口提供 Web 注册界面
