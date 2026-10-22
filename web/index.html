@@ -93,16 +93,18 @@
         <div class="grid-cards">
           <div class="stat-card">
             <div class="stat-title">💻 Mihomo 内核</div>
-            <div class="stat-value">{{ overview.version || '-' }}</div>
+            <div class="stat-value" :style="{ color: overview.mihomo && overview.mihomo.online ? '#10b981' : '#ef4444' }">
+              {{ getVersion(overview) }}
+            </div>
             <el-button size="small" type="primary" style="margin-top: 10px; width: 100%;"
                        :loading="updatingKernel" @click="updateKernel">检查并更新内核</el-button>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #ef4444;">⬇ 累计下载</div>
+            <div class="stat-title" style="color: #ef4444;">⬇ 实时下载</div>
             <div class="stat-value">{{ fmtBytes(overview.downloadTotal) }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #8b5cf6;">⬆ 累计上传</div>
+            <div class="stat-title" style="color: #8b5cf6;">⬆ 实时上传</div>
             <div class="stat-value">{{ fmtBytes(overview.uploadTotal) }}</div>
           </div>
           <div class="stat-card">
@@ -110,8 +112,8 @@
             <div class="stat-value">{{ overview.connections ? overview.connections.length : 0 }}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-title" style="color: #10b981;">⚡ 节点总数</div>
-            <div class="stat-value">{{ proxies.length }}</div>
+            <div class="stat-title" style="color: #10b981;">⚡ 启用节点</div>
+            <div class="stat-value">{{ overview.proxy_enabled || 0 }} / {{ overview.proxy_total || 0 }}</div>
           </div>
         </div>
       </div>
@@ -256,7 +258,6 @@ const { createApp, ref, reactive, onMounted } = Vue;
 
 createApp({
   setup() {
-    // ---- 状态 ----
     const page = ref('dashboard');
     const token = ref(localStorage.getItem('s5m_next_token') || '');
     const loginUser = ref('admin');
@@ -280,17 +281,15 @@ createApp({
     const publishing = ref(false);
     const updatingKernel = ref(false);
 
-    // 代理弹窗
     const proxyDialog = ref(false);
     const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '' });
     const savingProxy = ref(false);
 
-    // 批量导入
     const showImport = ref(false);
     const importText = ref('');
     const importing = ref(false);
 
-    // ---- 工具 ----
+    // ===== 工具函数 =====
     const fmtBytes = (n) => {
       n = Number(n) || 0;
       if (n < 1024) return n + ' B';
@@ -300,9 +299,21 @@ createApp({
       return n.toFixed(2) + ' ' + units[i];
     };
 
+    const getVersion = (ov) => {
+      if (ov.mihomo && ov.mihomo.version && ov.mihomo.version.version) {
+        return ov.mihomo.version.version;
+      }
+      return ov.mihomo && ov.mihomo.online ? '已在线 (未知版本)' : '离线';
+    };
+
     const authHeaders = (extra) => Object.assign(
       { 'Authorization': 'Bearer ' + token.value }, extra || {}
     );
+
+    // 统一错误提示
+    const showMsg = (msg, type) => {
+      ElementPlus.ElMessage({ message: msg, type: type || 'info', duration: 3000 });
+    };
 
     async function api(path, opts) {
       opts = opts || {};
@@ -326,9 +337,9 @@ createApp({
       token.value = ''; currentUser.value = ''; loginPass.value = '';
     };
 
-    // ---- 登录 ----
+    // ===== 登录 =====
     const doLogin = async () => {
-      if (!loginUser.value || !loginPass.value) return alert('请输入账号密码');
+      if (!loginUser.value || !loginPass.value) return showMsg('请输入账号密码', 'warning');
       loggingIn.value = true;
       try {
         const res = await fetch('/api/v1/auth/login', {
@@ -339,19 +350,19 @@ createApp({
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.token) {
           localStorage.setItem('s5m_next_token', data.token);
-          localStorage.setItem('s5m_next_user', loginUser.value);
+          localStorage.setItem('s5m_next_user', data.user.username || loginUser.value);
           token.value = data.token;
-          currentUser.value = loginUser.value;
+          currentUser.value = data.user.username || loginUser.value;
           loginPass.value = '';
           switchPage('dashboard');
         } else {
-          alert(data.error || data.message || '账号或密码错误');
+          showMsg(data.error || data.message || '账号或密码错误', 'error');
         }
-      } catch (e) { alert('网络错误'); }
+      } catch (e) { showMsg('网络错误', 'error'); }
       loggingIn.value = false;
     };
 
-    // ---- 页面切换 ----
+    // ===== 页面切换 =====
     const PAGES = ['dashboard','proxies','instances','config'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
@@ -362,7 +373,7 @@ createApp({
       if (v === 'config') { loadConfig(); loadSettings(); }
     };
 
-    // ---- 仪表盘 ----
+    // ===== 仪表盘 =====
     const loadOverview = async () => {
       try {
         const res = await api('/api/v1/monitor/overview?t=' + Date.now());
@@ -371,18 +382,21 @@ createApp({
     };
 
     const updateKernel = async () => {
-      if (!confirm('确定检查并更新 Mihomo 内核？更新期间会短暂停止 mihomo 服务。')) return;
       updatingKernel.value = true;
       try {
         const res = await api('/api/v1/mihomo/update', { method: 'POST' });
         const d = await res.json().catch(() => ({}));
-        alert(res.ok ? (d.message || '操作成功') : (d.error || '更新失败'));
+        if (res.ok) {
+          showMsg(d.message || '操作成功', 'success');
+        } else {
+          showMsg(d.error || '更新失败', 'error');
+        }
         loadOverview();
-      } catch (e) { alert(e.message || '网络错误'); }
+      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       updatingKernel.value = false;
     };
 
-    // ---- 代理 ----
+    // ===== 代理 =====
     const loadProxies = async () => {
       loadingProxies.value = true;
       try {
@@ -413,7 +427,7 @@ createApp({
     };
 
     const saveProxy = async () => {
-      if (!proxyForm.name || !proxyForm.server || !proxyForm.port) return alert('请填写名称/服务器/端口');
+      if (!proxyForm.name || !proxyForm.server || !proxyForm.port) return showMsg('请填写名称/服务器/端口', 'warning');
       savingProxy.value = true;
       try {
         const isEdit = proxyForm.id > 0;
@@ -432,30 +446,31 @@ createApp({
         if (res.ok) {
           proxyDialog.value = false;
           loadProxies();
+          showMsg('保存成功', 'success');
         } else {
-          alert(await parseErr(res));
+          showMsg(await parseErr(res), 'error');
         }
-      } catch (e) { alert(e.message || '网络错误'); }
+      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       savingProxy.value = false;
     };
 
     const deleteProxy = async (row) => {
-      if (!row.id) return alert('该节点无 id，无法删除');
+      if (!row.id) return showMsg('该节点无 id，无法删除', 'warning');
       if (!confirm('确定删除节点 "' + row.name + '" ？')) return;
       try {
         const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
-        if (res.ok) { loadProxies(); }
-        else alert(await parseErr(res));
-      } catch (e) { alert(e.message || '删除失败'); }
+        if (res.ok) { loadProxies(); showMsg('已删除', 'success'); }
+        else showMsg(await parseErr(res), 'error');
+      } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
     const importProxies = async () => {
       const lines = importText.value.split('\n').map(s => s.trim()).filter(Boolean);
-      if (!lines.length) return alert('请输入导入内容');
+      if (!lines.length) return showMsg('请输入导入内容', 'warning');
       const items = [];
       for (const line of lines) {
         const p = line.split(/\s+/);
-        if (p.length < 4) return alert('格式错误：' + line + '（需要 名称 类型 服务器 端口）');
+        if (p.length < 4) return showMsg('格式错误：' + line, 'error');
         items.push({ name: p[0], type: p[1], server: p[2], port: parseInt(p[3], 10) });
       }
       importing.value = true;
@@ -469,13 +484,13 @@ createApp({
           showImport.value = false;
           importText.value = '';
           loadProxies();
-          alert('导入成功');
-        } else alert(await parseErr(res));
-      } catch (e) { alert(e.message || '导入失败'); }
+          showMsg('导入成功', 'success');
+        } else showMsg(await parseErr(res), 'error');
+      } catch (e) { showMsg(e.message || '导入失败', 'error'); }
       importing.value = false;
     };
 
-    // ---- 远端节点 / Agent ----
+    // ===== 远端节点 =====
     const loadAgentsData = async () => {
       agentLoading.value = true;
       try {
@@ -487,21 +502,19 @@ createApp({
         Object.keys(data || {}).forEach(code => {
           const item = data[code] || {};
           const last = Number(item.last_seen) || 0;
-          // 5 分钟内上报视为在线
           const online = last > 0 && (now - last) < 300;
           list.push({ code: code, token: item.token || '', online: online, last_seen: last });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         agentEntries.value = list;
       } catch (e) {
-        console.warn(e);
         agentEntries.value = [];
       }
       agentLoading.value = false;
     };
 
     const generateAgentToken = async () => {
-      if (!newMachineCode.value) return alert('请输入机器码');
+      if (!newMachineCode.value) return showMsg('请输入机器码', 'warning');
       generating.value = true;
       try {
         const res = await api('/api/v1/agents/generate', {
@@ -515,9 +528,9 @@ createApp({
           newMachineCode.value = '';
           loadAgentsData();
         } else {
-          alert(data.error || data.message || '生成失败');
+          showMsg(data.error || data.message || '生成失败', 'error');
         }
-      } catch (e) { alert(e.message || '网络错误'); }
+      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       generating.value = false;
     };
 
@@ -526,8 +539,8 @@ createApp({
       try {
         const res = await api('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' });
         if (res.ok) loadAgentsData();
-        else alert(await parseErr(res));
-      } catch (e) { alert(e.message || '删除失败'); }
+        else showMsg(await parseErr(res), 'error');
+      } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
     const safeCopy = async (text) => {
@@ -541,11 +554,11 @@ createApp({
           document.body.appendChild(t); t.select();
           document.execCommand('copy'); document.body.removeChild(t);
         }
-        alert('复制成功');
-      } catch (e) { alert('复制失败'); }
+        showMsg('复制成功', 'success');
+      } catch (e) { showMsg('复制失败', 'error'); }
     };
 
-    // ---- 配置 / 设置 ----
+    // ===== 配置管理 =====
     const loadConfig = async () => {
       try {
         const res = await api('/api/v1/config/preview?t=' + Date.now());
@@ -571,7 +584,7 @@ createApp({
     };
 
     const saveConfig = async () => {
-      if (!configYaml.value) return alert('配置不能为空');
+      if (!configYaml.value) return showMsg('配置不能为空', 'warning');
       savingConfig.value = true;
       try {
         const res = await api('/api/v1/config/save', {
@@ -579,57 +592,52 @@ createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config_yaml: configYaml.value })
         });
-        if (res.ok) alert('已保存草稿');
-        else alert(await parseErr(res));
-      } catch (e) { alert(e.message || '保存失败'); }
+        if (res.ok) showMsg('已保存草稿', 'success');
+        else showMsg(await parseErr(res), 'error');
+      } catch (e) { showMsg(e.message || '保存失败', 'error'); }
       savingConfig.value = false;
     };
 
     const publishConfig = async () => {
-      if (!configYaml.value) return alert('配置不能为空');
+      if (!configYaml.value) return showMsg('配置不能为空', 'warning');
       publishing.value = true;
       try {
-        // 先保存
         let res = await api('/api/v1/config/save', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config_yaml: configYaml.value })
         });
-        if (!res.ok) { alert('保存失败：' + (await parseErr(res))); publishing.value = false; return; }
-        // 再发布
+        if (!res.ok) { showMsg('保存失败：' + (await parseErr(res)), 'error'); publishing.value = false; return; }
+        
         res = await api('/api/v1/config/publish', { method: 'POST' });
         const d = await res.json().catch(() => ({}));
-        if (res.ok) alert(d.message || '已下发，Agent 将在 30 秒内拉取');
-        else alert(d.error || d.message || '发布失败');
-      } catch (e) { alert(e.message || '发布失败'); }
+        if (res.ok) showMsg(d.message || '已下发，Agent 将在 30 秒内拉取', 'success');
+        else showMsg(d.error || d.message || '发布失败', 'error');
+      } catch (e) { showMsg(e.message || '发布失败', 'error'); }
       publishing.value = false;
     };
 
-    // ---- 启动 ----
     onMounted(() => {
       if (token.value) {
-        // 校验 token 是否有效
         fetch('/api/v1/auth/me', { headers: authHeaders() })
-          .then(r => { if (r.status === 401) logout(); else if (r.ok) r.json().then(d => { currentUser.value = d.username || currentUser.value; }).catch(()=>{}); })
+          .then(r => { if (r.status === 401) logout(); })
           .catch(() => {});
         switchPage('dashboard');
       }
     });
 
     return {
-      // 状态
       page, token, loginUser, loginPass, loggingIn, currentUser,
       overview, proxies, loadingProxies,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading,
       subUrl, configYaml, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importText, importing,
-      // 方法
       switchPage, doLogin, logout,
       updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadConfig, loadSettings, saveConfig, publishConfig,
-      fmtBytes
+      fmtBytes, getVersion
     };
   }
 }).use(ElementPlus).mount('#app');
