@@ -207,6 +207,10 @@ func (a *App) handleCreateProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已保存，但节点配置同步失败: "+err.Error())
+		return
+	}
 	writeJSON(w, 200, p)
 }
 
@@ -234,6 +238,10 @@ func (a *App) handleUpdateProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已更新，但节点配置同步失败: "+err.Error())
+		return
+	}
 	writeJSON(w, 200, p)
 }
 
@@ -247,6 +255,10 @@ func (a *App) handleDeleteProxy(w http.ResponseWriter, r *http.Request) {
 
 	if err := a.store.DeleteProxy(id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除代理失败")
+		return
+	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已删除，但节点配置同步失败: "+err.Error())
 		return
 	}
 
@@ -306,9 +318,43 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 先获取内核状态；内核异常时仍返回仪表盘数据。
+	mihomo := a.MihomoInfo()
+
+	var downloadTotal uint64
+	var uploadTotal uint64
+	var connections []any
+
+	resp, monitorErr := a.mihomoReq(http.MethodGet, "/connections", nil)
+	if monitorErr == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode < 300 {
+			var data struct {
+				DownloadTotal uint64 `json:"downloadTotal"`
+				UploadTotal   uint64 `json:"uploadTotal"`
+				Connections   []any  `json:"connections"`
+			}
+			if json.NewDecoder(resp.Body).Decode(&data) == nil {
+				downloadTotal = data.DownloadTotal
+				uploadTotal = data.UploadTotal
+				connections = data.Connections
+			}
+		}
+	}
+
+	if connections == nil {
+		connections = []any{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"total":   len(list),
-		"enabled": enabled,
+		"mihomo":        mihomo,
+		"total":         len(list),
+		"enabled":       enabled,
+		"proxy_total":   len(list),
+		"proxy_enabled": enabled,
+		"downloadTotal": downloadTotal,
+		"uploadTotal":   uploadTotal,
+		"connections":   connections,
 	})
 }
 
@@ -661,12 +707,27 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	yml, err := a.BuildConfigForMachine(machineCode)
+	nodeConfig, err := a.store.GetNodeConfig(machineCode)
 	if err != nil {
-		writeErr(w, 500, "生成配置失败: "+err.Error())
+		slog.Error("读取节点配置失败", "machine_code", machineCode, "error", err)
+		writeErr(w, http.StatusInternalServerError, "读取节点配置失败")
 		return
 	}
-
+	yml := ""
+	if nodeConfig != nil {
+		yml = strings.TrimSpace(nodeConfig.YAML)
+	}
+	if yml == "" {
+		yml, err = a.BuildConfigForMachine(machineCode)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
+			return
+		}
+		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存节点配置失败")
+			return
+		}
+	}
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(yml))
@@ -853,4 +914,62 @@ func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"message": "配置已保存，Agent 将在 30 秒内拉取更新"})
+}
+
+func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(r.PathValue("code"))
+	if code == "" {
+		writeErr(w, 400, "机器码不能为空")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, 500, "读取授权状态失败")
+		return
+	}
+	mt := settings["agent_machine_"+code]
+	if mt == "" || mt == settings["agent_token"] {
+		writeErr(w, 404, "节点未授权")
+		return
+	}
+	cfg, err := a.store.GetNodeConfig(code)
+	if err != nil {
+		writeErr(w, 404, "该节点尚未保存独立 YAML 配置")
+		return
+	}
+	writeJSON(w, 200, cfg)
+}
+
+func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(r.PathValue("code"))
+	if code == "" {
+		writeErr(w, 400, "机器码不能为空")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, 500, "读取授权状态失败")
+		return
+	}
+	mt := settings["agent_machine_"+code]
+	if mt == "" || mt == settings["agent_token"] {
+		writeErr(w, 404, "节点未授权")
+		return
+	}
+	var in struct {
+		YAML string `json:"config_yaml"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&in); err != nil {
+		writeErr(w, 400, "请求 JSON 无效")
+		return
+	}
+	if strings.TrimSpace(in.YAML) == "" {
+		writeErr(w, 400, "YAML 不能为空")
+		return
+	}
+	if err := a.store.SaveNodeConfig(code, in.YAML); err != nil {
+		writeErr(w, 500, "保存节点配置失败")
+		return
+	}
+	writeJSON(w, 200, map[string]string{"message": "节点独立配置已保存"})
 }

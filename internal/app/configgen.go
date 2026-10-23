@@ -101,6 +101,50 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	return buildConfigFromProxies(proxies, machineCode)
 }
 
+// syncAuthorizedNodeConfigs refreshes cached YAML for machines with dedicated tokens.
+// It does not publish or reload the controller's own Mihomo configuration.
+func (a *App) syncAuthorizedNodeConfigs() error {
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return fmt.Errorf("读取机器授权失败: %w", err)
+	}
+
+	const prefix = "agent_machine_"
+	configs := make(map[string]string)
+
+	for key, token := range settings {
+		if !strings.HasPrefix(key, prefix) || strings.TrimSpace(token) == "" {
+			continue
+		}
+		machineCode := strings.TrimSpace(strings.TrimPrefix(key, prefix))
+		if machineCode == "" {
+			continue
+		}
+
+		yml, err := a.BuildConfigForMachine(machineCode)
+		if err != nil {
+			return fmt.Errorf("为机器 %s 生成配置失败: %w", machineCode, err)
+		}
+
+		var doc map[string]any
+		if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
+			return fmt.Errorf("机器 %s 的 YAML 校验失败: %w", machineCode, err)
+		}
+		if len(doc) == 0 {
+			return fmt.Errorf("机器 %s 的 YAML 内容为空", machineCode)
+		}
+		configs[machineCode] = yml
+	}
+
+	// 先生成并验证全部配置，再逐个保存。
+	for machineCode, yml := range configs {
+		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
+			return fmt.Errorf("保存机器 %s 的配置失败: %w", machineCode, err)
+		}
+	}
+	return nil
+}
+
 func buildConfigFromProxies(proxies []Proxy, machineCode string) (string, error) {
 	matchesMachine := func(p Proxy) bool {
 		return machineCode == "" || p.MachineCode == "" || p.MachineCode == machineCode

@@ -124,9 +124,11 @@
               <el-button size="small" type="primary" :loading="updatingKernel" @click="updateKernel">检查并更新</el-button>
             </div>
           </div>
-          <div class="stat-card"><div class="stat-title" style="color: #ef4444;">⬇ 实时下载</div><div class="stat-value">{{ fmtBytes(overview.downloadTotal) }}</div></div>
-          <div class="stat-card"><div class="stat-title" style="color: #8b5cf6;">⬆ 实时上传</div><div class="stat-value">{{ fmtBytes(overview.uploadTotal) }}</div></div>
-          <div class="stat-card"><div class="stat-title" style="color: #3b82f6;">🔗 活跃连接</div><div class="stat-value">{{ overview.connections ? overview.connections.length : 0 }}</div></div>
+          <div class="stat-card"><div class="stat-title" style="color: #ef4444;">⬇ 实时下载速度</div><div class="stat-value">{{ fmtSpeed(traffic.down) }}</div></div>
+          <div class="stat-card"><div class="stat-title" style="color: #8b5cf6;">⬆ 实时上传速度</div><div class="stat-value">{{ fmtSpeed(traffic.up) }}</div></div>
+          <div class="stat-card"><div class="stat-title" style="color: #3b82f6;">🔗 活跃连接</div><div class="stat-value">{{ traffic.conns || 0 }}</div></div>
+          <div class="stat-card"><div class="stat-title">累计下载流量</div><div class="stat-value">{{ fmtBytes(overview.downloadTotal) }}</div></div>
+          <div class="stat-card"><div class="stat-title">累计上传流量</div><div class="stat-value">{{ fmtBytes(overview.uploadTotal) }}</div></div>
           <div class="stat-card"><div class="stat-title" style="color: #10b981;">⚡ 启用节点</div><div class="stat-value">{{ overview.proxy_enabled || 0 }} / {{ overview.proxy_total || 0 }}</div></div>
         </div>
       </div>
@@ -196,6 +198,9 @@
               <el-select v-model="proxyForm.machine_code" placeholder="不绑定(全局)" clearable style="width:100%">
                 <el-option v-for="code in availableMachineCodes" :key="code" :label="code" :value="code"></el-option>
               </el-select>
+            </el-form-item>
+            <el-form-item label="启用代理">
+              <el-switch v-model="proxyForm.enabled" active-text="启用" inactive-text="禁用"></el-switch>
             </el-form-item>
             <el-form-item label="源 IP (CIDR)">
               <el-input v-model="proxyForm.source_cidr" placeholder="例如 192.168.1.0/24，0.0.0.0/0 表示全部"></el-input>
@@ -287,13 +292,19 @@
         <div class="card-panel">
           <div class="card-title">客户端订阅链接</div>
           <el-input v-model="subUrl" readonly style="margin-bottom: 20px;"><template #prepend>订阅地址</template></el-input>
-          <div class="card-title" style="margin-top: 30px;"><span>全局配置 (YAML)</span><el-button size="small" @click="loadConfig">重新加载</el-button></div>
-          <el-input v-model="configYaml" type="textarea" :rows="14" placeholder="在此粘贴或编写 Mihomo 配置..."></el-input>
-          <div style="display:flex;gap:10px;margin-top:15px;">
-            <el-button type="primary" style="flex:1;" @click="saveConfig" :loading="savingConfig">保存草稿</el-button>
-            <el-button type="success" style="flex:1;" @click="publishConfig" :loading="publishing">保存并下发到 Agent</el-button>
+          <div class="card-title" style="margin-top: 30px;">节点独立配置 (YAML)</div>
+          <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+            <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig">
+              <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
+            </el-select>
+            <el-button @click="loadAgentsData">刷新节点</el-button>
+            <el-button @click="loadNodeConfig" :disabled="!selectedConfigNode">重新加载 YAML</el-button>
           </div>
-          <p style="color:var(--sub);font-size:12px;margin-top:10px;">下发后 Agent 将在 30 秒内拉取新配置。</p>
+          <el-input v-model="configYaml" type="textarea" :rows="18" placeholder="先选择节点，再粘贴或编辑该节点专属的 Mihomo YAML 配置..."></el-input>
+          <div style="display:flex;gap:10px;margin-top:15px;">
+            <el-button type="primary" style="flex:1;" @click="saveNodeConfig" :loading="savingConfig" :disabled="!selectedConfigNode">保存当前节点配置</el-button>
+          </div>
+          <p style="color:var(--sub);font-size:12px;margin-top:10px;">每个机器码独立保存。保存后只有对应节点会获取这份 YAML；未保存配置的节点不会回退到全局 YAML。</p>
         </div>
       </div>
     </el-main>
@@ -315,6 +326,8 @@ createApp({
     const currentUser = ref(localStorage.getItem('s5m_next_user') || '');
 
     const overview = ref({});
+    const traffic = ref({ up: 0, down: 0, conns: 0 });
+    let overviewTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
 
@@ -326,12 +339,13 @@ createApp({
 
     const subUrl = ref('');
     const configYaml = ref('');
+    const selectedConfigNode = ref('');
     const savingConfig = ref(false);
     const publishing = ref(false);
     const updatingKernel = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', username: '', password: '' });
+    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -368,6 +382,14 @@ createApp({
       let i = -1;
       do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
       return n.toFixed(2) + ' ' + units[i];
+    };
+
+    const fmtSpeed = (n) => {
+      n = Math.max(0, Number(n) || 0);
+      if (n < 1024) return n.toFixed(0) + ' B/s';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(2) + ' KB/s';
+      if (n < 1024 * 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + ' MB/s';
+      return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB/s';
     };
 
     const authHeaders = (extra) => Object.assign({ 'Authorization': 'Bearer ' + token.value }, extra || {});
@@ -418,14 +440,26 @@ createApp({
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') loadProxies();
       if (v === 'instances') loadAgentsData();
-      if (v === 'config') { loadConfig(); loadSettings(); }
+      if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
     const loadOverview = async () => {
       try {
         const res = await api('/api/v1/monitor/overview?t=' + Date.now());
         if (res.ok) overview.value = await res.json() || {};
-      } catch (e) { console.warn(e); }
+      } catch (e) { console.warn('读取仪表盘概览失败', e); }
+
+      try {
+        const res = await api('/api/v1/monitor/traffic?t=' + Date.now());
+        if (res.ok) {
+          const data = await res.json() || {};
+          traffic.value = {
+            up: Number(data.up) || 0,
+            down: Number(data.down) || 0,
+            conns: Number(data.conns) || 0
+          };
+        }
+      } catch (e) { console.warn('读取实时流量失败', e); }
     };
 
     const updateKernel = async () => {
@@ -452,7 +486,7 @@ createApp({
     };
 
     const openCreateProxy = () => {
-      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', username: '', password: '' });
+      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '' });
       // 如果当前正在看某个机器的分组，默认绑定该机器
       if (activeGroup.value !== 'ALL' && activeGroup.value !== 'UNBOUND') {
         proxyForm.machine_code = activeGroup.value;
@@ -465,6 +499,7 @@ createApp({
         id: row.id || 0, name: row.name || row.proxy_name || '', type: row.type || row.proxy_type || 'socks5',
         server: row.server || '', port: row.port || 1080, machine_code: row.machine_code || '',
         source_cidr: row.source_cidr || '0.0.0.0/0',
+        enabled: row.enabled === true || row.enabled === 1,
         username: (row.extra && row.extra.username) ? row.extra.username : '',
         password: (row.extra && row.extra.password) ? row.extra.password : ''
       });
@@ -486,7 +521,8 @@ createApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: proxyForm.name, type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
-            machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0', extra: extra
+            machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
+            enabled: Boolean(proxyForm.enabled), extra: extra
           })
         });
         if (res.ok) {
@@ -647,17 +683,111 @@ createApp({
         if (res.ok) loadAgentsData(); else showMsg(await parseErr(res), 'error');
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
-
-    const safeCopy = async (text) => {
-      if (!text) return;
+    const loadNodeConfig = async () => {
+      const code = selectedConfigNode.value;
+      configYaml.value = '';
+      if (!code) return;
       try {
-        if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); }
-        else {
-          const t = document.createElement('textarea'); t.value = text; t.style.position = 'fixed'; t.style.left = '-9999px';
-          document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+        const res = await api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          configYaml.value = data.config_yaml || '';
+          showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+        } else {
+          configYaml.value = '';
+          showMsg(data.error || data.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+        }
+      } catch (e) {
+        showMsg(e.message || '读取节点配置失败', 'error');
+      }
+    };
+
+    const saveNodeConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const yaml = String(configYaml.value || '');
+
+      if (!code) {
+        showMsg('保存失败：请先选择节点机器码', 'warning');
+        return;
+      }
+      if (!yaml.trim()) {
+        showMsg('保存失败：YAML 配置不能为空', 'warning');
+        return;
+      }
+      if (savingConfig.value) return;
+
+      savingConfig.value = true;
+      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
+
+      try {
+        const path = '/api/v1/nodes/' +
+          encodeURIComponent(code) + '/config';
+
+        const res = await api(path, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: yaml })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const message = data.error || data.message ||
+            ('HTTP ' + res.status);
+          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
+          console.error('[S5M node config] PUT failed', {
+            code, status: res.status, message
+          });
+          return;
+        }
+
+        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
+        const verify = await api(path + '?t=' + Date.now());
+        const saved = await verify.json().catch(() => ({}));
+
+        if (!verify.ok) {
+          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
+            verify.status + '）', 'warning');
+          console.error('[S5M node config] verification failed', {
+            code, status: verify.status, response: saved
+          });
+          return;
+        }
+
+        if (String(saved.config_yaml || '') !== yaml) {
+          showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
+          console.error('[S5M node config] verification mismatch', { code });
+          return;
+        }
+
+        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+      } catch (e) {
+        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] request exception', e);
+      } finally {
+        savingConfig.value = false;
+      }
+    };
+
+const safeCopy = async (text) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(String(text ?? ''));
+        } else {
+          const t = document.createElement('textarea');
+          t.value = String(text ?? '');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          if (!ok) throw new Error('浏览器复制操作失败');
         }
         showMsg('复制成功', 'success');
-      } catch (e) { showMsg('复制失败', 'error'); }
+      } catch (e) {
+        showMsg('复制失败：' + (e.message || '请检查浏览器权限'), 'error');
+      }
     };
 
     const loadConfig = async () => {
@@ -702,23 +832,28 @@ createApp({
       if (token.value) {
         fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
         switchPage('dashboard');
+        if (overviewTimer === null) {
+          overviewTimer = setInterval(() => {
+            if (token.value && page.value === 'dashboard') loadOverview();
+          }, 3000);
+        }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
       }
     });
 
     return {
       page, token, loginUser, loginPass, loggingIn, currentUser,
-      overview, proxies, loadingProxies, filteredProxies, availableMachineCodes, activeGroup,
+      overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, activeGroup,
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading,
-      subUrl, configYaml, savingConfig, publishing, updatingKernel,
+      subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout,
       updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
-      loadConfig, loadSettings, saveConfig, publishConfig,
-      fmtBytes
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeed
     };
   }
 }).use(ElementPlus).mount('#app');

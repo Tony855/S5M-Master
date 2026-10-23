@@ -109,6 +109,11 @@ CREATE TABLE IF NOT EXISTS config_versions(
  status TEXT NOT NULL,
  created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS node_configs(
+    machine_code TEXT PRIMARY KEY,
+    yaml_text TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings(
  key TEXT PRIMARY KEY,
  value TEXT NOT NULL
@@ -349,4 +354,32 @@ func (s *Store) DeleteSettings(keys []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+type NodeConfig struct {
+	MachineCode string `json:"machine_code"`
+	YAML        string `json:"config_yaml"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+func (s *Store) GetNodeConfig(machineCode string) (*NodeConfig, error) {
+	c := &NodeConfig{}
+	err := s.db.QueryRow(
+		`SELECT machine_code, yaml_text, updated_at
+         FROM node_configs WHERE machine_code=?`,
+		machineCode,
+	).Scan(&c.MachineCode, &c.YAML, &c.UpdatedAt)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func (s *Store) SaveNodeConfig(machineCode, yamlText string) error {
+	_, err := s.db.Exec(`INSERT INTO node_configs(machine_code,yaml_text,updated_at) VALUES(?,?,?) ON CONFLICT(machine_code) DO UPDATE SET yaml_text=excluded.yaml_text, updated_at=excluded.updated_at`, machineCode, yamlText, time.Now().Format(time.RFC3339))
+	return err
 }
