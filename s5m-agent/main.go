@@ -67,7 +67,7 @@ func mihomoConfigPath() string {
 // The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
 	mainPath := mihomoConfigPath()
-	const previousPath = mainPath + ".previous"
+	previousPath := mainPath + ".previous"
 	if len(agentYml) == 0 || len(agentYml) > 2*1024*1024 {
 		return false, fmt.Errorf("主控端配置为空或超过 2 MiB")
 	}
