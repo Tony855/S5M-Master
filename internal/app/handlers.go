@@ -758,8 +758,8 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type AgentInfo struct {
-		Token    string `json:"token"`
-		LastSeen int64  `json:"last_seen"`
+		Authorized bool  `json:"authorized"`
+		LastSeen   int64 `json:"last_seen"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -787,7 +787,7 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 			lastSeen, _ = strconv.ParseInt(tsStr, 10, 64)
 		}
 
-		result[code] = AgentInfo{Token: token, LastSeen: lastSeen}
+		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen}
 	}
 
 	writeJSON(w, 200, result)

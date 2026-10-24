@@ -5,78 +5,84 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>节点机器码管理 - 控制台</title>
     <style>
-        body { background: #0f172a; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; }
-        .container { max-width: 800px; margin: 0 auto; background: #1e293b; padding: 20px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
-        h2 { margin-top: 0; color: #4cc9f0; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #334155; padding-bottom: 15px; }
-        button { padding: 8px 16px; background: #4361ee; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        button:hover { background: #3a56d4; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #334155; }
-        th { color: #94a3b8; font-size: 14px; font-weight: 500; }
-        td { font-size: 14px; }
-        .code { font-family: monospace; color: #34d399; background: rgba(52, 211, 153, 0.1); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
-        .token { font-family: monospace; color: #64748b; font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: middle; }
-        .empty { text-align: center; color: #64748b; padding: 40px 0; }
-        .btn-copy { background: rgba(76, 201, 240, 0.15); color: #4cc9f0; border: 1px solid #4cc9f0; padding: 4px 10px; font-size: 12px; margin-left: 10px; }
+        body { background:#0f172a; color:#f8fafc; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:20px; }
+        .container { max-width:900px; margin:0 auto; background:#1e293b; padding:20px; border-radius:12px; border:1px solid #334155; }
+        h2 { margin-top:0; color:#4cc9f0; }
+        .header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; border-bottom:1px solid #334155; padding-bottom:15px; }
+        button { padding:8px 16px; background:#4361ee; color:#fff; border:0; border-radius:6px; cursor:pointer; font-weight:bold; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; }
+        th,td { text-align:left; padding:12px; border-bottom:1px solid #334155; overflow-wrap:anywhere; }
+        th { color:#94a3b8; font-size:14px; font-weight:500; }
+        td { font-size:14px; }
+        .code { font-family:monospace; color:#34d399; background:rgba(52,211,153,.1); padding:2px 6px; border-radius:4px; }
+        .status { display:inline-block; border-radius:12px; padding:3px 9px; font-size:12px; }
+        .online { color:#34d399; background:rgba(52,211,153,.12); }
+        .offline { color:#fca5a5; background:rgba(248,113,113,.12); }
+        .empty { text-align:center; color:#94a3b8; padding:40px 0; }
+        .error { color:#fca5a5; }
+        @media(max-width:600px) { body{padding:8px} .container{padding:12px} th,td{padding:8px 5px;font-size:12px} .header{align-items:flex-start} }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h2>节点机器码列表</h2>
-            <button onclick="loadAgents()">刷新列表</button>
+            <button type="button" onclick="loadAgents()">刷新列表</button>
         </div>
         <table>
-            <thead>
-                <tr>
-                    <th>机器码 (Machine Code)</th>
-                    <th>分配 Token (部分展示)</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody id="agentList">
-                <tr><td colspan="3" class="empty">正在加载...</td></tr>
-            </tbody>
+            <thead><tr><th>机器码</th><th>授权状态</th><th>节点状态</th><th>最后心跳</th><th>操作</th></tr></thead>
+            <tbody id="agentList"><tr><td colspan="5" class="empty">正在加载...</td></tr></tbody>
         </table>
     </div>
-
     <script>
+        const TOKEN_KEY = 's5m_next_token';
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        function formatTime(seconds) {
+            if (!seconds) return '从未上报';
+            const date = new Date(seconds * 1000);
+            return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString();
+        }
         async function loadAgents() {
             const tbody = document.getElementById('agentList');
-            tbody.innerHTML = '<tr><td colspan="3" class="empty">正在加载...</td></tr>';
-            
+            tbody.innerHTML = '<tr><td colspan="5" class="empty">正在加载...</td></tr>';
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
+                return;
+            }
             try {
-                const res = await fetch('/api/v1/agents');
-                if (!res.ok) throw new Error('网络请求失败');
+                const res = await fetch('/api/v1/agents', { headers: { Authorization: 'Bearer ' + token } });
+                if (res.status === 401) throw new Error('登录已失效，请返回主控台重新登录');
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    throw new Error(body.error || ('HTTP ' + res.status));
+                }
                 const data = await res.json();
-                
-                const keys = Object.keys(data);
-                if (keys.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" class="empty">暂无注册的机器码，请前往 Agent 端绑定</td></tr>';
+                const entries = Object.entries(data || {});
+                if (!entries.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无已授权机器码。</td></tr>';
                     return;
                 }
-
-                tbody.innerHTML = keys.map(k => `
-                    <tr>
-                        <td><span class="code">${k}</span></td>
-                        <td><span class="token" title="${data[k]}">${data[k]}</span></td>
-                        <td><button class="btn-copy" onclick="copyText('${k}')">复制机器码</button></td>
-                    </tr>
-                `).join('');
+                const now = Date.now() / 1000;
+                tbody.innerHTML = entries.map(([code, info]) => {
+                    const seen = Number(info && info.last_seen || 0);
+                    const online = seen > 0 && now - seen <= 90;
+                    return '<tr><td><span class="code">' + esc(code) + '</span></td>' +
+                        '<td>' + (info && info.authorized ? '已授权' : '未授权') + '</td>' +
+                        '<td><span class="status ' + (online ? 'online' : 'offline') + '">' + (online ? '在线' : '离线') + '</span></td>' +
+                        '<td>' + esc(formatTime(seen)) + '</td>' +
+                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button></td></tr>';
+                }).join('');
+                tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="3" class="empty" style="color:#ef4444">加载失败: ${e.message}</td></tr>`;
+                tbody.innerHTML = '<tr><td colspan="5" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
             }
         }
-
-        function copyText(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('机器码已复制: ' + text);
-            });
+        async function copyText(value) {
+            try { await navigator.clipboard.writeText(value); alert('机器码已复制：' + value); }
+            catch (_) { window.prompt('请复制机器码：', value); }
         }
-
-        // 页面加载时自动获取
-        window.onload = loadAgents;
+        window.addEventListener('load', loadAgents);
     </script>
 </body>
 </html>
