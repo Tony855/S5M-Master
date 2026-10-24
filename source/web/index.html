@@ -674,7 +674,7 @@ html, body, #app {
   .remote-node-updated{font-size:10px;line-height:1.5;color:#98a2b3;overflow-wrap:anywhere}
 }
 
-.docker-bulk-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px;border:1px solid #e4e9f2;border-radius:12px;background:#f8faff}.docker-bulk-copy{display:flex;flex-direction:column;gap:3px}.docker-bulk-copy span{font-size:12px;color:#667085}.docker-bulk-buttons{display:flex;flex-wrap:wrap;gap:7px}.docker-bulk-buttons .el-button+.el-button{margin-left:0}@media(max-width:760px){.docker-bulk-toolbar{align-items:stretch;flex-direction:column}.docker-bulk-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.docker-bulk-buttons .el-button{width:100%;margin:0}</style>
+.docker-bulk-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px;border:1px solid #e4e9f2;border-radius:12px;background:#f8faff}.docker-bulk-copy{display:flex;flex-direction:column;gap:3px}.docker-bulk-copy span{font-size:12px;color:#667085}.docker-bulk-buttons{display:flex;flex-wrap:wrap;gap:7px}.docker-bulk-buttons .el-button+.el-button{margin-left:0}@media(max-width:760px){.docker-bulk-toolbar{align-items:stretch;flex-direction:column}.docker-bulk-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.docker-bulk-buttons .el-button{width:100%;margin:0}}</style>
 </head>
 <body>
 <div id="app" v-cloak>
@@ -1585,12 +1585,21 @@ createApp({
         const task = (data.tasks || []).find(x => Number(x.id) === Number(created.id));
         if (task && (task.status === 'succeeded' || task.status === 'failed')) {
           await loadContainerTasks();
-          if (task.status === 'failed') throw new Error(task.error || '实例执行失败');
+          if (task.status === 'failed') {
+            const error = new Error(task.error || '实例执行失败');
+            error.taskId = Number(created.id);
+            error.taskStatus = 'failed';
+            throw error;
+          }
           dockerStatus.value = '任务 #' + created.id + ' 执行成功';
-          return task.result || {};
+          const result = task.result && typeof task.result === 'object' ? task.result : { output: String(task.result || '') };
+          return { ...result, task_id: Number(created.id) };
         }
       }
-      throw new Error('任务仍在等待执行或实例暂时离线；可刷新任务/实例状态后重试');
+      const timeoutError = new Error('任务 #' + created.id + ' 在 20 秒内未返回最终状态；任务可能仍在执行，请到任务记录查询，不要直接重复提交');
+      timeoutError.taskId = Number(created.id);
+      timeoutError.taskStatus = 'unknown';
+      throw timeoutError;
     };
     const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
     const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
@@ -1687,9 +1696,9 @@ createApp({
       }
       try {
         await ElementPlus.ElMessageBox.confirm(
-          '即将' + label + ' ' + eligible.length + ' 个容器。任务最多 3 个并发执行，每个容器单独记录结果。' +
+          '即将' + label + ' ' + eligible.length + ' 个容器。任务最多 3 个并发执行，每个容器单独记录任务 ID。' +
           (skipped ? '\n另有 ' + skipped + ' 个容器因当前状态不适用而跳过。' : '') +
-          '\n该操作可能影响正在运行的服务，是否继续？',
+          '\n部分任务若 20 秒内未完成，系统会标记为“状态待确认”，请在任务记录核实，避免重复提交。\n是否继续？',
           '确认批量' + label,
           { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
         );
@@ -1709,9 +1718,20 @@ createApp({
           const id = containerIdentity(row);
           try {
             const result = await dockerTask(action, { container_id: id });
-            outcomes[index] = { name: row.Names || id, id, ok: true, detail: String(result.output || '操作成功').trim() };
+            outcomes[index] = {
+              name: row.Names || id, id, beforeState: row.State || '未知',
+              afterState: '待刷新', ok: true, status: 'succeeded',
+              taskId: result.task_id || null,
+              detail: String(result.output || '操作成功').trim()
+            };
           } catch (e) {
-            outcomes[index] = { name: row.Names || id, id, ok: false, detail: e.message || '执行失败' };
+            outcomes[index] = {
+              name: row.Names || id, id, beforeState: row.State || '未知',
+              afterState: '待确认', ok: false,
+              status: e.taskStatus || (e.taskId ? 'unknown' : 'failed'),
+              taskId: e.taskId || null,
+              detail: e.message || '执行失败'
+            };
           }
           completed++;
           bulkDockerProgress.value = '正在批量' + label + '：' + completed + '/' + eligible.length + ' 完成';
@@ -1719,16 +1739,37 @@ createApp({
       };
       try {
         await Promise.all(Array.from({ length: Math.min(3, eligible.length) }, () => worker()));
+        try {
+          await refreshDocker();
+          const refreshedById = new Map(dockerContainers.value.map(row => [containerIdentity(row), row]));
+          outcomes.forEach(item => {
+            if (!item) return;
+            const current = refreshedById.get(item.id);
+            item.afterState = current ? (current.State || '未知') : '未查询到';
+          });
+        } catch (_) {
+          // Preserve task results even when the post-operation state refresh fails.
+        }
         const succeeded = outcomes.filter(item => item && item.ok).length;
-        const failed = outcomes.length - succeeded;
-        const lines = outcomes.map(item => (item.ok ? '[成功] ' : '[失败] ') + item.name + ' (' + item.id + ')\n' + item.detail);
+        const failed = outcomes.filter(item => item && item.status === 'failed').length;
+        const unknown = outcomes.filter(item => item && item.status === 'unknown').length;
+        const lines = outcomes.map(item => {
+          if (!item) return '[状态待确认] 未能读取该容器的任务结果';
+          const statusLabel = item.status === 'succeeded' ? '成功' : item.status === 'failed' ? '失败' : '状态待确认';
+          return '[' + statusLabel + '] ' + item.name + ' (' + item.id + ')' +
+            (item.taskId ? ' · 任务 #' + item.taskId : '') +
+            '\n容器状态：' + item.beforeState + ' → ' + item.afterState +
+            '\n' + item.detail;
+        });
         if (skipped) lines.push('[跳过] ' + skipped + ' 个容器：状态不符合该操作条件');
-        dockerOutput.value = '批量' + label + '结果：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped + '\n\n' + lines.join('\n\n');
+        dockerOutput.value = '批量' + label + '结果：成功 ' + succeeded + '，失败 ' + failed +
+          '，状态待确认 ' + unknown + '，跳过 ' + skipped + '\n\n' + lines.join('\n\n') +
+          (unknown ? '\n\n注意：状态待确认的任务可能仍在执行。请按任务 ID 到“容器任务记录”核实后再决定是否重试。' : '');
         dockerOutputVisible.value = true;
-        bulkDockerProgress.value = '批量' + label + '完成：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped;
-        showMsg(bulkDockerProgress.value, failed ? 'warning' : 'success');
+        bulkDockerProgress.value = '批量' + label + '完成：成功 ' + succeeded + '，失败 ' + failed +
+          '，状态待确认 ' + unknown + '，跳过 ' + skipped;
+        showMsg(bulkDockerProgress.value, (failed || unknown) ? 'warning' : 'success');
         selectedDockerIDs.value = [];
-        await refreshDocker();
       } finally {
         dockerLoading.value = false;
       }
