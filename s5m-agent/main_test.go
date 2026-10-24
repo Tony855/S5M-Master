@@ -93,3 +93,20 @@ func TestValidateMihomoConfigYAML(t *testing.T) {
 		})
 	}
 }
+
+func TestMihomoVersionMatches(t *testing.T) {
+	tests := []struct { name, actual, expected string; want bool }{
+		{name: "exact", actual: "1.19.31", expected: "1.19.31", want: true},
+		{name: "prefix v", actual: "v1.19.31", expected: "1.19.31", want: true},
+		{name: "both prefix v", actual: "v1.19.31", expected: "v1.19.31", want: true},
+		{name: "different version", actual: "1.19.30", expected: "1.19.31"},
+		{name: "empty actual", actual: "", expected: "1.19.31"},
+		{name: "empty expected", actual: "1.19.31", expected: ""},
+		{name: "suffix mismatch", actual: "1.19.31-dev", expected: "1.19.31"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mihomoVersionMatches(tt.actual, tt.expected); got != tt.want { t.Fatalf("mihomoVersionMatches(%q, %q) = %v, want %v", tt.actual, tt.expected, got, tt.want) }
+		})
+	}
+}
