@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateCentralURL(t *testing.T) {
 	tests := []struct {
@@ -33,6 +36,31 @@ func TestValidateCentralURL(t *testing.T) {
 			}
 			if err == nil {
 				t.Fatalf("expected invalid URL %q to be rejected; got %q", tt.in, got)
+			}
+		})
+	}
+}
+
+
+func TestValidateKernelUpdateCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		sha256  string
+		wantErr bool
+	}{
+		{name: "valid", version: "v1.19.31", sha256: strings.Repeat("a", 64)},
+		{name: "missing v prefix", version: "1.19.31", sha256: strings.Repeat("a", 64), wantErr: true},
+		{name: "version injection", version: "v1.19.31/../../latest", sha256: strings.Repeat("a", 64), wantErr: true},
+		{name: "prerelease unsupported", version: "v1.19.31-rc.1", sha256: strings.Repeat("a", 64), wantErr: true},
+		{name: "short checksum", version: "v1.19.31", sha256: "abcd", wantErr: true},
+		{name: "non hex checksum", version: "v1.19.31", sha256: strings.Repeat("z", 64), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateKernelUpdateCommand(agentCommand{Version: tt.version, SHA256: tt.sha256})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateKernelUpdateCommand() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
