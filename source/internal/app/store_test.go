@@ -143,3 +143,59 @@ func TestCancelPendingAgentTaskOnlyCancelsUnclaimedTasks(t *testing.T) {
 		t.Fatalf("cancel running task: changed=%d err=%v", changed, err)
 	}
 }
+
+func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "stale-tasks.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	staleBefore := "2026-10-24T12:00:00Z"
+	staleID, err := store.CreateAgentTask("node-1", "docker.restart", `{"container_id":"proxy-1"}`)
+	if err != nil {
+		t.Fatalf("Create stale task: %v", err)
+	}
+	freshID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("Create fresh task: %v", err)
+	}
+	otherNodeID, err := store.CreateAgentTask("node-2", "docker.stop", `{"container_id":"proxy-2"}`)
+	if err != nil {
+		t.Fatalf("Create other-node task: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T11:57:00Z", staleID); err != nil {
+		t.Fatalf("Mark stale task running: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T12:00:30Z", freshID); err != nil {
+		t.Fatalf("Mark fresh task running: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T11:57:00Z", otherNodeID); err != nil {
+		t.Fatalf("Mark other-node task running: %v", err)
+	}
+
+	changed, err := store.FailStaleAgentTasks("node-1", staleBefore)
+	if err != nil || changed != 1 {
+		t.Fatalf("FailStaleAgentTasks: changed=%d err=%v, want 1", changed, err)
+	}
+
+	var status, errorText, finishedAt string
+	if err := store.db.QueryRow(`SELECT status,error_text,finished_at FROM agent_tasks WHERE id=?`, staleID).Scan(&status, &errorText, &finishedAt); err != nil {
+		t.Fatalf("Read stale task: %v", err)
+	}
+	if status != "failed" || errorText == "" || finishedAt == "" {
+		t.Fatalf("stale task status=%q error=%q finished_at=%q; expected failed with diagnostic and finish time", status, errorText, finishedAt)
+	}
+	for _, id := range []int64{freshID, otherNodeID} {
+		if err := store.db.QueryRow(`SELECT status FROM agent_tasks WHERE id=?`, id).Scan(&status); err != nil {
+			t.Fatalf("Read unaffected task %d: %v", id, err)
+		}
+		if status != "running" {
+			t.Fatalf("unaffected task %d status=%q, want running", id, status)
+		}
+	}
+	changed, err = store.FailStaleAgentTasks("node-1", staleBefore)
+	if err != nil || changed != 0 {
+		t.Fatalf("repeat stale-task cleanup: changed=%d err=%v, want 0", changed, err)
+	}
+}
