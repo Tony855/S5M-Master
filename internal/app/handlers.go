@@ -818,8 +818,10 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	command := map[string]string{
-		"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": "update_mihomo",
-		"version": in.Version, "sha256": in.SHA256,
+		"id":      fmt.Sprintf("%d", time.Now().UnixNano()),
+		"type":    "update_mihomo",
+		"version": in.Version,
+		"sha256":  in.SHA256,
 	}
 	payload, err := json.Marshal(command)
 	if err != nil {
