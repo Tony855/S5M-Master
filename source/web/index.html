@@ -960,6 +960,8 @@ html, body, #app {
           <div class="docker-controls" style="margin:10px 0 14px">
             <el-input v-model="containerTaskSearch" clearable placeholder="搜索本页任务 ID、实例或操作" />
             <el-select v-model="containerTaskMachineFilter" clearable filterable placeholder="筛选本页实例" style="max-width:190px"><el-option v-for="code in containerTaskMachineOptions" :key="code" :label="code" :value="code" /></el-select>
+            <el-date-picker v-model="containerTaskStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable style="max-width:150px" />
+            <el-date-picker v-model="containerTaskEndDate" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable style="max-width:150px" />
             <el-select v-model="containerTaskStatusFilter" style="max-width:170px" aria-label="筛选任务状态">
               <el-option label="全部任务" value="all" />
               <el-option label="等待执行" value="pending" />
@@ -1133,7 +1135,10 @@ createApp({
           || (agentStatusFilter.value === 'offline' && !item.online)
           || (agentStatusFilter.value === 'docker' && item.runtimeReported && item.dockerAvailable);
         const matchesMachine = !containerTaskMachineFilter.value || task.machine_code === containerTaskMachineFilter.value;
-        return matchesQuery && matchesStatus && matchesMachine;
+        const createdDate = String(task.created_at || '').slice(0, 10);
+        const matchesStartDate = !containerTaskStartDate.value || (createdDate && createdDate >= containerTaskStartDate.value);
+        const matchesEndDate = !containerTaskEndDate.value || (createdDate && createdDate <= containerTaskEndDate.value);
+        return matchesQuery && matchesStatus && matchesMachine && matchesStartDate && matchesEndDate;
       });
     });
     const dockerMachineCode = ref('');
@@ -1149,6 +1154,8 @@ createApp({
     const containerTaskSearch = ref('');
     const containerTaskStatusFilter = ref('all');
     const containerTaskMachineFilter = ref('');
+    const containerTaskStartDate = ref('');
+    const containerTaskEndDate = ref('');
     const selectedFailedContainerTasks = ref([]);
     const bulkRetryLoading = ref(false);
     const containerTaskPage = ref(1);
@@ -1682,6 +1689,8 @@ createApp({
       containerTaskPage.value = page;
       containerTaskSearch.value = '';
       containerTaskMachineFilter.value = '';
+      containerTaskStartDate.value = '';
+      containerTaskEndDate.value = '';
       loadContainerTasks();
     };
     const showContainerTask = (task) => {
@@ -2059,7 +2068,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
+      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
