@@ -978,10 +978,11 @@ html, body, #app {
               </template>
             </el-table-column>
             <el-table-column prop="created_at" label="创建时间" min-width="170" />
-            <el-table-column label="操作" width="115" fixed="right">
+            <el-table-column label="操作" width="170" fixed="right">
               <template #default="scope">
                 <el-button v-if="scope.row.status === 'pending'" size="small" type="danger" plain @click="cancelContainerTask(scope.row)">取消</el-button>
-                <el-button v-else size="small" @click="showContainerTask(scope.row)">结果</el-button>
+                <el-button v-else size="small" @click="showContainerTask(scope.row)">详情</el-button>
+                <el-button v-if="scope.row.status === 'failed'" size="small" type="warning" plain @click="retryContainerTask(scope.row)">重新提交</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -1594,9 +1595,41 @@ createApp({
       }
     };
     const showContainerTask = (task) => {
-      const result = task.result == null ? '' : (typeof task.result === 'string' ? task.result : JSON.stringify(task.result, null, 2));
-      dockerOutput.value = '任务 #' + task.id + ' · ' + taskStatusLabel(task.status) + '\n实例：' + task.machine_code + '\n动作：' + task.action + '\n创建时间：' + task.created_at + '\n完成时间：' + (task.finished_at || '—') + '\n错误：' + (task.error || '无') + '\n\n执行结果：\n' + (result || '无结果');
+      const formatJSON = value => value == null ? '' : (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+      const result = formatJSON(task.result);
+      const params = formatJSON(task.params);
+      dockerOutput.value = '任务 #' + task.id + ' · ' + taskStatusLabel(task.status)
+        + '\n实例：' + task.machine_code
+        + '\n动作：' + task.action
+        + '\n创建时间：' + (task.created_at || '—')
+        + '\n领取时间：' + (task.claimed_at || '—')
+        + '\n更新时间：' + (task.updated_at || '—')
+        + '\n完成时间：' + (task.finished_at || '—')
+        + '\n错误：' + (task.error || '无')
+        + '\n\n任务参数：\n' + (params || '无参数')
+        + '\n\n执行结果：\n' + (result || '无结果');
       dockerOutputVisible.value = true;
+    };
+    const retryContainerTask = async (task) => {
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '将为实例 ' + task.machine_code + ' 创建一个新的任务 #' + task.id + ' 的副本。请先检查失败原因，确认重复执行不会造成意外影响。',
+          '重新提交失败任务',
+          { type: 'warning', confirmButtonText: '创建新任务', cancelButtonText: '取消' }
+        );
+        const res = await api('/api/v1/container/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machine_code: task.machine_code, action: task.action, params: task.params || {} })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.id) throw new Error(data.error || '重新提交任务失败');
+        dockerMachineCode.value = task.machine_code;
+        showMsg('已创建新任务 #' + data.id + '（原任务 #' + task.id + ' 保留）', 'success');
+        await loadContainerTasks();
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '重新提交任务失败', 'error');
+      }
     };
     const cancelContainerTask = async (task) => {
       try {
@@ -1827,7 +1860,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
+      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
