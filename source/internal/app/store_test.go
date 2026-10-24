@@ -144,7 +144,6 @@ func TestCancelPendingAgentTaskOnlyCancelsUnclaimedTasks(t *testing.T) {
 	}
 }
 
-
 func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "stale-tasks.db"))
 	if err != nil {
