@@ -30,8 +30,8 @@
             <button type="button" onclick="loadAgents()">刷新列表</button>
         </div>
         <table>
-            <thead><tr><th>机器码</th><th>授权状态</th><th>节点状态</th><th>最后心跳</th><th>操作</th></tr></thead>
-            <tbody id="agentList"><tr><td colspan="5" class="empty">正在加载...</td></tr></tbody>
+            <thead><tr><th>机器码</th><th>授权状态</th><th>Agent 状态</th><th>Mihomo 版本</th><th>连接数</th><th>上传 / 下载</th><th>最后心跳</th><th>操作</th></tr></thead>
+            <tbody id="agentList"><tr><td colspan="8" class="empty">正在加载...</td></tr></tbody>
         </table>
     </div>
     <script>
@@ -44,10 +44,10 @@
         }
         async function loadAgents() {
             const tbody = document.getElementById('agentList');
-            tbody.innerHTML = '<tr><td colspan="5" class="empty">正在加载...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" class="empty">正在加载...</td></tr>';
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token) {
-                tbody.innerHTML = '<tr><td colspan="5" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
                 return;
             }
             try {
@@ -60,22 +60,36 @@
                 const data = await res.json();
                 const entries = Object.entries(data || {});
                 if (!entries.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无已授权机器码。</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" class="empty">暂无已授权机器码。</td></tr>';
                     return;
                 }
                 const now = Date.now() / 1000;
                 tbody.innerHTML = entries.map(([code, info]) => {
                     const seen = Number(info && info.last_seen || 0);
                     const online = seen > 0 && now - seen <= 90;
+                    const status = info && info.status || {};
+                    const healthy = status.mihomo_healthy === true;
+                    const version = status.mihomo_version || '未知';
+                    const connections = Number(status.connections || 0);
+                    const up = Number(status.upload_speed || 0);
+                    const down = Number(status.download_speed || 0);
+                    const fmt = value => {
+                        if (!Number.isFinite(value) || value <= 0) return '0 B/s';
+                        const units = ['B/s','KB/s','MB/s','GB/s'];
+                        const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+                        return (value / Math.pow(1024, index)).toFixed(1) + ' ' + units[index];
+                    };
                     return '<tr><td><span class="code">' + esc(code) + '</span></td>' +
                         '<td>' + (info && info.authorized ? '已授权' : '未授权') + '</td>' +
-                        '<td><span class="status ' + (online ? 'online' : 'offline') + '">' + (online ? '在线' : '离线') + '</span></td>' +
-                        '<td>' + esc(formatTime(seen)) + '</td>' +
+                        '<td><span class="status ' + (online && healthy ? 'online' : 'offline') + '">' + (online ? (healthy ? '在线 / 正常' : '在线 / 异常') : '离线') + '</span></td>' +
+                        '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
+                        '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
+                        '<td>' + esc(formatTime(seen)) + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + '</td>' +
                         '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="5" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
             }
         }
         async function copyText(value) {
