@@ -55,11 +55,11 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            source/web/index.html
-            source/web/vendor/vue.global.prod.js
-            source/web/vendor/element-plus.full.js
-            source/web/vendor/element-plus.css
-            source/web/vendor/icons.js
+            web/index.html
+            web/vendor/vue.global.prod.js
+            web/vendor/element-plus.full.js
+            web/vendor/element-plus.css
+            web/vendor/icons.js
           )
           missing=0
           for file in "${required[@]}"; do
