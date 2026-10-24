@@ -694,6 +694,7 @@ html, body, #app {
         <el-menu-item index="dashboard">系统概览</el-menu-item>
         <el-menu-item index="proxies">代理管理</el-menu-item>
         <el-menu-item index="instances">实例管理</el-menu-item>
+        <el-menu-item index="docker">Docker 容器</el-menu-item>
         <el-menu-item index="config">配置管理</el-menu-item>
       </el-menu>
     </el-aside>
@@ -943,6 +944,9 @@ html, body, #app {
           </div>
 
         </div>
+      </div>
+
+      <div v-if="page === 'docker'">
         <div class="card-panel docker-panel">
           <div class="card-title"><span>Docker 容器管理</span><span class="section-hint">选择实例后查询与操作</span></div>
           <div class="docker-controls">
@@ -1068,6 +1072,7 @@ html, body, #app {
           </el-dialog>
         </div>
       </div>
+
 
       <div v-if="page === 'config'">
         <div class="card-panel">
@@ -1298,13 +1303,14 @@ createApp({
       loggingIn.value = false;
     };
 
-    const PAGES = ['dashboard','proxies','instances','config'];
+    const PAGES = ['dashboard','proxies','instances','docker','config'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
       page.value = v;
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') loadProxies();
-      if (v === 'instances') { loadAgentsData(); loadContainerTasks(); }
+      if (v === 'instances') loadAgentsData();
+      if (v === 'docker') { loadAgentsData(); loadContainerTasks(); }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
