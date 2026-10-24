@@ -71,10 +71,10 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var t struct {
-		ID        int64           `json:"id"`
-		Action    string          `json:"action"`
-		Params    string          `json:"-"`
-		CreatedAt string          `json:"created_at"`
+		ID        int64  `json:"id"`
+		Action    string `json:"action"`
+		Params    string `json:"-"`
+		CreatedAt string `json:"created_at"`
 	}
 	err := a.store.db.QueryRow(`UPDATE agent_tasks
         SET status='running',claimed_at=?,updated_at=?
