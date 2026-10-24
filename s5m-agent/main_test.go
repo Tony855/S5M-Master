@@ -236,3 +236,18 @@ func TestExecuteContainerTaskRejectsUnsafeOrIncompleteInput(t *testing.T) {
 		})
 	}
 }
+
+func TestValidDockerContainerID(t *testing.T) {
+	valid := []string{"s5m", "proxy_1", "node.example-01", "a1b2c3d4"}
+	for _, id := range valid {
+		if !validDockerContainerID(id) {
+			t.Errorf("valid container ID %q was rejected", id)
+		}
+	}
+	invalid := []string{"", "-f", "--format", "proxy;id", "proxy id", "../container", "x/y", strings.Repeat("a", 129)}
+	for _, id := range invalid {
+		if validDockerContainerID(id) {
+			t.Errorf("invalid container ID %q was accepted", id)
+		}
+	}
+}
