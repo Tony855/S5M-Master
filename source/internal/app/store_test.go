@@ -68,6 +68,11 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	if err := store.UpdateSettings(map[string]string{
 		"agent_machine_node_123":  "s5m-secret",
 		"agent_lastseen_node_123": "1792750000",
+		"agent_status_node_123":    `{"stale":true}`,
+		"agent_command_node_123":   `{"id":"pending"}`,
+		"agent_command_result_node_123": `{"status":"old"}`,
+		"agent_secret_node_123":    "old-secret",
+		"agent_mihomo_secret_node_123": "old-mihomo-secret",
 	}); err != nil {
 		t.Fatalf("设置测试授权: %v", err)
 	}
@@ -84,7 +89,7 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	if err := store.DeleteAgentBinding("node_123"); err != nil {
 		t.Fatalf("DeleteAgentBinding: %v", err)
 	}
-	for _, key := range []string{"agent_machine_node_123", "agent_lastseen_node_123"} {
+	for _, key := range []string{"agent_machine_node_123", "agent_lastseen_node_123", "agent_status_node_123", "agent_command_node_123", "agent_command_result_node_123", "agent_secret_node_123", "agent_mihomo_secret_node_123"} {
 		if _, err := store.GetSetting(key); err == nil {
 			t.Fatalf("授权设置 %s 未删除", key)
 		}
