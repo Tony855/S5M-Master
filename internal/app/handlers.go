@@ -733,6 +733,74 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(yml))
 }
 
+// handleAgentHeartbeat stores authenticated per-Agent runtime telemetry.
+func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	var in map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in == nil {
+		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
+		return
+	}
+	for _, key := range []string{"mihomo_version", "mihomo_healthy", "upload_total", "download_total", "upload_speed", "download_speed", "connections", "config_sha256", "last_error"} {
+		if _, ok := in[key]; !ok {
+			writeErr(w, http.StatusBadRequest, "缺少心跳字段: "+key)
+			return
+		}
+	}
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		writeErr(w, http.StatusUnauthorized, "缺少 Agent Token")
+		return
+	}
+	token, err := jwt.Parse(strings.TrimPrefix(authHeader, "Bearer "), func(t *jwt.Token) (interface{}, error) {
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("不支持的 JWT 签名算法")
+		}
+		return a.jwtKey, nil
+	})
+	if err != nil || token == nil || !token.Valid {
+		writeErr(w, http.StatusUnauthorized, "无效或已过期的 Agent Token")
+		return
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "无效的 Agent Token")
+		return
+	}
+	code, codeOK := claims["sub"].(string)
+	role, roleOK := claims["role"].(string)
+	version, versionOK := claims["ver"].(string)
+	if !codeOK || code == "" || !roleOK || role != "agent" || !versionOK || version == "" {
+		writeErr(w, http.StatusUnauthorized, "Agent 身份无效")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取设备授权失败")
+		return
+	}
+	machineToken := settings["agent_machine_"+code]
+	currentVersion := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
+	if machineToken == "" || machineToken == settings["agent_token"] || version != currentVersion {
+		writeErr(w, http.StatusUnauthorized, "设备未授权或授权已失效")
+		return
+	}
+	in["received_at"] = time.Now().Unix()
+	payload, err := json.Marshal(in)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "心跳字段无法序列化")
+		return
+	}
+	if err := a.store.UpdateSettings(map[string]string{
+		"agent_lastseen_"+code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_status_"+code: string(payload),
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "received_at": time.Now().Unix()})
+}
+
 // 删除指定的机器码
 func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
@@ -758,8 +826,9 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type AgentInfo struct {
-		Authorized bool  `json:"authorized"`
-		LastSeen   int64 `json:"last_seen"`
+		Authorized bool           `json:"authorized"`
+		LastSeen   int64          `json:"last_seen"`
+		Status     map[string]any `json:"status,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -787,7 +856,11 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 			lastSeen, _ = strconv.ParseInt(tsStr, 10, 64)
 		}
 
-		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen}
+		var status map[string]any
+		if raw := settings["agent_status_"+code]; raw != "" {
+			_ = json.Unmarshal([]byte(raw), &status)
+		}
+		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status}
 	}
 
 	writeJSON(w, 200, result)

@@ -46,6 +46,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/agent/config", a.handleAgentConfig)
+	mux.HandleFunc("POST /api/v1/agent/heartbeat", a.handleAgentHeartbeat)
 
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/auth/me":             a.handleMe,
