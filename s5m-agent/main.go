@@ -195,14 +195,24 @@ func collectMihomoStatus() map[string]any {
 	client := &http.Client{Timeout: 3 * time.Second}
 	get := func(path string) (map[string]any, error) {
 		req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:8088"+path, nil)
-		if err != nil { return nil, err }
-		if secret != "" { req.Header.Set("Authorization", "Bearer "+secret) }
+		if err != nil {
+			return nil, err
+		}
+		if secret != "" {
+			req.Header.Set("Authorization", "Bearer "+secret)
+		}
 		resp, err := client.Do(req)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 { return nil, fmt.Errorf("HTTP %d", resp.StatusCode) }
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		}
 		var result map[string]any
-		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil { return nil, err }
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil {
+			return nil, err
+		}
 		return result, nil
 	}
 	version, err := get("/version")
@@ -233,14 +243,20 @@ func collectMihomoStatus() map[string]any {
 
 func reportHeartbeat(cfg Config, status map[string]any) error {
 	body, err := json.Marshal(status)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/heartbeat", strings.NewReader(string(body)))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
