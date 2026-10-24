@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -367,7 +368,7 @@ func processAgentCommand(cfg Config) error {
 	if runErr != nil {
 		return runErr
 	}
-	fmt.Printf("Agent 命令 %s 执行成功: %s\\n", cmd.ID, message)
+	fmt.Printf("Agent 命令 %s 执行成功: %s\n", cmd.ID, message)
 	return nil
 }
 
@@ -515,54 +516,101 @@ func main() {
 		})
 
 		http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-			// 读取本地的 agent.json 查看是否已经绑定
-			data, _ := os.ReadFile("/data/agent.json")
+			data, _ := os.ReadFile(mihomoHome() + "/agent.json")
 			var cfg Config
-			json.Unmarshal(data, &cfg)
-
+			_ = json.Unmarshal(data, &cfg)
 			w.Header().Set("Content-Type", "application/json")
-			if cfg.Token != "" {
-				w.Write([]byte(`{"has_token":true,"central_url":"` + cfg.CentralURL + `","connected":true}`))
-			} else {
-				w.Write([]byte(`{"has_token":false,"central_url":"","connected":false}`))
-			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"has_token": cfg.Token != "",
+				"central_url": cfg.CentralURL,
+				// This is local binding state, not a live reachability probe.
+				"connected": false,
+			})
 		})
 
 		http.HandleFunc("/api/bind", func(w http.ResponseWriter, r *http.Request) {
-			// 保存绑定信息
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "仅允许 POST", http.StatusMethodNotAllowed)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 			var in struct {
 				CentralURL string `json:"central_url"`
 				Secret     string `json:"secret"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-				http.Error(w, "参数错误", 400)
+				http.Error(w, "参数错误", http.StatusBadRequest)
 				return
 			}
-
-			// 这里假设 Agent 注册逻辑，需要调用主控台 /api/v1/agent/register 换取 JWT
-			// 但为了简单，我们直接保存 token (由于之前的代码里是加密的，这里为了跑通，直接存明文/或者模拟)
-			// 实际上这里需要发送 HTTP 请求去主控台注册并拿到返回的 JWT，然后再加密保存
-			reqBody := strings.NewReader(`{"machine_code":"` + getMachineID() + `","secret":"` + in.Secret + `"}`)
-			resp, err := http.Post(in.CentralURL+"/api/v1/agent/register", "application/json", reqBody)
-			if err != nil || resp.StatusCode != 200 {
-				http.Error(w, "主控台验证失败，请检查密钥", 400)
+			centralURL := strings.TrimRight(strings.TrimSpace(in.CentralURL), "/")
+			if !strings.HasPrefix(centralURL, "https://") && !strings.HasPrefix(centralURL, "http://") {
+				http.Error(w, "主控地址必须使用 http:// 或 https://", http.StatusBadRequest)
+				return
+			}
+			parsedURL, parseErr := url.Parse(centralURL)
+			if parseErr != nil || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" ||
+				strings.ContainsAny(centralURL, "\r\n") || strings.TrimSpace(in.Secret) == "" {
+				http.Error(w, "主控地址或授权密钥无效", http.StatusBadRequest)
+				return
+			}
+			machineID := getMachineID()
+			if machineID == "" {
+				http.Error(w, "无法读取有效机器码", http.StatusInternalServerError)
+				return
+			}
+			requestData, err := json.Marshal(map[string]string{"machine_code": machineID, "secret": in.Secret})
+			if err != nil {
+				http.Error(w, "生成注册请求失败", http.StatusInternalServerError)
+				return
+			}
+			registerReq, err := http.NewRequest(http.MethodPost, centralURL+"/api/v1/agent/register", bytes.NewReader(requestData))
+			if err != nil {
+				http.Error(w, "主控地址无效", http.StatusBadRequest)
+				return
+			}
+			registerReq.Header.Set("Content-Type", "application/json")
+			resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(registerReq)
+			if err != nil {
+				http.Error(w, "连接主控端失败，请检查地址和网络", http.StatusBadGateway)
 				return
 			}
 			defer resp.Body.Close()
-			var res struct {
+			if resp.StatusCode != http.StatusOK {
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+				http.Error(w, "主控端拒绝注册，请检查授权密钥", http.StatusUnauthorized)
+				return
+			}
+			var result struct {
 				Token string `json:"token"`
 			}
-			json.NewDecoder(resp.Body).Decode(&res)
-
-			// 将获取到的 JWT 保存到本地
-			newCfg := Config{CentralURL: in.CentralURL, Token: res.Token}
-			b, _ := json.Marshal(newCfg)
-			os.WriteFile("/data/agent.json", b, 0644)
-
+			if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&result); err != nil || strings.TrimSpace(result.Token) == "" {
+				http.Error(w, "主控端返回的注册凭证无效", http.StatusBadGateway)
+				return
+			}
+			if err := os.MkdirAll(mihomoHome(), 0700); err != nil {
+				http.Error(w, "创建 Agent 数据目录失败", http.StatusInternalServerError)
+				return
+			}
+			b, err := json.Marshal(Config{CentralURL: centralURL, Token: result.Token})
+			if err != nil {
+				http.Error(w, "序列化绑定配置失败", http.StatusInternalServerError)
+				return
+			}
+			configPath := mihomoHome() + "/agent.json"
+			tmpPath := configPath + ".tmp"
+			if err := os.WriteFile(tmpPath, b, 0600); err != nil {
+				http.Error(w, "写入绑定配置失败", http.StatusInternalServerError)
+				return
+			}
+			if err := os.Rename(tmpPath, configPath); err != nil {
+				_ = os.Remove(tmpPath)
+				http.Error(w, "保存绑定配置失败", http.StatusInternalServerError)
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"message":"绑定成功"}`))
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": "绑定成功"})
 		})
-
 		fmt.Println("Agent Web 服务已启动: :81")
 		if err := http.ListenAndServe(":81", nil); err != nil {
 			fmt.Println("Agent Web 服务启动失败:", err)
@@ -570,12 +618,12 @@ func main() {
 	}()
 
 	// 确保 data 目录存在
-	os.MkdirAll("/data", 0755)
+	os.MkdirAll(mihomoHome(), 0700)
 
 	// 主循环：每 30 秒心跳并检查配置
 	for {
 		time.Sleep(30 * time.Second)
-		data, _ := os.ReadFile("/data/agent.json")
+		data, _ := os.ReadFile(mihomoHome() + "/agent.json")
 		if len(data) == 0 {
 			continue
 		}
