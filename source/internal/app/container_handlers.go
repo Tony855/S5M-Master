@@ -306,9 +306,23 @@ func (a *App) handleListContainerTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 1000000 {
+			writeErr(w, 400, "offset 必须在 0 到 1000000 之间")
+			return
+		}
+		offset = n
+	}
+	var total int
+	if err := a.store.db.QueryRow(`SELECT COUNT(*) FROM agent_tasks`).Scan(&total); err != nil {
+		writeErr(w, 500, "统计任务记录失败")
+		return
+	}
 	rows, err := a.store.db.Query(`SELECT id,machine_code,action,params_json,status,
         result_json,error_text,created_at,updated_at,claimed_at,finished_at
-        FROM agent_tasks ORDER BY id DESC LIMIT ?`, limit)
+        FROM agent_tasks ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		writeErr(w, 500, "读取任务记录失败")
 		return
@@ -340,7 +354,7 @@ func (a *App) handleListContainerTasks(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "遍历任务数据失败")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"tasks": tasks})
+	writeJSON(w, 200, map[string]any{"tasks": tasks, "total": total, "limit": limit, "offset": offset})
 }
 
 func (a *App) handleCancelContainerTask(w http.ResponseWriter, r *http.Request) {
