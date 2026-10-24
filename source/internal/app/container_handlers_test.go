@@ -10,7 +10,7 @@ func TestAgentStatusIsOnline(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name string
-		at string
+		at   string
 		want bool
 	}{
 		{name: "fresh heartbeat", at: now.Add(-30 * time.Second).Format(time.RFC3339), want: true},
