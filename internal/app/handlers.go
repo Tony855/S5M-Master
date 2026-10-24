@@ -101,26 +101,51 @@ func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "密码已更新"})
 }
 
+func isInternalSettingKey(key string) bool {
+	for _, prefix := range []string{
+		"agent_machine_", "agent_mihomo_secret_", "agent_secret_", "agent_command_",
+		"agent_command_result_", "agent_lastseen_", "agent_status_", "mihomo_secret_",
+	} {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return key == "agent_token"
+}
+
 func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取设置失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, settings)
+	// Do not return credentials, queued commands, or runtime telemetry through the
+	// generic settings endpoint. Dedicated Agent endpoints expose only necessary fields.
+	publicSettings := make(map[string]string, len(settings))
+	for key, value := range settings {
+		if !isInternalSettingKey(key) {
+			publicSettings[key] = value
+		}
+	}
+	writeJSON(w, http.StatusOK, publicSettings)
 }
+
 func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var in map[string]string
 	if err := decode(r, &in); err != nil || in == nil {
 		writeErr(w, http.StatusBadRequest, "参数错误")
 		return
 	}
-
+	for key := range in {
+		if isInternalSettingKey(key) {
+			writeErr(w, http.StatusBadRequest, "禁止通过通用设置接口修改内部授权、密钥或 Agent 命令字段")
+			return
+		}
+	}
 	if err := a.store.UpdateSettings(in); err != nil {
 		writeErr(w, http.StatusInternalServerError, "设置保存失败")
 		return
 	}
-
 	writeJSON(w, http.StatusOK, map[string]string{"message": "设置已保存"})
 }
 
