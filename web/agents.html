@@ -98,10 +98,11 @@
                         '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
                         '<td>' + esc(formatTime(seen)) + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + '</td>' +
-                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button></td></tr>';
+                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> <button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
                 tbody.querySelectorAll('button[data-edit]').forEach(button => button.addEventListener('click', () => openEditor(button.dataset.edit)));
+                tbody.querySelectorAll('button[data-update]').forEach(button => button.addEventListener('click', () => queueMihomoUpdate(button.dataset.update)));
             } catch (e) {
                 tbody.innerHTML = '<tr><td colspan="8" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
             }
@@ -209,6 +210,23 @@
                 const result = await editorAPI('/api/v1/nodes/' + encodeURIComponent(editingCode) + '/config', {method:'PUT', body:JSON.stringify({config_yaml:document.getElementById('configYaml').value})});
                 message.textContent = result.message || '已保存；Agent 将在下一次拉取时应用';
             } catch (e) { message.textContent = '保存失败：' + e.message; }
+        }
+
+
+        async function queueMihomoUpdate(code) {
+            const version = window.prompt('输入目标 Mihomo 版本标签，例如 v1.19.31。必须先确认该版本支持当前 Agent 架构：' + code, 'v1.19.31');
+            if (!version) return;
+            const checksum = window.prompt('输入官方 GitHub Release 对应架构的 .gz 压缩文件 SHA-256（64 位十六进制）。amd64 请选 mihomo-linux-amd64-compatible-' + version + '.gz；arm64 请选 mihomo-linux-arm64-' + version + '.gz。', '');
+            if (!checksum) return;
+            if (!/^v\d+\.\d+\.\d+$/.test(version.trim()) || !/^[a-fA-F0-9]{64}$/.test(checksum.trim())) {
+                alert('版本号或 SHA-256 格式无效，未提交更新。');
+                return;
+            }
+            if (!window.confirm('将为 Agent ' + code + ' 排队更新 Mihomo 到 ' + version + '。Agent 会校验下载文件 SHA-256，并先测试新内核及当前配置。继续？')) return;
+            try {
+                const result = await editorAPI('/api/v1/agents/kernel-update', {method:'POST', body:JSON.stringify({machine_code:code, version:version.trim(), sha256:checksum.trim()})});
+                alert(result.message || '更新命令已排队');
+            } catch (e) { alert('排队失败：' + e.message); }
         }
 
         window.addEventListener('load', loadAgents);

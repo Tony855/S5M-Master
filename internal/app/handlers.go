@@ -984,7 +984,8 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	type AgentInfo struct {
 		Authorized bool           `json:"authorized"`
 		LastSeen   int64          `json:"last_seen"`
-		Status     map[string]any `json:"status,omitempty"`
+		Status        map[string]any `json:"status,omitempty"`
+		CommandResult map[string]any `json:"command_result,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -1016,7 +1017,11 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_status_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &status)
 		}
-		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status}
+		var commandResult map[string]any
+		if raw := settings["agent_command_result_"+code]; raw != "" {
+			_ = json.Unmarshal([]byte(raw), &commandResult)
+		}
+		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status, CommandResult: commandResult}
 	}
 
 	writeJSON(w, 200, result)
