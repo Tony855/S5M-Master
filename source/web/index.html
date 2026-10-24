@@ -937,6 +937,30 @@ html, body, #app {
             <el-button type="primary" :disabled="!dockerMachineCode" :loading="dockerLoading" @click="refreshDocker">查询容器</el-button>
           </div>
           <div v-if="dockerStatus" class="docker-status">{{ dockerStatus }}</div>
+          <div class="subsection-heading" style="margin-top:22px">
+            <span>容器任务记录</span>
+            <span class="section-hint">最近 100 条</span>
+            <el-button size="small" :loading="containerTasksLoading" @click="loadContainerTasks">刷新任务</el-button>
+          </div>
+          <el-table :data="containerTasks" stripe style="width:100%" empty-text="暂无容器任务记录">
+            <el-table-column prop="id" label="任务 ID" width="85" />
+            <el-table-column prop="machine_code" label="实例" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="action" label="操作" min-width="130" />
+            <el-table-column label="状态" width="110">
+              <template #default="scope">
+                <el-tag :type="taskStatusType(scope.row.status)">{{ taskStatusLabel(scope.row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" min-width="170" />
+            <el-table-column label="操作" width="115" fixed="right">
+              <template #default="scope">
+                <el-button v-if="scope.row.status === 'pending'" size="small" type="danger" plain @click="cancelContainerTask(scope.row)">取消</el-button>
+                <el-button v-else size="small" @click="showContainerTask(scope.row)">结果</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="docker-table-wrap docker-desktop-table" style="margin-top:14px">
+          </div>
           <div class="docker-table-wrap docker-desktop-table">
             <el-table :data="dockerContainers" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
               <el-table-column prop="Names" label="容器名称" min-width="130" />
@@ -1061,6 +1085,8 @@ createApp({
     const dockerStatus = ref('');
     const dockerOutput = ref('');
     const dockerOutputVisible = ref(false);
+    const containerTasks = ref([]);
+    const containerTasksLoading = ref(false);
 
     const subUrl = ref('');
     const configYaml = ref('');
@@ -1196,7 +1222,7 @@ createApp({
       page.value = v;
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') loadProxies();
-      if (v === 'instances') { loadAgentsData(); }
+      if (v === 'instances') { loadAgentsData(); loadContainerTasks(); }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
@@ -1474,6 +1500,39 @@ createApp({
       }
       throw new Error('任务仍在等待执行或实例暂时离线；可刷新任务/实例状态后重试');
     };
+    const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
+    const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
+    const loadContainerTasks = async () => {
+      containerTasksLoading.value = true;
+      try {
+        const res = await api('/api/v1/container/tasks?limit=100&t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '读取容器任务失败');
+        containerTasks.value = Array.isArray(data.tasks) ? data.tasks : [];
+      } catch (e) {
+        showMsg(e.message || '读取容器任务失败', 'error');
+      } finally {
+        containerTasksLoading.value = false;
+      }
+    };
+    const showContainerTask = (task) => {
+      const result = task.result == null ? '' : (typeof task.result === 'string' ? task.result : JSON.stringify(task.result, null, 2));
+      dockerOutput.value = '任务 #' + task.id + ' · ' + taskStatusLabel(task.status) + '\n实例：' + task.machine_code + '\n动作：' + task.action + '\n创建时间：' + task.created_at + '\n完成时间：' + (task.finished_at || '—') + '\n错误：' + (task.error || '无') + '\n\n执行结果：\n' + (result || '无结果');
+      dockerOutputVisible.value = true;
+    };
+    const cancelContainerTask = async (task) => {
+      try {
+        await ElMessageBox.confirm('确定取消尚未被 Agent 领取的任务 #' + task.id + '？', '取消容器任务', { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回' });
+        const res = await api('/api/v1/container/tasks/' + encodeURIComponent(task.id), { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '取消任务失败');
+        showMsg('任务 #' + task.id + ' 已取消', 'success');
+        await loadContainerTasks();
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '取消任务失败', 'error');
+      }
+    };
+
     const refreshDocker = async () => {
       dockerLoading.value = true;
       try {
@@ -1676,6 +1735,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading,
       dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
+      containerTasks, containerTasksLoading, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
