@@ -1,6 +1,8 @@
 package app
 
 import (
+	"path/filepath"
+	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
@@ -516,19 +518,114 @@ func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	const maxBackupSize = int64(128 << 20)
+	if strings.TrimSpace(a.cfg.DBPath) == "" || a.cfg.DBPath == ":memory:" {
+		writeErr(w, http.StatusBadRequest, "当前数据库路径不支持文件恢复")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBackupSize+(1<<20))
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "上传失败")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "备份上传超过大小限制")
+		} else {
+			writeErr(w, http.StatusBadRequest, "上传失败：请提供有效的备份文件")
+		}
 		return
 	}
 	defer file.Close()
-	tmp := "/tmp/restore.db"
-	out, _ := os.Create(tmp)
-	defer out.Close()
-	io.Copy(out, file)
-	a.store.db.Close()
-	os.Rename(tmp, a.cfg.DBPath)
-	writeJSON(w, 200, map[string]string{"message": "已覆盖，请重启面板"})
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	dbDir := filepath.Dir(a.cfg.DBPath)
+	tmp, err := os.CreateTemp(dbDir, ".s5m-restore-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建恢复临时文件失败")
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	written, copyErr := io.Copy(tmp, io.LimitReader(file, maxBackupSize+1))
+	if copyErr != nil {
+		_ = tmp.Close()
+		writeErr(w, http.StatusBadRequest, "读取备份文件失败")
+		return
+	}
+	if written == 0 || written > maxBackupSize {
+		_ = tmp.Close()
+		writeErr(w, http.StatusRequestEntityTooLarge, "备份文件为空或超过 128 MiB 限制")
+		return
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		writeErr(w, http.StatusInternalServerError, "写入恢复临时文件失败")
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭恢复临时文件失败")
+		return
+	}
+
+	// OpenStore validates the SQLite file and applies any compatible schema migrations.
+	candidate, err := OpenStore(tmpPath)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "备份不是有效的 S5M 数据库")
+		return
+	}
+	var integrity string
+	if err := candidate.db.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil || integrity != "ok" {
+		_ = candidate.db.Close()
+		writeErr(w, http.StatusBadRequest, "备份数据库完整性检查失败")
+		return
+	}
+	users, err := candidate.CountUsers()
+	if err != nil || users < 1 {
+		_ = candidate.db.Close()
+		writeErr(w, http.StatusBadRequest, "备份缺少有效管理员账户，拒绝恢复")
+		return
+	}
+	if err := candidate.db.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭校验数据库失败")
+		return
+	}
+
+	backupFile, err := os.CreateTemp(dbDir, ".s5m-before-restore-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建恢复前备份路径失败")
+		return
+	}
+	backupPath := backupFile.Name()
+	if err := backupFile.Close(); err != nil {
+		_ = os.Remove(backupPath)
+		writeErr(w, http.StatusInternalServerError, "准备恢复前备份失败")
+		return
+	}
+	if err := os.Remove(backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "准备恢复前备份失败")
+		return
+	}
+	if err := a.store.db.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭当前数据库失败；请重启服务后重试")
+		return
+	}
+	if err := os.Rename(a.cfg.DBPath, backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保留当前数据库失败；请重启服务后检查")
+		return
+	}
+	if err := os.Rename(tmpPath, a.cfg.DBPath); err != nil {
+		if rollbackErr := os.Rename(backupPath, a.cfg.DBPath); rollbackErr != nil {
+			slog.Error("数据库恢复失败且回滚失败", "restore_error", err, "rollback_error", rollbackErr, "backup", backupPath)
+			writeErr(w, http.StatusInternalServerError, "恢复失败且自动回滚失败；请保留备份文件并立即检查服务器")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "恢复失败，已恢复原数据库文件；请重启服务")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "数据库恢复成功；恢复前数据库已保存在同目录的备份文件中，请重启面板完成切换",
+		"backup":  backupPath,
+	})
 }
 
 func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
