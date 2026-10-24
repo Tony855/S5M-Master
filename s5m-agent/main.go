@@ -97,6 +97,20 @@ func mergeConfig(agentYml []byte) (bool, error) {
 }
 
 func reloadMihomo() error {
+	const configPath = "/data/s5m-next/config.yaml"
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("读取 Mihomo 配置失败: %w", err)
+	}
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return fmt.Errorf("解析 Mihomo 配置失败: %w", err)
+	}
+	secret, _ := config["secret"].(string)
+	if strings.TrimSpace(secret) == "" || secret == "change-this-secret" {
+		return fmt.Errorf("Mihomo secret 未配置或仍是默认值，拒绝执行重载")
+	}
+
 	reloadBody := strings.NewReader(
 		`{"path": "/data/s5m-next/config.yaml"}`,
 	)
@@ -111,7 +125,7 @@ func reloadMihomo() error {
 	}
 
 	reloadReq.Header.Set("Content-Type", "application/json")
-	reloadReq.Header.Set("Authorization", "Bearer change-this-secret")
+	reloadReq.Header.Set("Authorization", "Bearer "+secret)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	reloadResp, err := client.Do(reloadReq)
