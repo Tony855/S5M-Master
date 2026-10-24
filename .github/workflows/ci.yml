@@ -89,6 +89,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Validate installer shell syntax and password generator
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/install.sh
+          password="$(openssl rand -hex 24)"
+          [[ "$password" =~ ^[a-f0-9]{48}$ ]]
       - name: Verify required web files
         shell: bash
         run: |
