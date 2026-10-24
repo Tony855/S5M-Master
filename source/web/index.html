@@ -920,6 +920,9 @@ html, body, #app {
                 <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? '在线' : '离线' }}</span>
               </div>
               <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }}</div>
+              <div v-if="item.hostname || item.os || item.dockerAvailable || item.mihomoRunning" class="instance-token">
+                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '未检测到' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
+              </div>
               <div class="instance-actions">
                 <el-button size="small" @click="dockerMachineCode = item.code">管理此实例</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
@@ -1445,10 +1448,36 @@ createApp({
         }
         const data = await res.json();
         const now = Math.floor(Date.now() / 1000);
+        let nodeByCode = {};
+        try {
+          const nodeRes = await api('/api/v1/container/nodes?t=' + Date.now());
+          if (nodeRes.ok) {
+            const nodeData = await nodeRes.json();
+            (Array.isArray(nodeData.nodes) ? nodeData.nodes : []).forEach(node => {
+              if (node && node.machine_code) nodeByCode[node.machine_code] = node;
+            });
+          }
+        } catch (nodeError) {
+          console.warn('读取节点运行状态失败，暂时使用注册心跳数据', nodeError);
+        }
         const list = [];
         Object.keys(data || {}).forEach(code => {
-          const item = data[code] || {}; const last = Number(item.last_seen) || 0;
-          list.push({ code: code, tokenConfigured: item.token_configured === true, online: last > 0 && (now - last) < 300, last_seen: last });
+          const item = data[code] || {};
+          const node = nodeByCode[code] || {};
+          const last = Number(item.last_seen) || 0;
+          const online = typeof node.online === 'boolean' ? node.online : last > 0 && (now - last) < 90;
+          list.push({
+            code: code,
+            tokenConfigured: item.token_configured === true,
+            online: online,
+            last_seen: last,
+            hostname: node.hostname || '',
+            os: node.os || '',
+            arch: node.arch || '',
+            dockerAvailable: node.docker_available === true,
+            mihomoRunning: node.mihomo_running === true,
+            mihomoVersion: node.mihomo_version || ''
+          });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         agentEntries.value = list;
