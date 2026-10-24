@@ -1024,6 +1024,7 @@ html, body, #app {
             </div>
             <article v-for="item in dockerContainers" :key="item.ID" class="docker-mobile-card">
               <div class="docker-mobile-card-head">
+                <el-checkbox :model-value="isDockerSelected(item)" @change="checked => toggleDockerSelection(item, checked)" aria-label="选择容器" />
                 <div class="docker-mobile-name">
                   <strong>{{ item.Names || item.ID || '未命名容器' }}</strong>
                   <small>{{ item.ID || '' }}</small>
@@ -1132,6 +1133,8 @@ createApp({
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const dockerContainers = ref([]);
+    const selectedDockerIDs = ref([]);
+    const bulkDockerProgress = ref('');
     const dockerStatus = ref('');
     const dockerOutput = ref('');
     const dockerOutputVisible = ref(false);
