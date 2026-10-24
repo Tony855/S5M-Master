@@ -674,7 +674,7 @@ html, body, #app {
   .remote-node-updated{font-size:10px;line-height:1.5;color:#98a2b3;overflow-wrap:anywhere}
 }
 
-</style>
+.docker-bulk-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px;border:1px solid #e4e9f2;border-radius:12px;background:#f8faff}.docker-bulk-copy{display:flex;flex-direction:column;gap:3px}.docker-bulk-copy span{font-size:12px;color:#667085}.docker-bulk-buttons{display:flex;flex-wrap:wrap;gap:7px}.docker-bulk-buttons .el-button+.el-button{margin-left:0}@media(max-width:760px){.docker-bulk-toolbar{align-items:stretch;flex-direction:column}.docker-bulk-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.docker-bulk-buttons .el-button{width:100%;margin:0}</style>
 </head>
 <body>
 <div id="app" v-cloak>
@@ -986,8 +986,19 @@ html, body, #app {
               </template>
             </el-table-column>
           </el-table>
+          <div class="docker-bulk-toolbar">
+            <div class="docker-bulk-copy"><strong>批量操作</strong><span>已选择 {{ selectedDockerIDs.length }} 个容器 · 最多 3 个并发任务</span></div>
+            <div class="docker-bulk-buttons">
+              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.start')">批量启动</el-button>
+              <el-button size="small" type="warning" plain :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.stop')">批量停止</el-button>
+              <el-button size="small" type="primary" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.restart')">批量重启</el-button>
+              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="clearDockerSelection">清空选择</el-button>
+            </div>
+          </div>
+          <div v-if="bulkDockerProgress" class="docker-status">{{ bulkDockerProgress }}</div>
           <div class="docker-table-wrap docker-desktop-table">
-            <el-table :data="dockerContainers" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
+            <el-table :data="dockerContainers" @selection-change="onDockerSelectionChange" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
+              <el-table-column type="selection" width="48" reserve-selection />
               <el-table-column prop="Names" label="容器名称" min-width="130" />
               <el-table-column prop="Image" label="镜像" min-width="150" />
               <el-table-column prop="State" label="状态" width="100" />
@@ -1013,6 +1024,7 @@ html, body, #app {
             </div>
             <article v-for="item in dockerContainers" :key="item.ID" class="docker-mobile-card">
               <div class="docker-mobile-card-head">
+                <el-checkbox :model-value="isDockerSelected(item)" @change="checked => toggleDockerSelection(item, checked)" aria-label="选择容器" />
                 <div class="docker-mobile-name">
                   <strong>{{ item.Names || item.ID || '未命名容器' }}</strong>
                   <small>{{ item.ID || '' }}</small>
@@ -1121,6 +1133,8 @@ createApp({
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const dockerContainers = ref([]);
+    const selectedDockerIDs = ref([]);
+    const bulkDockerProgress = ref('');
     const dockerStatus = ref('');
     const dockerOutput = ref('');
     const dockerOutputVisible = ref(false);
@@ -1644,12 +1658,89 @@ createApp({
       }
     };
 
+    const containerIdentity = (row) => String(row && (row.ID || row.Id || row.Names) || '');
+    const isDockerSelected = (row) => selectedDockerIDs.value.includes(containerIdentity(row));
+    const onDockerSelectionChange = (rows) => {
+      selectedDockerIDs.value = rows.map(containerIdentity).filter(Boolean);
+    };
+    const toggleDockerSelection = (row, checked) => {
+      const id = containerIdentity(row);
+      if (!id) return;
+      const next = new Set(selectedDockerIDs.value);
+      if (checked) next.add(id); else next.delete(id);
+      selectedDockerIDs.value = Array.from(next);
+    };
+    const clearDockerSelection = () => {
+      selectedDockerIDs.value = [];
+    };
+
+    const runBulkDockerAction = async (action) => {
+      const labels = { 'docker.start': '启动', 'docker.stop': '停止', 'docker.restart': '重启' };
+      const label = labels[action];
+      if (!label || dockerLoading.value) return;
+      const selected = dockerContainers.value.filter(row => selectedDockerIDs.value.includes(containerIdentity(row)));
+      const eligible = selected.filter(row => action === 'docker.start' ? row.State !== 'running' : action === 'docker.stop' ? row.State === 'running' : true);
+      const skipped = selected.length - eligible.length;
+      if (!eligible.length) {
+        showMsg(action === 'docker.start' ? '所选容器均已运行，无需启动' : '所选容器均未运行，无需停止', 'info');
+        return;
+      }
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '即将' + label + ' ' + eligible.length + ' 个容器。任务最多 3 个并发执行，每个容器单独记录结果。' +
+          (skipped ? '\n另有 ' + skipped + ' 个容器因当前状态不适用而跳过。' : '') +
+          '\n该操作可能影响正在运行的服务，是否继续？',
+          '确认批量' + label,
+          { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
+        );
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '批量操作已取消', 'warning');
+        return;
+      }
+      dockerLoading.value = true;
+      bulkDockerProgress.value = '正在批量' + label + '：0/' + eligible.length + ' 完成';
+      const outcomes = new Array(eligible.length);
+      let cursor = 0;
+      let completed = 0;
+      const worker = async () => {
+        while (cursor < eligible.length) {
+          const index = cursor++;
+          const row = eligible[index];
+          const id = containerIdentity(row);
+          try {
+            const result = await dockerTask(action, { container_id: id });
+            outcomes[index] = { name: row.Names || id, id, ok: true, detail: String(result.output || '操作成功').trim() };
+          } catch (e) {
+            outcomes[index] = { name: row.Names || id, id, ok: false, detail: e.message || '执行失败' };
+          }
+          completed++;
+          bulkDockerProgress.value = '正在批量' + label + '：' + completed + '/' + eligible.length + ' 完成';
+        }
+      };
+      try {
+        await Promise.all(Array.from({ length: Math.min(3, eligible.length) }, () => worker()));
+        const succeeded = outcomes.filter(item => item && item.ok).length;
+        const failed = outcomes.length - succeeded;
+        const lines = outcomes.map(item => (item.ok ? '[成功] ' : '[失败] ') + item.name + ' (' + item.id + ')\n' + item.detail);
+        if (skipped) lines.push('[跳过] ' + skipped + ' 个容器：状态不符合该操作条件');
+        dockerOutput.value = '批量' + label + '结果：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped + '\n\n' + lines.join('\n\n');
+        dockerOutputVisible.value = true;
+        bulkDockerProgress.value = '批量' + label + '完成：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped;
+        showMsg(bulkDockerProgress.value, failed ? 'warning' : 'success');
+        selectedDockerIDs.value = [];
+        await refreshDocker();
+      } finally {
+        dockerLoading.value = false;
+      }
+    };
+
     const refreshDocker = async () => {
       dockerLoading.value = true;
       try {
         const result = await dockerTask('docker.list');
         const output = result.output || '';
         dockerContainers.value = output.split(/\r?\n/).filter(Boolean).map(line => { try { return JSON.parse(line); } catch (_) { return {}; } });
+        selectedDockerIDs.value = [];
         dockerStatus.value = '已读取 ' + dockerContainers.value.length + ' 个容器';
       } catch (e) { dockerStatus.value = e.message || '查询失败'; showMsg(dockerStatus.value, 'warning'); }
       finally { dockerLoading.value = false; }
@@ -1859,7 +1950,7 @@ const safeCopy = async (text) => {
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
-      dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
+      dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
