@@ -483,6 +483,17 @@ func (s *Store) CreateAgentTask(machineCode, action, paramsJSON string) (int64, 
 	return res.LastInsertId()
 }
 
+// CancelPendingAgentTask cancels only tasks that have not been claimed by an Agent.
+func (s *Store) CancelPendingAgentTask(id int64) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`UPDATE agent_tasks
+		SET status='cancelled', error_text='Cancelled by administrator', updated_at=?, finished_at=?
+		WHERE id=? AND status='pending'`, now, now, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
 // UpdateAgentTaskResult 仅允许更新属于指定机器且仍在执行中的任务。
 func (s *Store) UpdateAgentTaskResult(id int64, machineCode, status, resultJSON, errorText string) (int64, error) {
 	if status != "succeeded" && status != "failed" {
