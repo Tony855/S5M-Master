@@ -528,8 +528,34 @@ func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "需要管理员权限")
 		return
 	}
+	tmp, err := os.CreateTemp(filepath.Dir(a.cfg.DBPath), ".s5m-backup-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建数据库快照失败")
+		return
+	}
+	snapshotPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(snapshotPath)
+		writeErr(w, http.StatusInternalServerError, "准备数据库快照失败")
+		return
+	}
+	if err := os.Remove(snapshotPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "准备数据库快照失败")
+		return
+	}
+	defer os.Remove(snapshotPath)
+	if _, err := a.store.db.ExecContext(r.Context(), "VACUUM INTO ?", snapshotPath); err != nil {
+		slog.Error("创建数据库备份快照失败", "error", err)
+		writeErr(w, http.StatusInternalServerError, "创建一致性数据库快照失败")
+		return
+	}
+	if err := os.Chmod(snapshotPath, 0600); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保护数据库快照权限失败")
+		return
+	}
 	w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
-	http.ServeFile(w, r, a.cfg.DBPath)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, snapshotPath)
 }
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
 	if !a.requireContainerAdmin(w, r) {
