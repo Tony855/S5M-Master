@@ -109,6 +109,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/container/nodes":       a.handleContainerNodes,
 		"POST /api/v1/container/tasks":      a.handleCreateContainerTask,
 		"GET /api/v1/container/tasks":       a.handleListContainerTasks,
+		"DELETE /api/v1/container/tasks/{id}": a.handleCancelContainerTask,
 	}
 	for pat, h := range authed {
 		mux.HandleFunc(pat, a.auth(h))
