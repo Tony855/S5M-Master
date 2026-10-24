@@ -1674,6 +1674,66 @@ createApp({
       selectedDockerIDs.value = [];
     };
 
+    const runBulkDockerAction = async (action) => {
+      const labels = { 'docker.start': '启动', 'docker.stop': '停止', 'docker.restart': '重启' };
+      const label = labels[action];
+      if (!label || dockerLoading.value) return;
+      const selected = dockerContainers.value.filter(row => selectedDockerIDs.value.includes(containerIdentity(row)));
+      const eligible = selected.filter(row => action === 'docker.start' ? row.State !== 'running' : action === 'docker.stop' ? row.State === 'running' : true);
+      const skipped = selected.length - eligible.length;
+      if (!eligible.length) {
+        showMsg(action === 'docker.start' ? '所选容器均已运行，无需启动' : '所选容器均未运行，无需停止', 'info');
+        return;
+      }
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '即将' + label + ' ' + eligible.length + ' 个容器。任务最多 3 个并发执行，每个容器单独记录结果。' +
+          (skipped ? '\n另有 ' + skipped + ' 个容器因当前状态不适用而跳过。' : '') +
+          '\n该操作可能影响正在运行的服务，是否继续？',
+          '确认批量' + label,
+          { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
+        );
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '批量操作已取消', 'warning');
+        return;
+      }
+      dockerLoading.value = true;
+      bulkDockerProgress.value = '正在批量' + label + '：0/' + eligible.length + ' 完成';
+      const outcomes = new Array(eligible.length);
+      let cursor = 0;
+      let completed = 0;
+      const worker = async () => {
+        while (cursor < eligible.length) {
+          const index = cursor++;
+          const row = eligible[index];
+          const id = containerIdentity(row);
+          try {
+            const result = await dockerTask(action, { container_id: id });
+            outcomes[index] = { name: row.Names || id, id, ok: true, detail: String(result.output || '操作成功').trim() };
+          } catch (e) {
+            outcomes[index] = { name: row.Names || id, id, ok: false, detail: e.message || '执行失败' };
+          }
+          completed++;
+          bulkDockerProgress.value = '正在批量' + label + '：' + completed + '/' + eligible.length + ' 完成';
+        }
+      };
+      try {
+        await Promise.all(Array.from({ length: Math.min(3, eligible.length) }, () => worker()));
+        const succeeded = outcomes.filter(item => item && item.ok).length;
+        const failed = outcomes.length - succeeded;
+        const lines = outcomes.map(item => (item.ok ? '[成功] ' : '[失败] ') + item.name + ' (' + item.id + ')\n' + item.detail);
+        if (skipped) lines.push('[跳过] ' + skipped + ' 个容器：状态不符合该操作条件');
+        dockerOutput.value = '批量' + label + '结果：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped + '\n\n' + lines.join('\n\n');
+        dockerOutputVisible.value = true;
+        bulkDockerProgress.value = '批量' + label + '完成：成功 ' + succeeded + '，失败 ' + failed + '，跳过 ' + skipped;
+        showMsg(bulkDockerProgress.value, failed ? 'warning' : 'success');
+        selectedDockerIDs.value = [];
+        await refreshDocker();
+      } finally {
+        dockerLoading.value = false;
+      }
+    };
+
     const refreshDocker = async () => {
       dockerLoading.value = true;
       try {
