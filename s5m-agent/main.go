@@ -48,38 +48,76 @@ func decrypt(cryptoText string) (string, error) {
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
- const mainPath = "/data/s5m-next/config.yaml"
- const previousPath = mainPath + ".previous"
- if len(agentYml) == 0 || len(agentYml) > 2*1024*1024 { return false, fmt.Errorf("主控端配置为空或超过 2 MiB") }
- var nextCfg map[string]interface{}
- if err := yaml.Unmarshal(agentYml, &nextCfg); err != nil { return false, fmt.Errorf("主控端 Mihomo YAML 无效: %w", err) }
- if len(nextCfg) == 0 { return false, fmt.Errorf("主控端 Mihomo 配置为空") }
- secret, _ := nextCfg["secret"].(string)
- if strings.TrimSpace(secret) == "" { return false, fmt.Errorf("主控端配置缺少 Mihomo secret，拒绝覆盖本地配置") }
- if _, ok := nextCfg["tun"]; !ok { return false, fmt.Errorf("主控端配置缺少 tun 配置块") }
- if _, ok := nextCfg["dns"]; !ok { return false, fmt.Errorf("主控端配置缺少 dns 配置块") }
- oldData, err := os.ReadFile(mainPath)
- if err != nil { return false, fmt.Errorf("读取本地 Mihomo 配置失败: %w", err) }
- var oldCfg map[string]interface{}
- if err := yaml.Unmarshal(oldData, &oldCfg); err != nil { return false, fmt.Errorf("本地 Mihomo YAML 无效: %w", err) }
- oldNorm, err := yaml.Marshal(oldCfg); if err != nil { return false, err }
- newNorm, err := yaml.Marshal(nextCfg); if err != nil { return false, err }
- if string(oldNorm) == string(newNorm) { return false, nil }
- if err := os.WriteFile(previousPath, oldData, 0600); err != nil { return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err) }
- tmpPath := mainPath + ".tmp"
- if err := os.WriteFile(tmpPath, agentYml, 0600); err != nil { return false, err }
- if err := os.Rename(tmpPath, mainPath); err != nil { _ = os.Remove(tmpPath); return false, err }
- return true, nil
+	const mainPath = "/data/s5m-next/config.yaml"
+	const previousPath = mainPath + ".previous"
+	if len(agentYml) == 0 || len(agentYml) > 2*1024*1024 {
+		return false, fmt.Errorf("主控端配置为空或超过 2 MiB")
+	}
+	var nextCfg map[string]interface{}
+	if err := yaml.Unmarshal(agentYml, &nextCfg); err != nil {
+		return false, fmt.Errorf("主控端 Mihomo YAML 无效: %w", err)
+	}
+	if len(nextCfg) == 0 {
+		return false, fmt.Errorf("主控端 Mihomo 配置为空")
+	}
+	secret, _ := nextCfg["secret"].(string)
+	if strings.TrimSpace(secret) == "" {
+		return false, fmt.Errorf("主控端配置缺少 Mihomo secret，拒绝覆盖本地配置")
+	}
+	if _, ok := nextCfg["tun"]; !ok {
+		return false, fmt.Errorf("主控端配置缺少 tun 配置块")
+	}
+	if _, ok := nextCfg["dns"]; !ok {
+		return false, fmt.Errorf("主控端配置缺少 dns 配置块")
+	}
+	oldData, err := os.ReadFile(mainPath)
+	if err != nil {
+		return false, fmt.Errorf("读取本地 Mihomo 配置失败: %w", err)
+	}
+	var oldCfg map[string]interface{}
+	if err := yaml.Unmarshal(oldData, &oldCfg); err != nil {
+		return false, fmt.Errorf("本地 Mihomo YAML 无效: %w", err)
+	}
+	oldNorm, err := yaml.Marshal(oldCfg)
+	if err != nil {
+		return false, err
+	}
+	newNorm, err := yaml.Marshal(nextCfg)
+	if err != nil {
+		return false, err
+	}
+	if string(oldNorm) == string(newNorm) {
+		return false, nil
+	}
+	if err := os.WriteFile(previousPath, oldData, 0600); err != nil {
+		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
+	}
+	tmpPath := mainPath + ".tmp"
+	if err := os.WriteFile(tmpPath, agentYml, 0600); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmpPath, mainPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return false, err
+	}
+	return true, nil
 }
 
 func rollbackConfigAfterReloadFailure() error {
- const mainPath = "/data/s5m-next/config.yaml"
- oldData, err := os.ReadFile(mainPath + ".previous")
- if err != nil { return fmt.Errorf("读取旧配置备份失败: %w", err) }
- tmpPath := mainPath + ".restore"
- if err := os.WriteFile(tmpPath, oldData, 0600); err != nil { return err }
- if err := os.Rename(tmpPath, mainPath); err != nil { _ = os.Remove(tmpPath); return err }
- return nil
+	const mainPath = "/data/s5m-next/config.yaml"
+	oldData, err := os.ReadFile(mainPath + ".previous")
+	if err != nil {
+		return fmt.Errorf("读取旧配置备份失败: %w", err)
+	}
+	tmpPath := mainPath + ".restore"
+	if err := os.WriteFile(tmpPath, oldData, 0600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, mainPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 func reloadMihomo() error {
