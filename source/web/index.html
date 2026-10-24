@@ -695,6 +695,7 @@ html, body, #app {
         <el-menu-item index="proxies">代理管理</el-menu-item>
         <el-menu-item index="instances">实例管理</el-menu-item>
         <el-menu-item index="docker">Docker 容器</el-menu-item>
+        <el-menu-item index="routeros-containers">RouterOS 容器</el-menu-item>
         <el-menu-item index="config">配置管理</el-menu-item>
       </el-menu>
     </el-aside>
@@ -1074,6 +1075,15 @@ html, body, #app {
       </div>
 
 
+      <div v-if="page === 'routeros-containers'">
+        <div class="card-panel">
+          <div class="card-title">RouterOS /container 管理</div>
+          <p class="import-note">此页面用于后续接入 MikroTik RouterOS 原生容器管理接口。目前尚未连接 RouterOS API，暂不提供会造成误解的操作按钮。</p>
+          <el-alert title="RouterOS 管理接口尚未接入" type="warning" :closable="false" show-icon description="下一步将实现路由器连接配置、连通性测试、容器列表、启动/停止、日志与镜像管理。建议优先通过 API-SSL 或 WireGuard 管理网连接，并使用权限受限的专用账号。"></el-alert>
+          <p class="import-note" style="margin-top:14px">每台路由器使用独立凭据；凭据应在服务端安全保存，不应发送到浏览器。RouterOS 版本和设备架构需在接入时校验。</p>
+        </div>
+      </div>
+
       <div v-if="page === 'config'">
         <div class="card-panel">
           <div class="card-title">客户端订阅链接</div>
@@ -1303,7 +1313,7 @@ createApp({
       loggingIn.value = false;
     };
 
-    const PAGES = ['dashboard','proxies','instances','docker','config'];
+    const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
       page.value = v;
