@@ -89,8 +89,10 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Smoke test amd64 image
+        timeout-minutes: 2
         run: |
-          docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
+          set -euxo pipefail
+          timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
 
       - name: Export amd64 archive
         run: |
