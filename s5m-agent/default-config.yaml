@@ -3,7 +3,7 @@ allow-lan: false
 mode: rule
 log-level: info
 external-controller: 127.0.0.1:8088
-secret: change-this-secret
+secret: __S5M_GENERATED_SECRET__
 profile:
   store-selected: true
   store-fake-ip: true

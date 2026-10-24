@@ -24,7 +24,7 @@ func TestBuildConfigMapsDisabledCIDRToEnabledEndpoint(t *testing.T) {
 		},
 	}
 
-	got, err := buildConfigFromProxies(proxies, "")
+	got, err := buildConfigFromProxies(proxies, "", "test-secret")
 	if err != nil {
 		t.Fatalf("生成配置失败：%v", err)
 	}

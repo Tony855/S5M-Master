@@ -1,6 +1,7 @@
 package app
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,7 +19,7 @@ const baseTemplate = `mode: rule
 mixed-port: 8080
 log-level: info
 external-controller: 127.0.0.1:8088
-secret: "change-this-secret"
+secret: "__S5M_MIHOMO_SECRET__"
 allow-lan: true
 find-process-mode: "off"
 tcp-concurrent: true
@@ -98,7 +99,46 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return buildConfigFromProxies(proxies, machineCode)
+	secretKey := "mihomo_secret_controller"
+	if machineCode != "" {
+		secretKey = "agent_mihomo_secret_" + machineCode
+	}
+	secret, err := a.getOrCreateMihomoSecret(secretKey)
+	if err != nil {
+		return "", err
+	}
+	return buildConfigFromProxies(proxies, machineCode, secret)
+}
+
+// getOrCreateMihomoSecret creates a cryptographically random API secret once per controller/Agent.
+func (a *App) getOrCreateMihomoSecret(key string) (string, error) {
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("读取 Mihomo 密钥失败: %w", err)
+	}
+	if secret := strings.TrimSpace(settings[key]); secret != "" {
+		return secret, nil
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("生成 Mihomo 随机密钥失败: %w", err)
+	}
+	secret := hex.EncodeToString(buf)
+	created, err := a.store.CreateSettingIfAbsent(key, secret)
+	if err != nil {
+		return "", fmt.Errorf("保存 Mihomo 密钥失败: %w", err)
+	}
+	if created {
+		return secret, nil
+	}
+	settings, err = a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("回读 Mihomo 密钥失败: %w", err)
+	}
+	if secret = strings.TrimSpace(settings[key]); secret == "" {
+		return "", fmt.Errorf("Mihomo 密钥保存后仍不存在")
+	}
+	return secret, nil
 }
 
 // syncAuthorizedNodeConfigs refreshes cached YAML for machines with dedicated tokens.
@@ -145,7 +185,7 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 	return nil
 }
 
-func buildConfigFromProxies(proxies []Proxy, machineCode string) (string, error) {
+func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
 	matchesMachine := func(p Proxy) bool {
 		return machineCode == "" || p.MachineCode == "" || p.MachineCode == machineCode
 	}
@@ -256,7 +296,11 @@ func buildConfigFromProxies(proxies []Proxy, machineCode string) (string, error)
 	}
 	rulesYAML := "\n" + indent(string(rb), "    ")
 
-	out := strings.Replace(baseTemplate, "__PROXIES__", proxiesYAML, 1)
+	if strings.TrimSpace(secret) == "" {
+		return "", fmt.Errorf("Mihomo API 密钥不能为空")
+	}
+	out := strings.Replace(baseTemplate, "__S5M_MIHOMO_SECRET__", secret, 1)
+	out = strings.Replace(out, "__PROXIES__", proxiesYAML, 1)
 	out = strings.Replace(out, "__RULES__", rulesYAML, 1)
 	return out, nil
 }
