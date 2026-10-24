@@ -25,7 +25,7 @@ done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin > /dev/null
+apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl > /dev/null
 
 # === 新增：智能处理端口占用 ===
 PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
