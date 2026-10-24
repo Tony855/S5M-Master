@@ -219,8 +219,8 @@ func TestVerifyKernelUpgrade(t *testing.T) {
 
 func TestExecuteContainerTaskRejectsUnsafeOrIncompleteInput(t *testing.T) {
 	tests := []struct {
-		name   string
-		task   containerTask
+		name string
+		task containerTask
 	}{
 		{name: "unknown action", task: containerTask{Action: "docker.exec", Params: []byte("{}")}},
 		{name: "missing container id", task: containerTask{Action: "docker.inspect", Params: []byte("{}")}},
