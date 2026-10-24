@@ -1066,7 +1066,7 @@ html, body, #app {
 <script src="/vendor/vue.global.prod.js"></script>
 <script src="/vendor/element-plus.full.js"></script>
 <script>
-const { createApp, ref, reactive, onMounted, computed } = Vue;
+const { createApp, ref, reactive, onMounted, onUnmounted, computed } = Vue;
 
 createApp({
   setup() {
@@ -1083,6 +1083,7 @@ createApp({
     const overview = ref({});
     const traffic = ref({ up: 0, down: 0, conns: 0 });
     let overviewTimer = null;
+    let instanceRefreshTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
 
@@ -1557,7 +1558,8 @@ createApp({
     };
     const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
     const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
-    const loadContainerTasks = async () => {
+    const loadContainerTasks = async (options = {}) => {
+      const silent = options.silent === true;
       containerTasksLoading.value = true;
       try {
         const res = await api('/api/v1/container/tasks?limit=100&t=' + Date.now());
@@ -1565,7 +1567,7 @@ createApp({
         if (!res.ok) throw new Error(data.error || '读取容器任务失败');
         containerTasks.value = Array.isArray(data.tasks) ? data.tasks : [];
       } catch (e) {
-        showMsg(e.message || '读取容器任务失败', 'error');
+        if (!silent) showMsg(e.message || '读取容器任务失败', 'error');
       } finally {
         containerTasksLoading.value = false;
       }
@@ -1780,7 +1782,21 @@ const safeCopy = async (text) => {
           }, 3000);
         }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        if (instanceRefreshTimer === null) {
+          instanceRefreshTimer = setInterval(() => {
+            if (!token.value || page.value !== 'instances') return;
+            if (!agentLoading.value) loadAgentsData();
+            if (!containerTasksLoading.value) loadContainerTasks({ silent: true });
+          }, 10000);
+        }
       }
+    });
+
+    onUnmounted(() => {
+      if (overviewTimer !== null) clearInterval(overviewTimer);
+      if (instanceRefreshTimer !== null) clearInterval(instanceRefreshTimer);
+      overviewTimer = null;
+      instanceRefreshTimer = null;
     });
 
     return {
