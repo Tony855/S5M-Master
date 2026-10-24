@@ -572,6 +572,10 @@ func main() {
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+		if localData, readErr := os.ReadFile("/data/s5m-next/config.yaml"); readErr == nil && len(localData) > 0 {
+			localSum := sha256.Sum256(localData)
+			req.Header.Set("If-None-Match", fmt.Sprintf("\"%x\"", localSum[:]))
+		}
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
@@ -579,11 +583,18 @@ func main() {
 			continue
 		}
 
-		if resp.StatusCode != 200 {
+		if resp.StatusCode == http.StatusNotModified {
+			resp.Body.Close()
+			if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
+				fmt.Printf("Agent 状态上报失败: %v\\n", err)
+			}
+			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
 			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\\n", resp.StatusCode, strings.TrimSpace(string(body)))
-			// 授权异常时保留本地注册信息，避免意外解绑。
 			continue
 		}
 

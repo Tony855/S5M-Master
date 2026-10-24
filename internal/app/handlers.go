@@ -728,6 +728,14 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	sum := sha256.Sum256([]byte(yml))
+	etag := fmt.Sprintf("\"%x\"", sum[:])
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if strings.TrimSpace(r.Header.Get("If-None-Match")) == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(yml))
