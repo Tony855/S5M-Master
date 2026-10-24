@@ -931,9 +931,10 @@ html, body, #app {
               </div>
               <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }} · 最近心跳：{{ item.last_seen ? new Date(item.last_seen * 1000).toLocaleString() : '暂无记录' }}</div>
               <div v-if="item.updated_at" class="instance-token">状态更新时间：{{ item.updated_at }}</div>
-              <div v-if="item.hostname || item.os || item.dockerAvailable || item.mihomoRunning" class="instance-token">
-                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '未检测到' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
+              <div v-if="item.runtimeReported" class="instance-token">
+                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '不可用' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
+              <div v-else class="instance-token">运行状态：尚未上报（请检查 Agent 版本、网络连接和主控地址）</div>
               <div class="instance-actions">
                 <el-button size="small" @click="dockerMachineCode = item.code">管理此实例</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
@@ -1100,7 +1101,7 @@ createApp({
         const matchesStatus = agentStatusFilter.value === 'all'
           || (agentStatusFilter.value === 'online' && item.online)
           || (agentStatusFilter.value === 'offline' && !item.online)
-          || (agentStatusFilter.value === 'docker' && item.dockerAvailable);
+          || (agentStatusFilter.value === 'docker' && item.runtimeReported && item.dockerAvailable);
         return matchesQuery && matchesStatus;
       });
     });
@@ -1498,6 +1499,7 @@ createApp({
             hostname: node.hostname || '',
             os: node.os || '',
             arch: node.arch || '',
+            runtimeReported: Object.prototype.hasOwnProperty.call(nodeByCode, code),
             dockerAvailable: node.docker_available === true,
             mihomoRunning: node.mihomo_running === true,
             mihomoVersion: node.mihomo_version || '',
