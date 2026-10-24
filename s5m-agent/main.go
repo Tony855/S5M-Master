@@ -1,9 +1,9 @@
 package main
 
 import (
-	"context"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
@@ -674,8 +674,8 @@ func reportContainerStatus(cfg Config) error {
 }
 
 type containerTask struct {
-	ID int64 `json:"id"`
-	Action string `json:"action"`
+	ID     int64           `json:"id"`
+	Action string          `json:"action"`
 	Params json.RawMessage `json:"params"`
 }
 
