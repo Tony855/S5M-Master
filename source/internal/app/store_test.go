@@ -167,7 +167,7 @@ func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
 	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T11:57:00Z", staleID); err != nil {
 		t.Fatalf("Mark stale task running: %v", err)
 	}
-	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T11:59:30Z", freshID); err != nil {
+	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T12:00:30Z", freshID); err != nil {
 		t.Fatalf("Mark fresh task running: %v", err)
 	}
 	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', claimed_at=? WHERE id=?`, "2026-10-24T11:57:00Z", otherNodeID); err != nil {
