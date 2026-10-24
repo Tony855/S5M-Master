@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 env:
@@ -27,6 +27,28 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Prepare image tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == s5m-agent-v* ]]; then
+            version="${GITHUB_REF_NAME#s5m-agent-}"
+            {
+              echo "tags<<EOF"
+              echo "${IMAGE_NAME}:${version}"
+              echo "${IMAGE_NAME}:latest"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "tags<<EOF"
+              echo "${IMAGE_NAME}:dev"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          echo "${IMAGE_NAME}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -50,9 +72,7 @@ jobs:
           file: s5m-agent/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ env.IMAGE_NAME }}:dev
-            ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -83,7 +103,7 @@ jobs:
           name: s5m-agent-linux-amd64
           path: dist/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
 
   build-arm64-archive:
     name: Build ARM64 RouterOS archive
@@ -97,6 +117,8 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+        with:
+          platforms: linux/amd64,linux/arm64
 
       - name: Build ARM64 image
         uses: docker/build-push-action@v7
@@ -125,4 +147,36 @@ jobs:
           name: s5m-agent-linux-arm64
           path: dist/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
+
+  publish-github-release:
+    name: Publish stable GitHub Release
+    if: startsWith(github.ref, 'refs/tags/s5m-agent-v')
+    needs: [build-and-publish, build-arm64-archive]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download amd64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-linux-amd64
+          path: dist/amd64
+
+      - name: Download arm64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-linux-arm64
+          path: dist/arm64
+
+      - name: Publish release and attach archives
+        uses: softprops/action-gh-release@v2
+        with:
+          name: S5M Agent ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/amd64/s5m-agent-linux-amd64.tar
+            dist/amd64/s5m-agent-linux-amd64.tar.sha256
+            dist/arm64/s5m-agent-linux-arm64.tar
+            dist/arm64/s5m-agent-linux-arm64.tar.sha256
