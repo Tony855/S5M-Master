@@ -64,7 +64,7 @@ if [[ -f "$OLD_ENV_FILE" && ! -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$ENV_F
 elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_ENV_FILE.unused.$STAMP"; fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  ADMIN_PASS="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
+  ADMIN_PASS="$(openssl rand -hex 24)"
   cat > "$ENV_FILE" <<ENVEOF
 S5M_ADDR=:80
 S5M_DB=$DB_DIR/s5m.db
