@@ -81,28 +81,38 @@ func mihomoConfigPath() string {
 
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
+func validateMihomoConfigYAML(data []byte) (map[string]interface{}, error) {
+	if len(data) == 0 || len(data) > 2*1024*1024 {
+		return nil, fmt.Errorf("主控端配置为空或超过 2 MiB")
+	}
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("主控端 Mihomo YAML 无效: %w", err)
+	}
+	if len(cfg) == 0 {
+		return nil, fmt.Errorf("主控端 Mihomo 配置为空")
+	}
+	secret, ok := cfg["secret"].(string)
+	if !ok || strings.TrimSpace(secret) == "" {
+		return nil, fmt.Errorf("主控端配置缺少有效的 Mihomo secret，拒绝覆盖本地配置")
+	}
+	if _, ok := cfg["tun"].(map[string]interface{}); !ok {
+		return nil, fmt.Errorf("主控端配置缺少有效的 tun 配置块")
+	}
+	if _, ok := cfg["dns"].(map[string]interface{}); !ok {
+		return nil, fmt.Errorf("主控端配置缺少有效的 dns 配置块")
+	}
+	return cfg, nil
+}
+
+// mergeConfig applies the complete controller-generated Mihomo YAML.
+// The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
 	mainPath := mihomoConfigPath()
 	previousPath := mainPath + ".previous"
-	if len(agentYml) == 0 || len(agentYml) > 2*1024*1024 {
-		return false, fmt.Errorf("主控端配置为空或超过 2 MiB")
-	}
-	var nextCfg map[string]interface{}
-	if err := yaml.Unmarshal(agentYml, &nextCfg); err != nil {
-		return false, fmt.Errorf("主控端 Mihomo YAML 无效: %w", err)
-	}
-	if len(nextCfg) == 0 {
-		return false, fmt.Errorf("主控端 Mihomo 配置为空")
-	}
-	secret, _ := nextCfg["secret"].(string)
-	if strings.TrimSpace(secret) == "" {
-		return false, fmt.Errorf("主控端配置缺少 Mihomo secret，拒绝覆盖本地配置")
-	}
-	if _, ok := nextCfg["tun"]; !ok {
-		return false, fmt.Errorf("主控端配置缺少 tun 配置块")
-	}
-	if _, ok := nextCfg["dns"]; !ok {
-		return false, fmt.Errorf("主控端配置缺少 dns 配置块")
+	nextCfg, err := validateMihomoConfigYAML(agentYml)
+	if err != nil {
+		return false, err
 	}
 	oldData, err := os.ReadFile(mainPath)
 	if err != nil {

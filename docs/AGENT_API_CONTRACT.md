@@ -1,6 +1,6 @@
 # S5M Agent API contract (current implementation)
 
-This document records the currently implemented controller/Agent contract. It is intentionally explicit about gaps; it does not claim that remote monitoring or remote upgrades are implemented.
+This document records the currently implemented controller/Agent contract and distinguishes reported status from verified health.
 
 ## Authentication and registration
 
@@ -11,12 +11,12 @@ This document records the currently implemented controller/Agent contract. It is
 
 ## Current limitations
 
-- A recent `last_seen` value reflects a successful config pull, not a separately verified Agent process health report.
+- `last_seen` records successful authenticated Agent communication. A recent timestamp alone does not prove the Agent process or Mihomo is healthy.
 - The Agent downloads and applies the complete node-specific Mihomo YAML, including TUN, DNS, ports, proxies and rules. The controller stores a desired-config SHA-256; the Agent reports the hash of its local config so the UI can show whether the desired configuration has been applied.
 - A node without a saved custom YAML receives a generated full configuration when its editor is first opened.
 - During a config change, the Agent authenticates the reload request with the currently running Mihomo secret from the previous config when available. This permits the new YAML to rotate the secret without locking out the reload request.
 - Controller overview/traffic and controller-side Mihomo update handlers still operate on the controller host's local Mihomo. Per-Agent kernel upgrades use the authenticated command/acknowledgement workflow described below.
-- Agent status is based on authenticated heartbeats and local Mihomo API probes; a recently received heartbeat alone does not prove all subsystems are healthy.
+- Agent status combines authenticated heartbeats with reported local Mihomo API probes; a heartbeat alone does not prove all subsystems are healthy. The reported `mihomo_healthy` field means the Agent's local API probe succeeded, not that every proxy route or upstream is reachable.
 
 ## Unified data/config directory
 
@@ -32,7 +32,7 @@ The machine-code page uses the existing `s5m_next_token` browser storage key and
 ## Complete per-Agent Mihomo configuration and kernel update workflow
 
 - `GET/PUT /api/v1/nodes/{code}/config` stores and retrieves a complete node-specific Mihomo YAML. The editor exposes the full YAML plus quick controls for `tun.enable`, `dns.enable`, and `dns.nameserver`.
-- Agent pulls the full YAML and replaces its local configuration only after YAML checks, required `secret`/`tun`/`dns` checks, and local Mihomo `-t` validation. It retains the previous file and attempts rollback if reload fails.
+- Agent pulls the full YAML and replaces its local configuration only after size limits, YAML parsing, non-empty secret, correctly shaped `tun`/`dns` blocks, and local Mihomo `-t` validation. It retains the previous file and attempts rollback if reload fails.
 - Routine proxy edits update the `proxies` and `rules` sections of existing node YAML while preserving other custom settings and the node secret.
 - An administrator can queue a per-Agent Mihomo update with a version tag and SHA-256 of the matching official GitHub release `.gz` asset. Agent downloads only from the official MetaCubeX/Mihomo release URL, verifies the supplied digest, tests the binary and current config, replaces the binary, requests Mihomo restart, and reports success/failure.
 - The SHA-256 is for the compressed release asset and must match the Agent architecture: amd64 uses `mihomo-linux-amd64-compatible-<version>.gz`; arm64 uses `mihomo-linux-arm64-<version>.gz`. Never use a checksum for another architecture or asset.

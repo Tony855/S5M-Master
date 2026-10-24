@@ -64,3 +64,32 @@ func TestValidateKernelUpdateCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateMihomoConfigYAML(t *testing.T) {
+	valid := []byte("mixed-port: 7890\nsecret: test-secret\ntun:\n  enable: false\ndns:\n  enable: true\n  nameserver:\n    - 1.1.1.1\n")
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{name: "valid full config", data: valid},
+		{name: "empty", data: []byte(""), wantErr: true},
+		{name: "malformed yaml", data: []byte("tun: ["), wantErr: true},
+		{name: "empty document", data: []byte("---\n"), wantErr: true},
+		{name: "missing secret", data: []byte("tun: {}\ndns: {}\n"), wantErr: true},
+		{name: "blank secret", data: []byte("secret: '  '\ntun: {}\ndns: {}\n"), wantErr: true},
+		{name: "missing tun", data: []byte("secret: test\ndns: {}\n"), wantErr: true},
+		{name: "tun wrong type", data: []byte("secret: test\ntun: false\ndns: {}\n"), wantErr: true},
+		{name: "missing dns", data: []byte("secret: test\ntun: {}\n"), wantErr: true},
+		{name: "dns wrong type", data: []byte("secret: test\ntun: {}\ndns: true\n"), wantErr: true},
+		{name: "over size limit", data: append(valid, []byte(strings.Repeat(" ", 2*1024*1024))...), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := validateMihomoConfigYAML(tt.data)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateMihomoConfigYAML() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
