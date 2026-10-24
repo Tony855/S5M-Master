@@ -18,6 +18,12 @@ This document records the currently implemented controller/Agent contract. It is
 - Controller overview/traffic and controller-side Mihomo update handlers still operate on the controller host's local Mihomo. Per-Agent kernel upgrades use the authenticated command/acknowledgement workflow described below.
 - Agent status is based on authenticated heartbeats and local Mihomo API probes; a recently received heartbeat alone does not prove all subsystems are healthy.
 
+## Unified data/config directory
+
+- Agent uses `MIHOMO_HOME` as the single Mihomo data directory; it defaults to `/data`, and the main config is always `${MIHOMO_HOME}/config.yaml`.
+- Controller uses `S5M_DATA_DIR` as its unified data directory; it defaults to `/data`, with `s5m.db`, `config.yaml`, and `backups/` under that directory. `S5M_DB`, `S5M_CONFIG`, and `S5M_BACKUP` remain optional explicit overrides.
+- `/data/s5m-next/config.yaml` is not an active default path. The Agent entrypoint only checks it for a one-time migration when the new `/data/config.yaml` does not exist.
+
 ## UI behavior
 
 The machine-code page uses the existing `s5m_next_token` browser storage key and sends the Bearer token to the authenticated endpoint. It displays an Agent as online when its last config pull was within 90 seconds; this is a UI heuristic, not a health check.

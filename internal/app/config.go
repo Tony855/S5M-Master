@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 )
 
 type Config struct {
@@ -33,11 +34,14 @@ func randomHex(n int) string {
 }
 
 func LoadEnv() Config {
+	// All S5M data paths share one directory by default. Individual legacy
+	// environment variables remain supported as explicit overrides.
+	dataDir := filepath.Clean(env("S5M_DATA_DIR", "/data"))
 	return Config{
 		Addr:             env("S5M_ADDR", ":80"),
-		DBPath:           env("S5M_DB", "/data/s5m-next/s5m.db"),
-		ConfigPath:       env("S5M_CONFIG", "/data/s5m-next/config.yaml"),
-		BackupDir:        env("S5M_BACKUP", "/data/s5m-next/backups"),
+		DBPath:           env("S5M_DB", filepath.Join(dataDir, "s5m.db")),
+		ConfigPath:       env("S5M_CONFIG", filepath.Join(dataDir, "config.yaml")),
+		BackupDir:        env("S5M_BACKUP", filepath.Join(dataDir, "backups")),
 		JWTSecret:        env("S5M_JWT_SECRET", randomHex(32)),
 		AdminUser:        env("S5M_ADMIN_USER", "admin"),
 		AdminPass:        env("S5M_ADMIN_PASSWORD", ""),
