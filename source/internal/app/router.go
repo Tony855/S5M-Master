@@ -51,10 +51,17 @@ func (a *App) ensureAdmin() error {
 	return a.store.CreateUser(a.cfg.AdminUser, string(h), "admin")
 }
 
+func (a *App) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if err := a.store.db.Ping(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "database": "unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "database": "ok"})
+}
 func (a *App) Router(static fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
 	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
