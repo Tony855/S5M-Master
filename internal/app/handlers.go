@@ -1014,35 +1014,21 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
-	code := strings.TrimSpace(r.PathValue("code"))
-	if code == "" {
-		writeErr(w, 400, "机器码不能为空")
-		return
-	}
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		writeErr(w, 500, "读取授权状态失败")
-		return
-	}
-	mt := settings["agent_machine_"+code]
-	if mt == "" || mt == settings["agent_token"] {
-		writeErr(w, 404, "节点未授权")
-		return
-	}
-	var in struct {
-		YAML string `json:"config_yaml"`
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&in); err != nil {
-		writeErr(w, 400, "请求 JSON 无效")
-		return
-	}
-	if strings.TrimSpace(in.YAML) == "" {
-		writeErr(w, 400, "YAML 不能为空")
-		return
-	}
-	if err := a.store.SaveNodeConfig(code, in.YAML); err != nil {
-		writeErr(w, 500, "保存节点配置失败")
-		return
-	}
-	writeJSON(w, 200, map[string]string{"message": "节点独立配置已保存"})
+ code := strings.TrimSpace(r.PathValue("code"))
+ if code == "" { writeErr(w, 400, "机器码不能为空"); return }
+ settings, err := a.store.GetSettings()
+ if err != nil { writeErr(w, 500, "读取授权状态失败"); return }
+ mt := settings["agent_machine_"+code]
+ if mt == "" || mt == settings["agent_token"] { writeErr(w, 404, "节点未授权"); return }
+ var in struct { YAML string `json:"config_yaml"` }
+ if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&in); err != nil { writeErr(w, 400, "请求 JSON 无效"); return }
+ if strings.TrimSpace(in.YAML) == "" { writeErr(w, 400, "YAML 不能为空"); return }
+ var cfg map[string]any
+ if err := yaml.Unmarshal([]byte(in.YAML), &cfg); err != nil || len(cfg) == 0 { writeErr(w, 400, "Mihomo YAML 格式错误或配置为空"); return }
+ secret, _ := cfg["secret"].(string)
+ if strings.TrimSpace(secret) == "" { writeErr(w, 400, "完整配置必须包含非空 secret"); return }
+ if _, ok := cfg["tun"]; !ok { writeErr(w, 400, "完整配置缺少 tun 配置块；关闭 TUN 时也应设置 tun.enable: false"); return }
+ if _, ok := cfg["dns"]; !ok { writeErr(w, 400, "完整配置缺少 dns 配置块"); return }
+ if err := a.store.SaveNodeConfig(code, in.YAML); err != nil { writeErr(w, 500, "保存节点配置失败"); return }
+ writeJSON(w, 200, map[string]string{"message": "完整节点配置已保存；Agent 将在下一次拉取时应用"})
 }
