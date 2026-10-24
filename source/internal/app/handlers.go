@@ -509,15 +509,32 @@ func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	t, err := jwt.Parse(r.URL.Query().Get("token"), func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || !t.Valid {
-		writeErr(w, 401, "登录已失效")
+	if err != nil || t == nil || !t.Valid {
+		writeErr(w, http.StatusUnauthorized, "登录已失效")
+		return
+	}
+	claims, ok := t.Claims.(jwt.MapClaims)
+	username, validUsername := claims["usr"].(string)
+	if !ok || !validUsername || strings.TrimSpace(username) == "" {
+		writeErr(w, http.StatusUnauthorized, "登录凭证无效")
+		return
+	}
+	u, err := a.store.UserByUsername(username)
+	if err != nil || u == nil || !u.Enabled {
+		writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用")
+		return
+	}
+	if u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "需要管理员权限")
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
 	http.ServeFile(w, r, a.cfg.DBPath)
 }
-
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	if !a.requireContainerAdmin(w, r) {
+		return
+	}
 	const maxBackupSize = int64(128 << 20)
 	if strings.TrimSpace(a.cfg.DBPath) == "" || a.cfg.DBPath == ":memory:" {
 		writeErr(w, http.StatusBadRequest, "当前数据库路径不支持文件恢复")
