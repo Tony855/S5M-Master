@@ -1,0 +1,131 @@
+name: S5M Agent multi-arch images
+
+on:
+  push:
+    branches: [dev]
+    tags: ["s5m-agent-v*"]
+  pull_request:
+    branches: [dev]
+    paths:
+      - "s5m-agent/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/agent-images.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/tony855/s5m-agent
+
+jobs:
+  build-and-publish:
+    name: Build and publish multi-arch image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:dev
+            ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and test amd64 image locally
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: s5m-agent:amd64-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test amd64 image
+        run: |
+          docker run --rm --entrypoint /app/s5m-agent s5m-agent:amd64-test --help >/tmp/agent-smoke.log 2>&1 || rc=$?
+          # The current Agent is a long-running service and does not define --help.
+          # Validate executable architecture and presence without treating timeout/exit as a CLI test.
+          docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
+
+      - name: Export amd64 archive
+        run: |
+          mkdir -p dist
+          docker save s5m-agent:amd64-test -o dist/s5m-agent-linux-amd64.tar
+          sha256sum dist/s5m-agent-linux-amd64.tar > dist/s5m-agent-linux-amd64.tar.sha256
+
+      - name: Upload amd64 archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-agent-linux-amd64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
+  build-arm64-archive:
+    name: Build ARM64 RouterOS archive
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build ARM64 image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: s5m-agent:arm64-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validate ARM64 image contents
+        run: |
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
+
+      - name: Export ARM64 archive
+        run: |
+          mkdir -p dist
+          docker save s5m-agent:arm64-test -o dist/s5m-agent-linux-arm64.tar
+          sha256sum dist/s5m-agent-linux-arm64.tar > dist/s5m-agent-linux-arm64.tar.sha256
+
+      - name: Upload ARM64 archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-agent-linux-arm64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
