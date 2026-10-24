@@ -1521,7 +1521,7 @@ createApp({
     };
     const cancelContainerTask = async (task) => {
       try {
-        await ElMessageBox.confirm('确定取消尚未被 Agent 领取的任务 #' + task.id + '？', '取消容器任务', { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回' });
+        await ElementPlus.ElMessageBox.confirm('确定取消尚未被 Agent 领取的任务 #' + task.id + '？', '取消容器任务', { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回' });
         const res = await api('/api/v1/container/tasks/' + encodeURIComponent(task.id), { method: 'DELETE' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || '取消任务失败');
