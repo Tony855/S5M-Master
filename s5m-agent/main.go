@@ -58,6 +58,21 @@ func mihomoHome() string {
 	return strings.TrimRight(home, "/")
 }
 
+
+// validateCentralURL rejects malformed URLs and URL userinfo/query/fragment fields.
+func validateCentralURL(raw string) (string, error) {
+	centralURL := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if !strings.HasPrefix(centralURL, "https://") && !strings.HasPrefix(centralURL, "http://") {
+		return "", fmt.Errorf("主控地址必须使用 HTTP(S)")
+	}
+	parsedURL, err := url.Parse(centralURL)
+	if err != nil || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" ||
+		strings.ContainsAny(centralURL, "\r\n") {
+		return "", fmt.Errorf("主控地址格式无效")
+	}
+	return centralURL, nil
+}
+
 func mihomoConfigPath() string {
 	return mihomoHome() + "/config.yaml"
 }
@@ -524,7 +539,7 @@ func main() {
 				"has_token": cfg.Token != "",
 				"central_url": cfg.CentralURL,
 				// This is local binding state, not a live reachability probe.
-				"connected": false,
+				"connected": cfg.Token != "",
 			})
 		})
 
@@ -543,15 +558,9 @@ func main() {
 				http.Error(w, "参数错误", http.StatusBadRequest)
 				return
 			}
-			centralURL := strings.TrimRight(strings.TrimSpace(in.CentralURL), "/")
-			if !strings.HasPrefix(centralURL, "https://") && !strings.HasPrefix(centralURL, "http://") {
-				http.Error(w, "主控地址必须使用 http:// 或 https://", http.StatusBadRequest)
-				return
-			}
-			parsedURL, parseErr := url.Parse(centralURL)
-			if parseErr != nil || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" ||
-				strings.ContainsAny(centralURL, "\r\n") || strings.TrimSpace(in.Secret) == "" {
-				http.Error(w, "主控地址或授权密钥无效", http.StatusBadRequest)
+			centralURL, urlErr := validateCentralURL(in.CentralURL)
+			if urlErr != nil || strings.TrimSpace(in.Secret) == "" {
+				http.Error(w, "主控地址或授权密钥无效；地址必须是完整的 HTTP(S) URL，不能包含凭据、查询参数或片段", http.StatusBadRequest)
 				return
 			}
 			machineID := getMachineID()
