@@ -105,3 +105,41 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 		t.Fatalf("已完成任务历史未保留: n=%d err=%v", n, err)
 	}
 }
+
+func TestCancelPendingAgentTaskOnlyCancelsUnclaimedTasks(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	pendingID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("CreateAgentTask pending: %v", err)
+	}
+	changed, err := store.CancelPendingAgentTask(pendingID)
+	if err != nil || changed != 1 {
+		t.Fatalf("cancel pending: changed=%d err=%v", changed, err)
+	}
+	var status string
+	if err := store.db.QueryRow("SELECT status FROM agent_tasks WHERE id=?", pendingID).Scan(&status); err != nil {
+		t.Fatalf("read cancelled status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("status = %q, want cancelled", status)
+	}
+	changed, err = store.CancelPendingAgentTask(pendingID)
+	if err != nil || changed != 0 {
+		t.Fatalf("cancel already-cancelled task: changed=%d err=%v", changed, err)
+	}
+	runningID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("CreateAgentTask running: %v", err)
+	}
+	if _, err := store.db.Exec("UPDATE agent_tasks SET status='running' WHERE id=?", runningID); err != nil {
+		t.Fatalf("mark task running: %v", err)
+	}
+	changed, err = store.CancelPendingAgentTask(runningID)
+	if err != nil || changed != 0 {
+		t.Fatalf("cancel running task: changed=%d err=%v", changed, err)
+	}
+}
