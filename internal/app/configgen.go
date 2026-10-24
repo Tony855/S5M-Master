@@ -144,45 +144,39 @@ func (a *App) getOrCreateMihomoSecret(key string) (string, error) {
 // syncAuthorizedNodeConfigs refreshes cached YAML for machines with dedicated tokens.
 // It does not publish or reload the controller's own Mihomo configuration.
 func (a *App) syncAuthorizedNodeConfigs() error {
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		return fmt.Errorf("读取机器授权失败: %w", err)
-	}
-
-	const prefix = "agent_machine_"
-	configs := make(map[string]string)
-
-	for key, token := range settings {
-		if !strings.HasPrefix(key, prefix) || strings.TrimSpace(token) == "" {
-			continue
-		}
-		machineCode := strings.TrimSpace(strings.TrimPrefix(key, prefix))
-		if machineCode == "" {
-			continue
-		}
-
-		yml, err := a.BuildConfigForMachine(machineCode)
-		if err != nil {
-			return fmt.Errorf("为机器 %s 生成配置失败: %w", machineCode, err)
-		}
-
-		var doc map[string]any
-		if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
-			return fmt.Errorf("机器 %s 的 YAML 校验失败: %w", machineCode, err)
-		}
-		if len(doc) == 0 {
-			return fmt.Errorf("机器 %s 的 YAML 内容为空", machineCode)
-		}
-		configs[machineCode] = yml
-	}
-
-	// 先生成并验证全部配置，再逐个保存。
-	for machineCode, yml := range configs {
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			return fmt.Errorf("保存机器 %s 的配置失败: %w", machineCode, err)
-		}
-	}
-	return nil
+ settings, err := a.store.GetSettings()
+ if err != nil { return fmt.Errorf("读取机器授权失败: %w", err) }
+ const prefix = "agent_machine_"
+ configs := make(map[string]string)
+ for key, token := range settings {
+  if !strings.HasPrefix(key, prefix) || strings.TrimSpace(token) == "" { continue }
+  machineCode := strings.TrimSpace(strings.TrimPrefix(key, prefix))
+  if machineCode == "" { continue }
+  generated, err := a.BuildConfigForMachine(machineCode)
+  if err != nil { return fmt.Errorf("为机器 %s 生成配置失败: %w", machineCode, err) }
+  // Existing complete per-node YAML is authoritative for TUN, DNS, ports and other settings.
+  // Proxy edits refresh only the generated proxies/rules sections and preserve the node's secret.
+  existing, err := a.store.GetNodeConfig(machineCode)
+  if err != nil { return fmt.Errorf("读取机器 %s 的独立配置失败: %w", machineCode, err) }
+  if existing != nil && strings.TrimSpace(existing.YAML) != "" {
+   var currentDoc, generatedDoc map[string]any
+   if err := yaml.Unmarshal([]byte(existing.YAML), &currentDoc); err != nil { return fmt.Errorf("机器 %s 的独立 YAML 无效: %w", machineCode, err) }
+   if err := yaml.Unmarshal([]byte(generated), &generatedDoc); err != nil { return fmt.Errorf("机器 %s 的生成 YAML 无效: %w", machineCode, err) }
+   for _, section := range []string{"proxies", "rules"} {
+    if value, ok := generatedDoc[section]; ok { currentDoc[section] = value }
+   }
+   generated, err = yaml.Marshal(currentDoc)
+   if err != nil { return fmt.Errorf("序列化机器 %s 的独立配置失败: %w", machineCode, err) }
+  }
+  var doc map[string]any
+  if err := yaml.Unmarshal([]byte(generated), &doc); err != nil { return fmt.Errorf("机器 %s 的 YAML 校验失败: %w", machineCode, err) }
+  if len(doc) == 0 { return fmt.Errorf("机器 %s 的 YAML 内容为空", machineCode) }
+  configs[machineCode] = generated
+ }
+ for machineCode, yml := range configs {
+  if err := a.store.SaveNodeConfig(machineCode, yml); err != nil { return fmt.Errorf("保存机器 %s 的配置失败: %w", machineCode, err) }
+ }
+ return nil
 }
 
 func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
