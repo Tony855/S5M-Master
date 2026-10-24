@@ -1740,6 +1740,7 @@ createApp({
         const result = await dockerTask('docker.list');
         const output = result.output || '';
         dockerContainers.value = output.split(/\r?\n/).filter(Boolean).map(line => { try { return JSON.parse(line); } catch (_) { return {}; } });
+        selectedDockerIDs.value = [];
         dockerStatus.value = '已读取 ' + dockerContainers.value.length + ' 个容器';
       } catch (e) { dockerStatus.value = e.message || '查询失败'; showMsg(dockerStatus.value, 'warning'); }
       finally { dockerLoading.value = false; }
@@ -1949,7 +1950,7 @@ const safeCopy = async (text) => {
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
-      dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
+      dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
