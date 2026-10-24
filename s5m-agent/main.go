@@ -107,8 +107,8 @@ func reloadMihomo() error {
 		return fmt.Errorf("解析 Mihomo 配置失败: %w", err)
 	}
 	secret, _ := config["secret"].(string)
-	if strings.TrimSpace(secret) == "" || secret == "change-this-secret" {
-		return fmt.Errorf("Mihomo secret 未配置或仍是默认值，拒绝执行重载")
+	if strings.TrimSpace(secret) == "" {
+		return fmt.Errorf("Mihomo secret 未配置，无法执行重载")
 	}
 
 	reloadBody := strings.NewReader(
