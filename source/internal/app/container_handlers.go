@@ -63,11 +63,12 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 	}
 	nowTime := time.Now().UTC()
 	now := nowTime.Format(time.RFC3339)
-	// Requeue a task left running by a crashed/disconnected Agent. Docker commands
-	// have a 15-second execution timeout; a 2-minute lease safely exceeds normal work.
+	// Fail expired task leases rather than requeueing them automatically. Replaying a
+	// Docker stop/restart after a lost response can repeat side effects; operators can
+	// inspect the failure and explicitly submit a new task if appropriate.
 	staleBefore := nowTime.Add(-2 * time.Minute).Format(time.RFC3339)
-	if _, err := a.store.db.Exec(`UPDATE agent_tasks SET status='pending', claimed_at='', updated_at=? WHERE machine_code=? AND status='running' AND claimed_at<>'' AND claimed_at < ?`, now, code, staleBefore); err != nil {
-		writeErr(w, http.StatusInternalServerError, "恢复超时任务失败")
+	if _, err := a.store.FailStaleAgentTasks(code, staleBefore); err != nil {
+		writeErr(w, http.StatusInternalServerError, "标记超时任务失败")
 		return
 	}
 	var t struct {
