@@ -962,14 +962,14 @@ func main() {
 		}
 
 		if err := processContainerTask(cfg); err != nil {
-			fmt.Printf("容器任务处理失败: %v\\n", err)
+			fmt.Printf("容器任务处理失败: %v\n", err)
 		}
 		if err := reportContainerStatus(cfg); err != nil {
-			fmt.Printf("容器节点状态上报失败: %v\\n", err)
+			fmt.Printf("容器节点状态上报失败: %v\n", err)
 		}
 
 		if err := processAgentCommand(cfg); err != nil {
-			fmt.Printf("Agent 命令处理失败: %v\\n", err)
+			fmt.Printf("Agent 命令处理失败: %v\n", err)
 		}
 
 		fmt.Println("👉 正在向主控台发送心跳...")
@@ -979,7 +979,7 @@ func main() {
 			nil,
 		)
 		if err != nil {
-			fmt.Printf("Agent 配置请求创建失败: %v\\n", err)
+			fmt.Printf("Agent 配置请求创建失败: %v\n", err)
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
@@ -990,14 +990,14 @@ func main() {
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("❌ Agent 心跳请求失败: %v\\n", err)
+			fmt.Printf("❌ Agent 心跳请求失败: %v\n", err)
 			continue
 		}
 
 		if resp.StatusCode == http.StatusNotModified {
 			resp.Body.Close()
 			if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-				fmt.Printf("Agent 状态上报失败: %v\\n", err)
+				fmt.Printf("Agent 状态上报失败: %v\n", err)
 			}
 			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
 			continue
@@ -1005,18 +1005,18 @@ func main() {
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
-			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\\n", resp.StatusCode, strings.TrimSpace(string(body)))
+			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 
 		newYml, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 		resp.Body.Close()
 		if readErr != nil {
-			fmt.Printf("读取主控台配置失败: %v\\n", readErr)
+			fmt.Printf("读取主控台配置失败: %v\n", readErr)
 			continue
 		}
 		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-			fmt.Printf("Agent 状态上报失败: %v\\n", err)
+			fmt.Printf("Agent 状态上报失败: %v\n", err)
 		}
 		if len(strings.TrimSpace(string(newYml))) == 0 {
 			fmt.Println("主控台返回空配置，本次跳过")
@@ -1037,13 +1037,13 @@ func main() {
 		fmt.Printf("发现配置更新，已写入 Mihomo 主配置（目录：%s，文件：%s）\n", mihomoHome(), mihomoConfigPath())
 
 		if err := reloadMihomo(); err != nil {
-			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\\n", err)
+			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\n", err)
 			if restoreErr := rollbackConfigAfterReloadFailure(); restoreErr != nil {
-				fmt.Printf("恢复旧配置失败: %v\\n", restoreErr)
+				fmt.Printf("恢复旧配置失败: %v\n", restoreErr)
 				continue
 			}
 			if reloadErr := reloadMihomo(); reloadErr != nil {
-				fmt.Printf("旧配置已恢复，但重新加载失败: %v\\n", reloadErr)
+				fmt.Printf("旧配置已恢复，但重新加载失败: %v\n", reloadErr)
 				continue
 			}
 			fmt.Println("已恢复旧配置并重新加载")
