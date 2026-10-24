@@ -827,7 +827,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "生成内核更新命令失败")
 		return
 	}
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_"+in.MachineCode: string(payload)}); err != nil {
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_" + in.MachineCode: string(payload)}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存内核更新命令失败")
 		return
 	}
@@ -958,7 +958,7 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.store.UpdateSettings(map[string]string{
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_" + code: string(payload),
+		"agent_status_" + code:   string(payload),
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
 		return
