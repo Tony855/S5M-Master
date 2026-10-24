@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 )
@@ -34,5 +35,26 @@ func TestEnsureAdminRequiresExplicitPassword(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("administrator count = %d, want 1", count)
+	}
+}
+
+func TestHealthChecksDatabaseReadiness(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "health.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	a := &App{store: store}
+	response := httptest.NewRecorder()
+	a.handleHealth(response, httptest.NewRequest("GET", "/api/v1/health", nil))
+	if response.Code != 200 {
+		t.Fatalf("healthy database returned HTTP %d", response.Code)
+	}
+	if err := store.db.Close(); err != nil {
+		t.Fatalf("close database: %v", err)
+	}
+	response = httptest.NewRecorder()
+	a.handleHealth(response, httptest.NewRequest("GET", "/api/v1/health", nil))
+	if response.Code != 503 {
+		t.Fatalf("closed database returned HTTP %d, want 503", response.Code)
 	}
 }
