@@ -5,6 +5,14 @@ MIHOMO_HOME="${MIHOMO_HOME:-/data}"
 CONFIG_PATH="${MIHOMO_HOME}/config.yaml"
 mkdir -p "$MIHOMO_HOME" /data
 
+# One-time migration from the retired directory; never overwrite the new config.
+LEGACY_CONFIG="/data/s5m-next/config.yaml"
+if [ ! -s "$CONFIG_PATH" ] && [ -s "$LEGACY_CONFIG" ]; then
+  cp "$LEGACY_CONFIG" "$CONFIG_PATH"
+  chmod 0600 "$CONFIG_PATH"
+  echo "已将旧 Mihomo 配置迁移到 $CONFIG_PATH"
+fi
+
 if [ ! -s "$CONFIG_PATH" ]; then
   cp /opt/s5m/default-config.yaml "$CONFIG_PATH"
   chmod 0600 "$CONFIG_PATH"
