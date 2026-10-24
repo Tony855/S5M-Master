@@ -56,7 +56,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and test amd64 image locally
+      - name: Build amd64 image for archive
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -69,9 +69,6 @@ jobs:
 
       - name: Smoke test amd64 image
         run: |
-          docker run --rm --entrypoint /app/s5m-agent s5m-agent:amd64-test --help >/tmp/agent-smoke.log 2>&1 || rc=$?
-          # The current Agent is a long-running service and does not define --help.
-          # Validate executable architecture and presence without treating timeout/exit as a CLI test.
           docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
 
       - name: Export amd64 archive
