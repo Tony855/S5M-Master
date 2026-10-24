@@ -93,3 +93,32 @@ func TestRestoreBackupValidatesAndSwapsDatabase(t *testing.T) {
 		t.Fatal("old database contents unexpectedly remained after restore")
 	}
 }
+
+func TestDownloadBackupCreatesSQLiteSnapshot(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "s5m.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	if err := store.CreateUser("admin", "test-password-hash", "admin"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	a := &App{cfg: Config{DBPath: dbPath}, store: store, jwtKey: []byte("test-signing-secret")}
+	user, err := store.UserByUsername("admin")
+	if err != nil {
+		t.Fatalf("UserByUsername: %v", err)
+	}
+	token, err := a.signToken(user)
+	if err != nil {
+		t.Fatalf("signToken: %v", err)
+	}
+	response := httptest.NewRecorder()
+	a.handleDownloadBackup(response, httptest.NewRequest(http.MethodGet, "/api/v1/backup?token="+token, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if !bytes.HasPrefix(response.Body.Bytes(), []byte("SQLite format 3")) {
+		t.Fatal("downloaded backup is not a SQLite database snapshot")
+	}
+}
