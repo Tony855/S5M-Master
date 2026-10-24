@@ -1491,6 +1491,7 @@ createApp({
         const data = await response.json().catch(() => ({}));
         const task = (data.tasks || []).find(x => Number(x.id) === Number(created.id));
         if (task && (task.status === 'succeeded' || task.status === 'failed')) {
+          await loadContainerTasks();
           if (task.status === 'failed') throw new Error(task.error || '实例执行失败');
           dockerStatus.value = '任务 #' + created.id + ' 执行成功';
           return task.result || {};
