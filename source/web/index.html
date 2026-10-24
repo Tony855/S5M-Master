@@ -909,17 +909,31 @@ html, body, #app {
           <div class="card-title"><span>实例节点管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新实例</el-button></div>
           <p class="import-note">在这里统一管理已注册实例、在线状态和 Docker 容器。容器操作由对应实例上的 S5M Agent 执行；目标实例必须在线并已安装 Docker。</p>
 
-          <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">{{ agentEntries.length }} 个实例</span></div>
+          <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">共 {{ agentEntries.length }} 个，当前显示 {{ filteredAgentEntries.length }} 个</span></div>
+          <div class="docker-controls" style="margin:10px 0 14px">
+            <el-input v-model="agentSearch" clearable placeholder="搜索机器码、主机名或系统" />
+            <el-select v-model="agentStatusFilter" style="max-width:170px" aria-label="筛选实例状态">
+              <el-option label="全部实例" value="all" />
+              <el-option label="仅在线" value="online" />
+              <el-option label="仅离线" value="offline" />
+              <el-option label="Docker 可用" value="docker" />
+            </el-select>
+          </div>
           <div v-if="agentLoading" class="empty-state">正在加载实例…</div>
           <div v-else-if="agentLoadError" class="empty-state error-state">{{ agentLoadError }}<div style="margin-top:10px"><el-button size="small" @click="loadAgentsData">重试</el-button></div></div>
           <div v-else-if="!agentEntries.length" class="empty-state">暂无已注册实例。请先在上方生成实例 Token，并在目标机器部署 Agent。</div>
+          <div v-else-if="!filteredAgentEntries.length" class="empty-state">没有符合搜索条件的实例，请调整关键词或状态筛选。</div>
           <div v-else class="instance-list">
-            <div v-for="item in agentEntries" :key="item.code" class="agent-item instance-row">
+            <div v-for="item in filteredAgentEntries" :key="item.code" class="agent-item instance-row">
               <div class="instance-main">
                 <div class="agent-code">{{ item.code }}</div>
                 <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? '在线' : '离线' }}</span>
               </div>
-              <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }}</div>
+              <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }} · 最近心跳：{{ item.last_seen ? new Date(item.last_seen * 1000).toLocaleString() : '暂无记录' }}</div>
+              <div v-if="item.updated_at" class="instance-token">状态更新时间：{{ item.updated_at }}</div>
+              <div v-if="item.hostname || item.os || item.dockerAvailable || item.mihomoRunning" class="instance-token">
+                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '未检测到' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
+              </div>
               <div class="instance-actions">
                 <el-button size="small" @click="dockerMachineCode = item.code">管理此实例</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
@@ -937,6 +951,28 @@ html, body, #app {
             <el-button type="primary" :disabled="!dockerMachineCode" :loading="dockerLoading" @click="refreshDocker">查询容器</el-button>
           </div>
           <div v-if="dockerStatus" class="docker-status">{{ dockerStatus }}</div>
+          <div class="subsection-heading" style="margin-top:22px">
+            <span>容器任务记录</span>
+            <span class="section-hint">最近 100 条</span>
+            <el-button size="small" :loading="containerTasksLoading" @click="loadContainerTasks">刷新任务</el-button>
+          </div>
+          <el-table :data="containerTasks" stripe style="width:100%" empty-text="暂无容器任务记录">
+            <el-table-column prop="id" label="任务 ID" width="85" />
+            <el-table-column prop="machine_code" label="实例" min-width="130" show-overflow-tooltip />
+            <el-table-column prop="action" label="操作" min-width="130" />
+            <el-table-column label="状态" width="110">
+              <template #default="scope">
+                <el-tag :type="taskStatusType(scope.row.status)">{{ taskStatusLabel(scope.row.status) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="created_at" label="创建时间" min-width="170" />
+            <el-table-column label="操作" width="115" fixed="right">
+              <template #default="scope">
+                <el-button v-if="scope.row.status === 'pending'" size="small" type="danger" plain @click="cancelContainerTask(scope.row)">取消</el-button>
+                <el-button v-else size="small" @click="showContainerTask(scope.row)">结果</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
           <div class="docker-table-wrap docker-desktop-table">
             <el-table :data="dockerContainers" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
               <el-table-column prop="Names" label="容器名称" min-width="130" />
@@ -1055,12 +1091,27 @@ createApp({
     const agentEntries = ref([]);
     const agentLoadError = ref('');
     const agentLoading = ref(false);
+    const agentSearch = ref('');
+    const agentStatusFilter = ref('all');
+    const filteredAgentEntries = computed(() => {
+      const query = String(agentSearch.value || '').trim().toLowerCase();
+      return agentEntries.value.filter(item => {
+        const matchesQuery = !query || [item.code, item.hostname, item.os, item.arch].some(value => String(value || '').toLowerCase().includes(query));
+        const matchesStatus = agentStatusFilter.value === 'all'
+          || (agentStatusFilter.value === 'online' && item.online)
+          || (agentStatusFilter.value === 'offline' && !item.online)
+          || (agentStatusFilter.value === 'docker' && item.dockerAvailable);
+        return matchesQuery && matchesStatus;
+      });
+    });
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const dockerContainers = ref([]);
     const dockerStatus = ref('');
     const dockerOutput = ref('');
     const dockerOutputVisible = ref(false);
+    const containerTasks = ref([]);
+    const containerTasksLoading = ref(false);
 
     const subUrl = ref('');
     const configYaml = ref('');
@@ -1196,7 +1247,7 @@ createApp({
       page.value = v;
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') loadProxies();
-      if (v === 'instances') { loadAgentsData(); }
+      if (v === 'instances') { loadAgentsData(); loadContainerTasks(); }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
@@ -1421,10 +1472,37 @@ createApp({
         }
         const data = await res.json();
         const now = Math.floor(Date.now() / 1000);
+        let nodeByCode = {};
+        try {
+          const nodeRes = await api('/api/v1/container/nodes?t=' + Date.now());
+          if (nodeRes.ok) {
+            const nodeData = await nodeRes.json();
+            (Array.isArray(nodeData.nodes) ? nodeData.nodes : []).forEach(node => {
+              if (node && node.machine_code) nodeByCode[node.machine_code] = node;
+            });
+          }
+        } catch (nodeError) {
+          console.warn('读取节点运行状态失败，暂时使用注册心跳数据', nodeError);
+        }
         const list = [];
         Object.keys(data || {}).forEach(code => {
-          const item = data[code] || {}; const last = Number(item.last_seen) || 0;
-          list.push({ code: code, tokenConfigured: item.token_configured === true, online: last > 0 && (now - last) < 300, last_seen: last });
+          const item = data[code] || {};
+          const node = nodeByCode[code] || {};
+          const last = Number(item.last_seen) || 0;
+          const online = typeof node.online === 'boolean' ? node.online : last > 0 && (now - last) < 90;
+          list.push({
+            code: code,
+            tokenConfigured: item.token_configured === true,
+            online: online,
+            last_seen: last,
+            hostname: node.hostname || '',
+            os: node.os || '',
+            arch: node.arch || '',
+            dockerAvailable: node.docker_available === true,
+            mihomoRunning: node.mihomo_running === true,
+            mihomoVersion: node.mihomo_version || '',
+            updated_at: node.updated_at || ''
+          });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         agentEntries.value = list;
@@ -1467,6 +1545,7 @@ createApp({
         const data = await response.json().catch(() => ({}));
         const task = (data.tasks || []).find(x => Number(x.id) === Number(created.id));
         if (task && (task.status === 'succeeded' || task.status === 'failed')) {
+          await loadContainerTasks();
           if (task.status === 'failed') throw new Error(task.error || '实例执行失败');
           dockerStatus.value = '任务 #' + created.id + ' 执行成功';
           return task.result || {};
@@ -1474,6 +1553,39 @@ createApp({
       }
       throw new Error('任务仍在等待执行或实例暂时离线；可刷新任务/实例状态后重试');
     };
+    const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
+    const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
+    const loadContainerTasks = async () => {
+      containerTasksLoading.value = true;
+      try {
+        const res = await api('/api/v1/container/tasks?limit=100&t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '读取容器任务失败');
+        containerTasks.value = Array.isArray(data.tasks) ? data.tasks : [];
+      } catch (e) {
+        showMsg(e.message || '读取容器任务失败', 'error');
+      } finally {
+        containerTasksLoading.value = false;
+      }
+    };
+    const showContainerTask = (task) => {
+      const result = task.result == null ? '' : (typeof task.result === 'string' ? task.result : JSON.stringify(task.result, null, 2));
+      dockerOutput.value = '任务 #' + task.id + ' · ' + taskStatusLabel(task.status) + '\n实例：' + task.machine_code + '\n动作：' + task.action + '\n创建时间：' + task.created_at + '\n完成时间：' + (task.finished_at || '—') + '\n错误：' + (task.error || '无') + '\n\n执行结果：\n' + (result || '无结果');
+      dockerOutputVisible.value = true;
+    };
+    const cancelContainerTask = async (task) => {
+      try {
+        await ElementPlus.ElMessageBox.confirm('确定取消尚未被 Agent 领取的任务 #' + task.id + '？', '取消容器任务', { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回' });
+        const res = await api('/api/v1/container/tasks/' + encodeURIComponent(task.id), { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || '取消任务失败');
+        showMsg('任务 #' + task.id + ' 已取消', 'success');
+        await loadContainerTasks();
+      } catch (e) {
+        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '取消任务失败', 'error');
+      }
+    };
+
     const refreshDocker = async () => {
       dockerLoading.value = true;
       try {
@@ -1674,8 +1786,9 @@ const safeCopy = async (text) => {
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount,
-      newMachineCode, generatedToken, generating, agentEntries, agentLoading,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
+      containerTasks, containerTasksLoading, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,

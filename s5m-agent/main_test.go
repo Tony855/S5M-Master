@@ -216,3 +216,38 @@ func TestVerifyKernelUpgrade(t *testing.T) {
 		})
 	}
 }
+
+func TestExecuteContainerTaskRejectsUnsafeOrIncompleteInput(t *testing.T) {
+	tests := []struct {
+		name string
+		task containerTask
+	}{
+		{name: "unknown action", task: containerTask{Action: "docker.exec", Params: []byte("{}")}},
+		{name: "missing container id", task: containerTask{Action: "docker.inspect", Params: []byte("{}")}},
+		{name: "container id with whitespace", task: containerTask{Action: "docker.stop", Params: []byte(`{"container_id":"prod app"}`)}},
+		{name: "invalid log tail", task: containerTask{Action: "docker.logs", Params: []byte(`{"container_id":"proxy-1","tail":501}`)}},
+		{name: "invalid parameter type", task: containerTask{Action: "docker.inspect", Params: []byte(`{"container_id":123}`)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := executeContainerTask(tt.task); err == nil {
+				t.Fatal("expected invalid task input to be rejected")
+			}
+		})
+	}
+}
+
+func TestValidDockerContainerID(t *testing.T) {
+	valid := []string{"s5m", "proxy_1", "node.example-01", "a1b2c3d4"}
+	for _, id := range valid {
+		if !validDockerContainerID(id) {
+			t.Errorf("valid container ID %q was rejected", id)
+		}
+	}
+	invalid := []string{"", "-f", "--format", "proxy;id", "proxy id", "../container", "x/y", strings.Repeat("a", 129)}
+	for _, id := range invalid {
+		if validDockerContainerID(id) {
+			t.Errorf("invalid container ID %q was accepted", id)
+		}
+	}
+}

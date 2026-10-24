@@ -413,7 +413,7 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 		return err
 	}
 	defer tx.Rollback()
-	for _, key := range []string{"agent_machine_" + machineCode, "agent_lastseen_" + machineCode} {
+	for _, key := range []string{"agent_machine_" + machineCode, "agent_lastseen_" + machineCode, "agent_status_" + machineCode, "agent_command_" + machineCode, "agent_command_result_" + machineCode, "agent_secret_" + machineCode, "agent_mihomo_secret_" + machineCode} {
 		if _, err := tx.Exec(`DELETE FROM settings WHERE key=?`, key); err != nil {
 			return err
 		}
@@ -481,6 +481,18 @@ func (s *Store) CreateAgentTask(machineCode, action, paramsJSON string) (int64, 
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// CancelPendingAgentTask cancels only tasks that have not been claimed by an Agent.
+func (s *Store) CancelPendingAgentTask(id int64) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`UPDATE agent_tasks
+		SET status='cancelled', error_text='Cancelled by administrator', updated_at=?, finished_at=?
+		WHERE id=? AND status='pending'`, now, now, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // UpdateAgentTaskResult 仅允许更新属于指定机器且仍在执行中的任务。

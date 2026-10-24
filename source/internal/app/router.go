@@ -1,9 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -20,27 +22,46 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{cfg: cfg, store: st, jwtKey: []byte(cfg.JWTSecret)}
-	a.ensureAdmin()
+	if err := a.ensureAdmin(); err != nil {
+		_ = st.db.Close()
+		return nil, err
+	}
 	return a, nil
 }
 
 func (a *App) ensureAdmin() error {
-	n, _ := a.store.CountUsers()
+	n, err := a.store.CountUsers()
+	if err != nil {
+		return fmt.Errorf("检查管理员账户失败: %w", err)
+	}
 	if n > 0 {
 		return nil
 	}
-	pass := a.cfg.AdminPass
+	pass := strings.TrimSpace(a.cfg.AdminPass)
 	if pass == "" {
-		pass = "hcd10086"
+		return fmt.Errorf("首次启动必须设置 S5M_ADMIN_PASSWORD；拒绝使用默认管理员密码")
 	}
-	h, _ := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if strings.TrimSpace(a.cfg.AdminUser) == "" {
+		return fmt.Errorf("首次启动必须设置有效的 S5M_ADMIN_USER")
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("生成管理员密码哈希失败: %w", err)
+	}
 	return a.store.CreateUser(a.cfg.AdminUser, string(h), "admin")
 }
 
+func (a *App) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	if err := a.store.db.Ping(); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "error", "database": "unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "database": "ok"})
+}
 func (a *App) Router(static fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"status": "ok"}) })
+	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
 	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
@@ -50,35 +71,45 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/agent/command", a.handleAgentCommand)
 	mux.HandleFunc("POST /api/v1/agent/command/ack", a.handleAgentCommandAck)
 
+	// Container/host management Agent endpoints. These use the per-machine
+	// Agent credential validator; admin endpoints remain behind the user auth.
+	mux.HandleFunc("POST /api/v1/agent/container/status", a.handleContainerAgentStatus)
+	mux.HandleFunc("GET /api/v1/agent/container/tasks/next", a.handleContainerAgentNextTask)
+	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/result", a.handleContainerAgentTaskResult)
+
 	authed := map[string]http.HandlerFunc{
-		"GET /api/v1/auth/me":               a.handleMe,
-		"GET /api/v1/agents":                a.handleGetAgents,
-		"POST /api/v1/agents/generate":      a.handleGenerateAgentToken,
-		"POST /api/v1/agents/kernel-update": a.handleQueueMihomoUpdate,
-		"DELETE /api/v1/agents":             a.handleDeleteAgent,
-		"PUT /api/v1/auth/password":         a.handlePassword,
-		"GET /api/v1/settings":              a.handleGetSettings,
-		"PUT /api/v1/settings":              a.handleUpdateSettings,
-		"GET /api/v1/nodes/{code}/config":   a.handleGetNodeConfig,
-		"PUT /api/v1/nodes/{code}/config":   a.handleSaveNodeConfig,
-		"GET /api/v1/instances":             a.handleListInstances,
-		"POST /api/v1/instances":            a.handleCreateInstance,
-		"DELETE /api/v1/instances/{id}":     a.handleDeleteInstance,
-		"GET /api/v1/proxies":               a.handleListProxies,
-		"POST /api/v1/proxies":              a.handleCreateProxy,
-		"POST /api/v1/proxies/import":       a.handleImportProxies,
-		"PUT /api/v1/proxies/{id}":          a.handleUpdateProxy,
-		"DELETE /api/v1/proxies/{id}":       a.handleDeleteProxy,
-		"GET /api/v1/config/preview":        a.handlePreview,
-		"POST /api/v1/config/save":          a.handleSaveConfig,
-		"POST /api/v1/config/publish":       a.handlePublish,
-		"GET /api/v1/config/versions":       a.handleVersions,
-		"POST /api/v1/config/rollback":      a.handleRollback,
-		"GET /api/v1/monitor/overview":      a.handleOverview,
-		"GET /api/v1/monitor/traffic":       a.handleMonitorTraffic,
-		"POST /api/v1/mihomo/update":        a.handleUpdateMihomo,
-		"GET /api/v1/logs":                  a.handleGetLogs,
-		"POST /api/v1/restore":              a.handleRestoreBackup,
+		"GET /api/v1/auth/me":                 a.handleMe,
+		"GET /api/v1/agents":                  a.handleGetAgents,
+		"POST /api/v1/agents/generate":        a.handleGenerateAgentToken,
+		"POST /api/v1/agents/kernel-update":   a.handleQueueMihomoUpdate,
+		"DELETE /api/v1/agents":               a.handleDeleteAgent,
+		"PUT /api/v1/auth/password":           a.handlePassword,
+		"GET /api/v1/settings":                a.handleGetSettings,
+		"PUT /api/v1/settings":                a.handleUpdateSettings,
+		"GET /api/v1/nodes/{code}/config":     a.handleGetNodeConfig,
+		"PUT /api/v1/nodes/{code}/config":     a.handleSaveNodeConfig,
+		"GET /api/v1/instances":               a.handleListInstances,
+		"POST /api/v1/instances":              a.handleCreateInstance,
+		"DELETE /api/v1/instances/{id}":       a.handleDeleteInstance,
+		"GET /api/v1/proxies":                 a.handleListProxies,
+		"POST /api/v1/proxies":                a.handleCreateProxy,
+		"POST /api/v1/proxies/import":         a.handleImportProxies,
+		"PUT /api/v1/proxies/{id}":            a.handleUpdateProxy,
+		"DELETE /api/v1/proxies/{id}":         a.handleDeleteProxy,
+		"GET /api/v1/config/preview":          a.handlePreview,
+		"POST /api/v1/config/save":            a.handleSaveConfig,
+		"POST /api/v1/config/publish":         a.handlePublish,
+		"GET /api/v1/config/versions":         a.handleVersions,
+		"POST /api/v1/config/rollback":        a.handleRollback,
+		"GET /api/v1/monitor/overview":        a.handleOverview,
+		"GET /api/v1/monitor/traffic":         a.handleMonitorTraffic,
+		"POST /api/v1/mihomo/update":          a.handleUpdateMihomo,
+		"GET /api/v1/logs":                    a.handleGetLogs,
+		"POST /api/v1/restore":                a.handleRestoreBackup,
+		"GET /api/v1/container/nodes":         a.handleContainerNodes,
+		"POST /api/v1/container/tasks":        a.handleCreateContainerTask,
+		"GET /api/v1/container/tasks":         a.handleListContainerTasks,
+		"DELETE /api/v1/container/tasks/{id}": a.handleCancelContainerTask,
 	}
 	for pat, h := range authed {
 		mux.HandleFunc(pat, a.auth(h))

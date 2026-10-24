@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -49,8 +51,12 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "账号或密码错误")
 		return
 	}
-	tok, _ := a.signToken(u)
-	writeJSON(w, 200, map[string]any{"token": tok, "user": u})
+	tok, err := a.signToken(u)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成登录凭证失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "user": u})
 }
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, currentUser(r)) }
@@ -383,24 +389,33 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var trafficMu sync.Mutex
 var lastUp, lastDown uint64
 var lastTime time.Time
 
-func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 	resp, err := a.mihomoReq(http.MethodGet, "/connections", nil)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"up": 0, "down": 0, "conns": 0})
+		writeErr(w, http.StatusBadGateway, "读取 Mihomo 流量失败")
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("Mihomo 流量接口返回 HTTP %d", resp.StatusCode))
+		return
+	}
 	var data struct {
 		DownloadTotal uint64 `json:"downloadTotal"`
 		UploadTotal   uint64 `json:"uploadTotal"`
 		Connections   []any  `json:"connections"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&data); err != nil {
+		writeErr(w, http.StatusBadGateway, "Mihomo 流量数据格式无效")
+		return
+	}
 	now := time.Now()
 	upSpeed, downSpeed := uint64(0), uint64(0)
+	trafficMu.Lock()
 	if !lastTime.IsZero() {
 		diff := now.Sub(lastTime).Seconds()
 		if diff > 0 {
@@ -413,7 +428,8 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lastUp, lastDown, lastTime = data.UploadTotal, data.DownloadTotal, now
-	writeJSON(w, 200, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
+	trafficMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
 }
 
 func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
@@ -493,28 +509,166 @@ func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	t, err := jwt.Parse(r.URL.Query().Get("token"), func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || !t.Valid {
-		writeErr(w, 401, "登录已失效")
+	if err != nil || t == nil || !t.Valid {
+		writeErr(w, http.StatusUnauthorized, "登录已失效")
+		return
+	}
+	claims, ok := t.Claims.(jwt.MapClaims)
+	username, validUsername := claims["usr"].(string)
+	if !ok || !validUsername || strings.TrimSpace(username) == "" {
+		writeErr(w, http.StatusUnauthorized, "登录凭证无效")
+		return
+	}
+	u, err := a.store.UserByUsername(username)
+	if err != nil || u == nil || !u.Enabled {
+		writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用")
+		return
+	}
+	if u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "需要管理员权限")
+		return
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(a.cfg.DBPath), ".s5m-backup-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建数据库快照失败")
+		return
+	}
+	snapshotPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(snapshotPath)
+		writeErr(w, http.StatusInternalServerError, "准备数据库快照失败")
+		return
+	}
+	if err := os.Remove(snapshotPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "准备数据库快照失败")
+		return
+	}
+	defer os.Remove(snapshotPath)
+	if _, err := a.store.db.ExecContext(r.Context(), "VACUUM INTO ?", snapshotPath); err != nil {
+		slog.Error("创建数据库备份快照失败", "error", err)
+		writeErr(w, http.StatusInternalServerError, "创建一致性数据库快照失败")
+		return
+	}
+	if err := os.Chmod(snapshotPath, 0600); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保护数据库快照权限失败")
 		return
 	}
 	w.Header().Set("Content-Disposition", "attachment; filename=s5m_backup.db")
-	http.ServeFile(w, r, a.cfg.DBPath)
+	w.Header().Set("Content-Type", "application/octet-stream")
+	http.ServeFile(w, r, snapshotPath)
 }
-
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
+	if !a.requireContainerAdmin(w, r) {
+		return
+	}
+	const maxBackupSize = int64(128 << 20)
+	if strings.TrimSpace(a.cfg.DBPath) == "" || a.cfg.DBPath == ":memory:" {
+		writeErr(w, http.StatusBadRequest, "当前数据库路径不支持文件恢复")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBackupSize+(1<<20))
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		writeErr(w, 400, "上传失败")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "备份上传超过大小限制")
+		} else {
+			writeErr(w, http.StatusBadRequest, "上传失败：请提供有效的备份文件")
+		}
 		return
 	}
 	defer file.Close()
-	tmp := "/tmp/restore.db"
-	out, _ := os.Create(tmp)
-	defer out.Close()
-	io.Copy(out, file)
-	a.store.db.Close()
-	os.Rename(tmp, a.cfg.DBPath)
-	writeJSON(w, 200, map[string]string{"message": "已覆盖，请重启面板"})
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	dbDir := filepath.Dir(a.cfg.DBPath)
+	tmp, err := os.CreateTemp(dbDir, ".s5m-restore-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建恢复临时文件失败")
+		return
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	written, copyErr := io.Copy(tmp, io.LimitReader(file, maxBackupSize+1))
+	if copyErr != nil {
+		_ = tmp.Close()
+		writeErr(w, http.StatusBadRequest, "读取备份文件失败")
+		return
+	}
+	if written == 0 || written > maxBackupSize {
+		_ = tmp.Close()
+		writeErr(w, http.StatusRequestEntityTooLarge, "备份文件为空或超过 128 MiB 限制")
+		return
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		writeErr(w, http.StatusInternalServerError, "写入恢复临时文件失败")
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭恢复临时文件失败")
+		return
+	}
+
+	// OpenStore validates the SQLite file and applies any compatible schema migrations.
+	candidate, err := OpenStore(tmpPath)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "备份不是有效的 S5M 数据库")
+		return
+	}
+	var integrity string
+	if err := candidate.db.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil || integrity != "ok" {
+		_ = candidate.db.Close()
+		writeErr(w, http.StatusBadRequest, "备份数据库完整性检查失败")
+		return
+	}
+	users, err := candidate.CountUsers()
+	if err != nil || users < 1 {
+		_ = candidate.db.Close()
+		writeErr(w, http.StatusBadRequest, "备份缺少有效管理员账户，拒绝恢复")
+		return
+	}
+	if err := candidate.db.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭校验数据库失败")
+		return
+	}
+
+	backupFile, err := os.CreateTemp(dbDir, ".s5m-before-restore-*.db")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建恢复前备份路径失败")
+		return
+	}
+	backupPath := backupFile.Name()
+	if err := backupFile.Close(); err != nil {
+		_ = os.Remove(backupPath)
+		writeErr(w, http.StatusInternalServerError, "准备恢复前备份失败")
+		return
+	}
+	if err := os.Remove(backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "准备恢复前备份失败")
+		return
+	}
+	if err := a.store.db.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭当前数据库失败；请重启服务后重试")
+		return
+	}
+	if err := os.Rename(a.cfg.DBPath, backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保留当前数据库失败；请重启服务后检查")
+		return
+	}
+	if err := os.Rename(tmpPath, a.cfg.DBPath); err != nil {
+		if rollbackErr := os.Rename(backupPath, a.cfg.DBPath); rollbackErr != nil {
+			slog.Error("数据库恢复失败且回滚失败", "restore_error", err, "rollback_error", rollbackErr, "backup", backupPath)
+			writeErr(w, http.StatusInternalServerError, "恢复失败且自动回滚失败；请保留备份文件并立即检查服务器")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "恢复失败，已恢复原数据库文件；请重启服务")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "数据库恢复成功；恢复前数据库已保存在同目录的备份文件中，请重启面板完成切换",
+		"backup":  backupPath,
+	})
 }
 
 func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
@@ -998,10 +1152,9 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// 彻底从数据库删除机器码的 Token 和心跳记录
-	err := a.store.DeleteSettings([]string{"agent_machine_" + code, "agent_lastseen_" + code})
-	if err != nil {
-		writeErr(w, 500, "删除失败: "+err.Error())
+	// Revoke the credential and atomically clear node status and invalidate live tasks.
+	if err := a.store.DeleteAgentBinding(code); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
 	writeJSON(w, 200, map[string]string{"message": "已删除"})

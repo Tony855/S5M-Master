@@ -66,8 +66,13 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	defer store.db.Close()
 
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_node_123":  "s5m-secret",
-		"agent_lastseen_node_123": "1792750000",
+		"agent_machine_node_123":        "s5m-secret",
+		"agent_lastseen_node_123":       "1792750000",
+		"agent_status_node_123":         `{"stale":true}`,
+		"agent_command_node_123":        `{"id":"pending"}`,
+		"agent_command_result_node_123": `{"status":"old"}`,
+		"agent_secret_node_123":         "old-secret",
+		"agent_mihomo_secret_node_123":  "old-mihomo-secret",
 	}); err != nil {
 		t.Fatalf("设置测试授权: %v", err)
 	}
@@ -84,7 +89,7 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	if err := store.DeleteAgentBinding("node_123"); err != nil {
 		t.Fatalf("DeleteAgentBinding: %v", err)
 	}
-	for _, key := range []string{"agent_machine_node_123", "agent_lastseen_node_123"} {
+	for _, key := range []string{"agent_machine_node_123", "agent_lastseen_node_123", "agent_status_node_123", "agent_command_node_123", "agent_command_result_node_123", "agent_secret_node_123", "agent_mihomo_secret_node_123"} {
 		if _, err := store.GetSetting(key); err == nil {
 			t.Fatalf("授权设置 %s 未删除", key)
 		}
@@ -98,5 +103,43 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	}
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_tasks WHERE machine_code=? AND status='succeeded'`, "node_123").Scan(&n); err != nil || n != 1 {
 		t.Fatalf("已完成任务历史未保留: n=%d err=%v", n, err)
+	}
+}
+
+func TestCancelPendingAgentTaskOnlyCancelsUnclaimedTasks(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	pendingID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("CreateAgentTask pending: %v", err)
+	}
+	changed, err := store.CancelPendingAgentTask(pendingID)
+	if err != nil || changed != 1 {
+		t.Fatalf("cancel pending: changed=%d err=%v", changed, err)
+	}
+	var status string
+	if err := store.db.QueryRow("SELECT status FROM agent_tasks WHERE id=?", pendingID).Scan(&status); err != nil {
+		t.Fatalf("read cancelled status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("status = %q, want cancelled", status)
+	}
+	changed, err = store.CancelPendingAgentTask(pendingID)
+	if err != nil || changed != 0 {
+		t.Fatalf("cancel already-cancelled task: changed=%d err=%v", changed, err)
+	}
+	runningID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("CreateAgentTask running: %v", err)
+	}
+	if _, err := store.db.Exec("UPDATE agent_tasks SET status='running' WHERE id=?", runningID); err != nil {
+		t.Fatalf("mark task running: %v", err)
+	}
+	changed, err = store.CancelPendingAgentTask(runningID)
+	if err != nil || changed != 0 {
+		t.Fatalf("cancel running task: changed=%d err=%v", changed, err)
 	}
 }

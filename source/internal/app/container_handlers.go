@@ -71,10 +71,10 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	var t struct {
-		ID        int64           `json:"id"`
-		Action    string          `json:"action"`
-		Params    json.RawMessage `json:"params"`
-		CreatedAt string          `json:"created_at"`
+		ID        int64  `json:"id"`
+		Action    string `json:"action"`
+		Params    string `json:"-"`
+		CreatedAt string `json:"created_at"`
 	}
 	err := a.store.db.QueryRow(`UPDATE agent_tasks
         SET status='running',claimed_at=?,updated_at=?
@@ -91,10 +91,11 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, "领取任务失败")
 		return
 	}
-	if len(t.Params) == 0 || !json.Valid(t.Params) {
-		t.Params = json.RawMessage("{}")
+	params := json.RawMessage(t.Params)
+	if len(params) == 0 || !json.Valid(params) {
+		params = json.RawMessage("{}")
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "action": t.Action, "params": params, "created_at": t.CreatedAt})
 }
 
 func (a *App) handleContainerAgentTaskResult(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +142,20 @@ func (a *App) handleContainerAgentTaskResult(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func validContainerID(s string) bool {
+	if s == "" || len(s) > 128 || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func validContainerAction(s string) bool {
 	switch strings.TrimSpace(s) {
 	case "docker.list", "docker.inspect", "docker.logs", "docker.start", "docker.stop", "docker.restart",
@@ -150,6 +165,13 @@ func validContainerAction(s string) bool {
 	return false
 }
 
+func agentStatusIsOnline(updatedAt string, now time.Time) bool {
+	t, err := time.Parse(time.RFC3339, updatedAt)
+	if err != nil || t.After(now.Add(30*time.Second)) {
+		return false
+	}
+	return now.Sub(t) <= 90*time.Second
+}
 func (a *App) handleContainerNodes(w http.ResponseWriter, r *http.Request) {
 	if !a.requireContainerAdmin(w, r) {
 		return
@@ -177,6 +199,7 @@ func (a *App) handleContainerNodes(w http.ResponseWriter, r *http.Request) {
 			"machine_code": code, "hostname": host, "os": osName, "arch": arch,
 			"docker_available": docker, "mihomo_running": mihomo,
 			"mihomo_version": version, "status_json": detail, "updated_at": updated,
+			"online": agentStatusIsOnline(updated, time.Now().UTC()),
 		})
 	}
 	if err = rows.Err(); err != nil {
@@ -239,7 +262,7 @@ func (a *App) handleCreateContainerTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if v, ok := obj["container_id"]; ok {
 		var id string
-		if json.Unmarshal(v, &id) != nil || strings.TrimSpace(id) == "" || len(id) > 128 {
+		if json.Unmarshal(v, &id) != nil || !validContainerID(strings.TrimSpace(id)) {
 			writeErr(w, 400, "container_id 无效")
 			return
 		}
@@ -317,4 +340,25 @@ func (a *App) handleListContainerTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"tasks": tasks})
+}
+
+func (a *App) handleCancelContainerTask(w http.ResponseWriter, r *http.Request) {
+	if !a.requireContainerAdmin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "任务 ID 无效")
+		return
+	}
+	n, err := a.store.CancelPendingAgentTask(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "取消任务失败")
+		return
+	}
+	if n == 0 {
+		writeErr(w, http.StatusConflict, "任务不存在或已被领取/结束，无法取消")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "cancelled"})
 }

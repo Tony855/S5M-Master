@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -627,6 +629,199 @@ func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
 	return nil
 }
 
+// containerRequest performs a bounded request to the controller using the registered Agent token.
+func containerRequest(cfg Config, method, path string, body io.Reader) (*http.Response, error) {
+	req, err := http.NewRequest(method, strings.TrimRight(cfg.CentralURL, "/")+path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return (&http.Client{Timeout: 15 * time.Second}).Do(req)
+}
+
+func dockerAvailable() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, "docker", "version", "--format", "{{json .Server.Version}}").Run() == nil
+}
+
+func reportContainerStatus(cfg Config) error {
+	hostname, _ := os.Hostname()
+	mihomo := collectMihomoStatus()
+	version, _ := mihomo["mihomo_version"].(string)
+	running, _ := mihomo["mihomo_healthy"].(bool)
+	payload, err := json.Marshal(map[string]any{
+		"hostname": hostname, "os": runtime.GOOS, "arch": runtime.GOARCH,
+		"docker_available": dockerAvailable(), "mihomo_running": running,
+		"mihomo_version": version, "status_json": mihomo,
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := containerRequest(cfg, http.MethodPost, "/api/v1/agent/container/status", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("上报节点状态返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
+}
+
+type containerTask struct {
+	ID     int64           `json:"id"`
+	Action string          `json:"action"`
+	Params json.RawMessage `json:"params"`
+}
+
+func processContainerTask(cfg Config) error {
+	resp, err := containerRequest(cfg, http.MethodGet, "/api/v1/agent/container/tasks/next", nil)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		resp.Body.Close()
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+		return fmt.Errorf("领取容器任务返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var task containerTask
+	err = json.NewDecoder(io.LimitReader(resp.Body, 32<<10)).Decode(&task)
+	resp.Body.Close()
+	if err != nil {
+		return fmt.Errorf("解析容器任务失败: %w", err)
+	}
+	if task.ID <= 0 {
+		return fmt.Errorf("主控返回无效容器任务 ID")
+	}
+	result, runErr := executeContainerTask(task)
+	status, errText := "succeeded", ""
+	if runErr != nil {
+		status, errText = "failed", runErr.Error()
+	}
+	resultJSON, _ := json.Marshal(result)
+	payload, err := json.Marshal(map[string]any{
+		"status": status, "result": json.RawMessage(resultJSON), "error": errText,
+	})
+	if err != nil {
+		return err
+	}
+	resultResp, err := containerRequest(cfg, http.MethodPost,
+		fmt.Sprintf("/api/v1/agent/container/tasks/%d/result", task.ID), bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("上报容器任务结果失败: %w", err)
+	}
+	defer resultResp.Body.Close()
+	if resultResp.StatusCode < 200 || resultResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resultResp.Body, 2048))
+		return fmt.Errorf("上报容器任务结果返回 HTTP %d: %s", resultResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if runErr != nil {
+		return runErr
+	}
+	fmt.Printf("容器任务 %d (%s) 执行成功\n", task.ID, task.Action)
+	return nil
+}
+
+func validDockerContainerID(s string) bool {
+	if s == "" || len(s) > 128 || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+func executeContainerTask(task containerTask) (map[string]any, error) {
+	params := map[string]json.RawMessage{}
+	if len(task.Params) > 0 {
+		if err := json.Unmarshal(task.Params, &params); err != nil {
+			return nil, fmt.Errorf("任务参数格式无效")
+		}
+	}
+	containerID := ""
+	if raw, ok := params["container_id"]; ok {
+		if err := json.Unmarshal(raw, &containerID); err != nil {
+			return nil, fmt.Errorf("container_id 必须是字符串")
+		}
+		containerID = strings.TrimSpace(containerID)
+		if !validDockerContainerID(containerID) {
+			return nil, fmt.Errorf("container_id 格式无效")
+		}
+	}
+	tail := 100
+	if raw, ok := params["tail"]; ok {
+		if err := json.Unmarshal(raw, &tail); err != nil || tail < 1 || tail > 500 {
+			return nil, fmt.Errorf("tail 必须是 1 到 500 之间的整数")
+		}
+	}
+	if strings.HasPrefix(task.Action, "docker.") && task.Action != "docker.list" && containerID == "" {
+		return nil, fmt.Errorf("该 Docker 操作必须指定 container_id")
+	}
+	var args []string
+	switch task.Action {
+	case "docker.list":
+		args = []string{"ps", "-a", "--no-trunc", "--format", "{{json .}}"}
+	case "docker.inspect":
+		args = []string{"inspect", containerID}
+	case "docker.logs":
+		args = []string{"logs", "--tail", strconv.Itoa(tail), containerID}
+	case "docker.start":
+		args = []string{"start", containerID}
+	case "docker.stop":
+		args = []string{"stop", "--time", "10", containerID}
+	case "docker.restart":
+		args = []string{"restart", "--time", "10", containerID}
+	case "mihomo.status":
+		return collectMihomoStatus(), nil
+	case "mihomo.restart":
+		data, err := os.ReadFile(mihomoConfigPath())
+		if err != nil {
+			return nil, fmt.Errorf("读取 Mihomo 配置失败: %w", err)
+		}
+		var cfg map[string]any
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("解析 Mihomo 配置失败: %w", err)
+		}
+		secret, _ := cfg["secret"].(string)
+		if strings.TrimSpace(secret) == "" {
+			return nil, fmt.Errorf("Mihomo 配置缺少 API secret")
+		}
+		if err := restartMihomo(secret); err != nil {
+			return nil, err
+		}
+		return map[string]any{"message": "已请求 Mihomo 重启"}, nil
+	default:
+		return nil, fmt.Errorf("不支持的容器任务动作: %s", task.Action)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("Docker 操作超时（15 秒）")
+	}
+	text := strings.TrimSpace(string(output))
+	if len(text) > 128*1024 {
+		text = text[:128*1024]
+	}
+	if err != nil {
+		return map[string]any{"output": text}, fmt.Errorf("Docker 操作失败: %w: %s", err, text)
+	}
+	return map[string]any{"output": text}, nil
+}
 func getMachineID() string {
 	data, err := os.ReadFile("/etc/machine-id")
 	if err != nil {
@@ -766,8 +961,15 @@ func main() {
 			continue
 		}
 
+		if err := processContainerTask(cfg); err != nil {
+			fmt.Printf("容器任务处理失败: %v\n", err)
+		}
+		if err := reportContainerStatus(cfg); err != nil {
+			fmt.Printf("容器节点状态上报失败: %v\n", err)
+		}
+
 		if err := processAgentCommand(cfg); err != nil {
-			fmt.Printf("Agent 命令处理失败: %v\\n", err)
+			fmt.Printf("Agent 命令处理失败: %v\n", err)
 		}
 
 		fmt.Println("👉 正在向主控台发送心跳...")
@@ -777,7 +979,7 @@ func main() {
 			nil,
 		)
 		if err != nil {
-			fmt.Printf("Agent 配置请求创建失败: %v\\n", err)
+			fmt.Printf("Agent 配置请求创建失败: %v\n", err)
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
@@ -788,14 +990,14 @@ func main() {
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Printf("❌ Agent 心跳请求失败: %v\\n", err)
+			fmt.Printf("❌ Agent 心跳请求失败: %v\n", err)
 			continue
 		}
 
 		if resp.StatusCode == http.StatusNotModified {
 			resp.Body.Close()
 			if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-				fmt.Printf("Agent 状态上报失败: %v\\n", err)
+				fmt.Printf("Agent 状态上报失败: %v\n", err)
 			}
 			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
 			continue
@@ -803,18 +1005,18 @@ func main() {
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
-			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\\n", resp.StatusCode, strings.TrimSpace(string(body)))
+			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
 			continue
 		}
 
 		newYml, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
 		resp.Body.Close()
 		if readErr != nil {
-			fmt.Printf("读取主控台配置失败: %v\\n", readErr)
+			fmt.Printf("读取主控台配置失败: %v\n", readErr)
 			continue
 		}
 		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-			fmt.Printf("Agent 状态上报失败: %v\\n", err)
+			fmt.Printf("Agent 状态上报失败: %v\n", err)
 		}
 		if len(strings.TrimSpace(string(newYml))) == 0 {
 			fmt.Println("主控台返回空配置，本次跳过")
@@ -835,13 +1037,13 @@ func main() {
 		fmt.Printf("发现配置更新，已写入 Mihomo 主配置（目录：%s，文件：%s）\n", mihomoHome(), mihomoConfigPath())
 
 		if err := reloadMihomo(); err != nil {
-			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\\n", err)
+			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\n", err)
 			if restoreErr := rollbackConfigAfterReloadFailure(); restoreErr != nil {
-				fmt.Printf("恢复旧配置失败: %v\\n", restoreErr)
+				fmt.Printf("恢复旧配置失败: %v\n", restoreErr)
 				continue
 			}
 			if reloadErr := reloadMihomo(); reloadErr != nil {
-				fmt.Printf("旧配置已恢复，但重新加载失败: %v\\n", reloadErr)
+				fmt.Printf("旧配置已恢复，但重新加载失败: %v\n", reloadErr)
 				continue
 			}
 			fmt.Println("已恢复旧配置并重新加载")

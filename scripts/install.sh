@@ -25,7 +25,7 @@ done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin > /dev/null
+apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl > /dev/null
 
 # === 新增：智能处理端口占用 ===
 PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
@@ -64,7 +64,7 @@ if [[ -f "$OLD_ENV_FILE" && ! -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$ENV_F
 elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_ENV_FILE.unused.$STAMP"; fi
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  ADMIN_PASS="$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 32)"
+  ADMIN_PASS="$(openssl rand -hex 24)"
   cat > "$ENV_FILE" <<ENVEOF
 S5M_ADDR=:80
 S5M_DB=$DB_DIR/s5m.db
