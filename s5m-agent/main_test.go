@@ -41,7 +41,6 @@ func TestValidateCentralURL(t *testing.T) {
 	}
 }
 
-
 func TestValidateKernelUpdateCommand(t *testing.T) {
 	tests := []struct {
 		name    string
