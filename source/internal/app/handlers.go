@@ -387,24 +387,33 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+var trafficMu sync.Mutex
 var lastUp, lastDown uint64
 var lastTime time.Time
 
-func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
+func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 	resp, err := a.mihomoReq(http.MethodGet, "/connections", nil)
 	if err != nil {
-		writeJSON(w, 200, map[string]any{"up": 0, "down": 0, "conns": 0})
+		writeErr(w, http.StatusBadGateway, "读取 Mihomo 流量失败")
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("Mihomo 流量接口返回 HTTP %d", resp.StatusCode))
+		return
+	}
 	var data struct {
 		DownloadTotal uint64 `json:"downloadTotal"`
 		UploadTotal   uint64 `json:"uploadTotal"`
 		Connections   []any  `json:"connections"`
 	}
-	json.NewDecoder(resp.Body).Decode(&data)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&data); err != nil {
+		writeErr(w, http.StatusBadGateway, "Mihomo 流量数据格式无效")
+		return
+	}
 	now := time.Now()
 	upSpeed, downSpeed := uint64(0), uint64(0)
+	trafficMu.Lock()
 	if !lastTime.IsZero() {
 		diff := now.Sub(lastTime).Seconds()
 		if diff > 0 {
@@ -417,7 +426,8 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	lastUp, lastDown, lastTime = data.UploadTotal, data.DownloadTotal, now
-	writeJSON(w, 200, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
+	trafficMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
 }
 
 func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
