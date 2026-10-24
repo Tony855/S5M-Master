@@ -741,7 +741,6 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(yml))
 }
 
-
 // agentMachineFromRequest validates the per-machine JWT and confirms its dedicated token is still active.
 func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 	header := r.Header.Get("Authorization")
@@ -813,7 +812,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "目标 Agent 未授权")
 		return
 	}
-	if settings["agent_command_"+in.MachineCode] != "" {
+	if settings["agent_command_" + in.MachineCode] != "" {
 		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
 		return
 	}
@@ -888,7 +887,7 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, _ := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_"+code: string(result)}); err != nil {
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + code: string(result)}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存命令结果失败")
 		return
 	}
@@ -958,8 +957,8 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.store.UpdateSettings(map[string]string{
-		"agent_lastseen_"+code: strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_"+code: string(payload),
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_status_" + code: string(payload),
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
 		return
