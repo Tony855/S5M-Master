@@ -1585,12 +1585,21 @@ createApp({
         const task = (data.tasks || []).find(x => Number(x.id) === Number(created.id));
         if (task && (task.status === 'succeeded' || task.status === 'failed')) {
           await loadContainerTasks();
-          if (task.status === 'failed') throw new Error(task.error || '实例执行失败');
+          if (task.status === 'failed') {
+            const error = new Error(task.error || '实例执行失败');
+            error.taskId = Number(created.id);
+            error.taskStatus = 'failed';
+            throw error;
+          }
           dockerStatus.value = '任务 #' + created.id + ' 执行成功';
-          return task.result || {};
+          const result = task.result && typeof task.result === 'object' ? task.result : { output: String(task.result || '') };
+          return { ...result, task_id: Number(created.id) };
         }
       }
-      throw new Error('任务仍在等待执行或实例暂时离线；可刷新任务/实例状态后重试');
+      const timeoutError = new Error('任务 #' + created.id + ' 在 20 秒内未返回最终状态；任务可能仍在执行，请到任务记录查询，不要直接重复提交');
+      timeoutError.taskId = Number(created.id);
+      timeoutError.taskStatus = 'unknown';
+      throw timeoutError;
     };
     const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
     const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
