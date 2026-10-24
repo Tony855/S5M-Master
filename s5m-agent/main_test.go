@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 )
@@ -91,6 +92,23 @@ func TestValidateMihomoConfigYAML(t *testing.T) {
 				t.Fatalf("validateMihomoConfigYAML() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+
+func TestNewMihomoRestartRequest(t *testing.T) {
+	req, err := newMihomoRestartRequest("test-secret")
+	if err != nil {
+		t.Fatalf("newMihomoRestartRequest() error = %v", err)
+	}
+	if req.Method != http.MethodPost {
+		t.Fatalf("restart method = %q, want %q", req.Method, http.MethodPost)
+	}
+	if req.URL.String() != "http://127.0.0.1:8088/restart" {
+		t.Fatalf("restart URL = %q", req.URL.String())
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer test-secret" {
+		t.Fatalf("Authorization = %q, want bearer secret", got)
 	}
 }
 

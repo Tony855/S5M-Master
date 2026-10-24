@@ -523,13 +523,22 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	return "Mihomo 内核已更新到 " + cmd.Version, nil
 }
 
+// newMihomoRestartRequest builds the documented Mihomo restart request.
+func newMihomoRestartRequest(secret string) (*http.Request, error) {
+	req, err := http.NewRequest(http.MethodPost, "http://127.0.0.1:8088/restart", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	return req, nil
+}
+
 // restartMihomo asks the local external controller to restart Mihomo.
 func restartMihomo(secret string) error {
-	restartReq, err := http.NewRequest(http.MethodPut, "http://127.0.0.1:8088/restart", nil)
+	restartReq, err := newMihomoRestartRequest(secret)
 	if err != nil {
 		return err
 	}
-	restartReq.Header.Set("Authorization", "Bearer "+secret)
 	restartResp, err := (&http.Client{Timeout: 20 * time.Second}).Do(restartReq)
 	if err != nil {
 		return fmt.Errorf("请求 Mihomo 重启失败: %w", err)
