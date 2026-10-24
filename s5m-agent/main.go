@@ -632,9 +632,13 @@ func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
 // containerRequest performs a bounded request to the controller using the registered Agent token.
 func containerRequest(cfg Config, method, path string, body io.Reader) (*http.Response, error) {
 	req, err := http.NewRequest(method, strings.TrimRight(cfg.CentralURL, "/")+path, body)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Token)
-	if body != nil { req.Header.Set("Content-Type", "application/json") }
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	return (&http.Client{Timeout: 15 * time.Second}).Do(req)
 }
 
@@ -654,9 +658,13 @@ func reportContainerStatus(cfg Config) error {
 		"docker_available": dockerAvailable(), "mihomo_running": running,
 		"mihomo_version": version, "status_json": mihomo,
 	})
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	resp, err := containerRequest(cfg, http.MethodPost, "/api/v1/agent/container/status", bytes.NewReader(payload))
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -666,57 +674,77 @@ func reportContainerStatus(cfg Config) error {
 }
 
 type containerTask struct {
-	ID int64 `json:"id"`
-	Action string `json:"action"`
-	Params json.RawMessage `json:"params"`
+	ID int64 ` + "`json:"id"`" + `
+	Action string ` + "`json:"action"`" + `
+	Params json.RawMessage ` + "`json:"params"`" + `
 }
 
 func processContainerTask(cfg Config) error {
 	resp, err := containerRequest(cfg, http.MethodGet, "/api/v1/agent/container/tasks/next", nil)
-	if err != nil { return err }
-	if resp.StatusCode == http.StatusNoContent { resp.Body.Close(); return nil }
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode == http.StatusNoContent {
+		resp.Body.Close()
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)); resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
 		return fmt.Errorf("领取容器任务返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var task containerTask
 	err = json.NewDecoder(io.LimitReader(resp.Body, 32<<10)).Decode(&task)
 	resp.Body.Close()
-	if err != nil { return fmt.Errorf("解析容器任务失败: %w", err) }
-	if task.ID <= 0 { return fmt.Errorf("主控返回无效容器任务 ID") }
+	if err != nil {
+		return fmt.Errorf("解析容器任务失败: %w", err)
+	}
+	if task.ID <= 0 {
+		return fmt.Errorf("主控返回无效容器任务 ID")
+	}
 	result, runErr := executeContainerTask(task)
 	status, errText := "succeeded", ""
-	if runErr != nil { status, errText = "failed", runErr.Error() }
+	if runErr != nil {
+		status, errText = "failed", runErr.Error()
+	}
 	resultJSON, _ := json.Marshal(result)
 	payload, err := json.Marshal(map[string]any{
 		"status": status, "result": json.RawMessage(resultJSON), "error": errText,
 	})
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	resultResp, err := containerRequest(cfg, http.MethodPost,
 		fmt.Sprintf("/api/v1/agent/container/tasks/%d/result", task.ID), bytes.NewReader(payload))
-	if err != nil { return fmt.Errorf("上报容器任务结果失败: %w", err) }
+	if err != nil {
+		return fmt.Errorf("上报容器任务结果失败: %w", err)
+	}
 	defer resultResp.Body.Close()
 	if resultResp.StatusCode < 200 || resultResp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resultResp.Body, 2048))
 		return fmt.Errorf("上报容器任务结果返回 HTTP %d: %s", resultResp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	if runErr != nil { return runErr }
-	fmt.Printf("容器任务 %d (%s) 执行成功
-", task.ID, task.Action)
+	if runErr != nil {
+		return runErr
+	}
+	fmt.Printf("容器任务 %d (%s) 执行成功", task.ID, task.Action)
 	return nil
 }
 
 func executeContainerTask(task containerTask) (map[string]any, error) {
 	params := map[string]json.RawMessage{}
 	if len(task.Params) > 0 {
-		if err := json.Unmarshal(task.Params, &params); err != nil { return nil, fmt.Errorf("任务参数格式无效") }
+		if err := json.Unmarshal(task.Params, &params); err != nil {
+			return nil, fmt.Errorf("任务参数格式无效")
+		}
 	}
 	containerID := ""
 	if raw, ok := params["container_id"]; ok {
-		if err := json.Unmarshal(raw, &containerID); err != nil { return nil, fmt.Errorf("container_id 必须是字符串") }
+		if err := json.Unmarshal(raw, &containerID); err != nil {
+			return nil, fmt.Errorf("container_id 必须是字符串")
+		}
 		containerID = strings.TrimSpace(containerID)
-		if containerID == "" || len(containerID) > 128 || strings.ContainsAny(containerID, " 	
-;|&$()<>") {
+		if containerID == "" || len(containerID) > 128 || strings.ContainsAny(containerID, " ;|&$()<>") {
 			return nil, fmt.Errorf("container_id 格式无效")
 		}
 	}
@@ -733,34 +761,54 @@ func executeContainerTask(task containerTask) (map[string]any, error) {
 	switch task.Action {
 	case "docker.list":
 		args = []string{"ps", "-a", "--no-trunc", "--format", "{{json .}}"}
-	case "docker.inspect": args = []string{"inspect", containerID}
-	case "docker.logs": args = []string{"logs", "--tail", strconv.Itoa(tail), containerID}
-	case "docker.start": args = []string{"start", containerID}
-	case "docker.stop": args = []string{"stop", "--time", "10", containerID}
-	case "docker.restart": args = []string{"restart", "--time", "10", containerID}
-	case "mihomo.status": return collectMihomoStatus(), nil
+	case "docker.inspect":
+		args = []string{"inspect", containerID}
+	case "docker.logs":
+		args = []string{"logs", "--tail", strconv.Itoa(tail), containerID}
+	case "docker.start":
+		args = []string{"start", containerID}
+	case "docker.stop":
+		args = []string{"stop", "--time", "10", containerID}
+	case "docker.restart":
+		args = []string{"restart", "--time", "10", containerID}
+	case "mihomo.status":
+		return collectMihomoStatus(), nil
 	case "mihomo.restart":
 		data, err := os.ReadFile(mihomoConfigPath())
-		if err != nil { return nil, fmt.Errorf("读取 Mihomo 配置失败: %w", err) }
+		if err != nil {
+			return nil, fmt.Errorf("读取 Mihomo 配置失败: %w", err)
+		}
 		var cfg map[string]any
-		if err := yaml.Unmarshal(data, &cfg); err != nil { return nil, fmt.Errorf("解析 Mihomo 配置失败: %w", err) }
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, fmt.Errorf("解析 Mihomo 配置失败: %w", err)
+		}
 		secret, _ := cfg["secret"].(string)
-		if strings.TrimSpace(secret) == "" { return nil, fmt.Errorf("Mihomo 配置缺少 API secret") }
-		if err := restartMihomo(secret); err != nil { return nil, err }
+		if strings.TrimSpace(secret) == "" {
+			return nil, fmt.Errorf("Mihomo 配置缺少 API secret")
+		}
+		if err := restartMihomo(secret); err != nil {
+			return nil, err
+		}
 		return map[string]any{"message": "已请求 Mihomo 重启"}, nil
-	default: return nil, fmt.Errorf("不支持的容器任务动作: %s", task.Action)
+	default:
+		return nil, fmt.Errorf("不支持的容器任务动作: %s", task.Action)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", args...)
 	output, err := cmd.CombinedOutput()
-	if ctx.Err() == context.DeadlineExceeded { return nil, fmt.Errorf("Docker 操作超时（15 秒）") }
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("Docker 操作超时（15 秒）")
+	}
 	text := strings.TrimSpace(string(output))
-	if len(text) > 128*1024 { text = text[:128*1024] }
-	if err != nil { return map[string]any{"output": text}, fmt.Errorf("Docker 操作失败: %w: %s", err, text) }
+	if len(text) > 128*1024 {
+		text = text[:128*1024]
+	}
+	if err != nil {
+		return map[string]any{"output": text}, fmt.Errorf("Docker 操作失败: %w: %s", err, text)
+	}
 	return map[string]any{"output": text}, nil
 }
-
 func getMachineID() string {
 	data, err := os.ReadFile("/etc/machine-id")
 	if err != nil {
