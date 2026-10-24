@@ -58,7 +58,7 @@ func TestBuildConfigRejectsDuplicateCIDR(t *testing.T) {
 		},
 	}
 
-	if _, err := buildConfigFromProxies(proxies, ""); err == nil {
+	if _, err := buildConfigFromProxies(proxies, "", "test-secret"); err == nil {
 		t.Fatal("重复客户端网段应返回错误")
 	}
 }
@@ -72,7 +72,7 @@ func TestBuildConfigRejectsInvalidCIDR(t *testing.T) {
 		},
 	}
 
-	if _, err := buildConfigFromProxies(proxies, ""); err == nil {
+	if _, err := buildConfigFromProxies(proxies, "", "test-secret"); err == nil {
 		t.Fatal("无效 CIDR 应返回错误")
 	}
 }
