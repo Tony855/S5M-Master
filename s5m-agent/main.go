@@ -674,9 +674,9 @@ func reportContainerStatus(cfg Config) error {
 }
 
 type containerTask struct {
-	ID int64 ` + "`json:"id"`" + `
-	Action string ` + "`json:"action"`" + `
-	Params json.RawMessage ` + "`json:"params"`" + `
+	ID int64 `json:"id"`
+	Action string `json:"action"`
+	Params json.RawMessage `json:"params"`
 }
 
 func processContainerTask(cfg Config) error {
