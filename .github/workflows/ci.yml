@@ -28,7 +28,7 @@ jobs:
           if [ -n "$files" ]; then
             echo "Go files need gofmt:"
             echo "$files"
-            gofmt -d internal/app/handlers.go
+            gofmt -d $files
             exit 1
           fi
       - name: Download dependencies
