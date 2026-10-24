@@ -727,7 +727,7 @@ func processContainerTask(cfg Config) error {
 	if runErr != nil {
 		return runErr
 	}
-	fmt.Printf("容器任务 %d (%s) 执行成功", task.ID, task.Action)
+	fmt.Printf("容器任务 %d (%s) 执行成功\n", task.ID, task.Action)
 	return nil
 }
 
