@@ -194,10 +194,11 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 					currentDoc[section] = value
 				}
 			}
-			generated, err = yaml.Marshal(currentDoc)
-			if err != nil {
-				return fmt.Errorf("序列化机器 %s 的独立配置失败: %w", machineCode, err)
+			marshaled, marshalErr := yaml.Marshal(currentDoc)
+			if marshalErr != nil {
+				return fmt.Errorf("序列化机器 %s 的独立配置失败: %w", machineCode, marshalErr)
 			}
+			generated = string(marshaled)
 		}
 		var doc map[string]any
 		if err := yaml.Unmarshal([]byte(generated), &doc); err != nil {
