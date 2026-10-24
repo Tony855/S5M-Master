@@ -954,10 +954,21 @@ html, body, #app {
           <div v-if="dockerStatus" class="docker-status">{{ dockerStatus }}</div>
           <div class="subsection-heading" style="margin-top:22px">
             <span>容器任务记录</span>
-            <span class="section-hint">最近 100 条</span>
+            <span class="section-hint">最近 100 条 · 当前显示 {{ filteredContainerTasks.length }} 条</span>
             <el-button size="small" :loading="containerTasksLoading" @click="loadContainerTasks">刷新任务</el-button>
           </div>
-          <el-table :data="containerTasks" stripe style="width:100%" empty-text="暂无容器任务记录">
+          <div class="docker-controls" style="margin:10px 0 14px">
+            <el-input v-model="containerTaskSearch" clearable placeholder="搜索任务 ID、实例或操作" />
+            <el-select v-model="containerTaskStatusFilter" style="max-width:170px" aria-label="筛选任务状态">
+              <el-option label="全部任务" value="all" />
+              <el-option label="等待执行" value="pending" />
+              <el-option label="执行中" value="running" />
+              <el-option label="成功" value="succeeded" />
+              <el-option label="失败" value="failed" />
+              <el-option label="已取消" value="cancelled" />
+            </el-select>
+          </div>
+          <el-table :data="filteredContainerTasks" stripe style="width:100%" empty-text="没有符合条件的任务记录">
             <el-table-column prop="id" label="任务 ID" width="85" />
             <el-table-column prop="machine_code" label="实例" min-width="130" show-overflow-tooltip />
             <el-table-column prop="action" label="操作" min-width="130" />
@@ -1114,6 +1125,16 @@ createApp({
     const dockerOutputVisible = ref(false);
     const containerTasks = ref([]);
     const containerTasksLoading = ref(false);
+    const containerTaskSearch = ref('');
+    const containerTaskStatusFilter = ref('all');
+    const filteredContainerTasks = computed(() => {
+      const query = String(containerTaskSearch.value || '').trim().toLowerCase();
+      return containerTasks.value.filter(task => {
+        const matchesQuery = !query || [task.id, task.machine_code, task.action].some(value => String(value == null ? '' : value).toLowerCase().includes(query));
+        const matchesStatus = containerTaskStatusFilter.value === 'all' || task.status === containerTaskStatusFilter.value;
+        return matchesQuery && matchesStatus;
+      });
+    });
 
     const subUrl = ref('');
     const configYaml = ref('');
@@ -1806,7 +1827,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      containerTasks, containerTasksLoading, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
+      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
