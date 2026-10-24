@@ -731,6 +731,19 @@ func processContainerTask(cfg Config) error {
 	return nil
 }
 
+func validDockerContainerID(s string) bool {
+	if s == "" || len(s) > 128 || strings.HasPrefix(s, "-") {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
 func executeContainerTask(task containerTask) (map[string]any, error) {
 	params := map[string]json.RawMessage{}
 	if len(task.Params) > 0 {
@@ -744,7 +757,7 @@ func executeContainerTask(task containerTask) (map[string]any, error) {
 			return nil, fmt.Errorf("container_id 必须是字符串")
 		}
 		containerID = strings.TrimSpace(containerID)
-		if containerID == "" || len(containerID) > 128 || strings.ContainsAny(containerID, " ;|&$()<>") {
+		if !validDockerContainerID(containerID) {
 			return nil, fmt.Errorf("container_id 格式无效")
 		}
 	}
