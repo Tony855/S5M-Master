@@ -2,7 +2,7 @@ name: S5M CI
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, main, "fix/**"]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
@@ -11,23 +11,27 @@ permissions:
   contents: read
 
 jobs:
-  go-test:
-    name: Go test, vet and build
+  server:
+    name: Server tests, vet and build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Validate Agent entrypoint shell syntax
-        run: sh -n s5m-agent/entrypoint.sh
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
           go-version: '1.22.x'
           cache: true
-      - name: Verify formatting
+          cache-dependency-path: source/go.sum
+      - name: Verify Go formatting
+        shell: bash
         run: |
+          set -euo pipefail
           files="$(gofmt -l .)"
-          if [ -n "$files" ]; then
+          if [[ -n "$files" ]]; then
             echo "Go files need gofmt:"
             echo "$files"
             gofmt -d $files
@@ -41,9 +45,44 @@ jobs:
         run: go vet ./...
       - name: Build server
         run: go build -trimpath -o /tmp/s5m-server .
-      - name: Build agent
+
+  agent:
+    name: Agent tests, vet and build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
         working-directory: s5m-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Validate Agent entrypoint shell syntax
+        run: sh -n entrypoint.sh
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache: true
+          cache-dependency-path: s5m-agent/go.sum
+      - name: Verify Go formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(gofmt -l .)"
+          if [[ -n "$files" ]]; then
+            echo "Go files need gofmt:"
+            echo "$files"
+            gofmt -d $files
+            exit 1
+          fi
+      - name: Download dependencies
+        run: go mod download
+      - name: Run unit tests with race detector
+        run: go test -race -count=1 ./...
+      - name: Static analysis
+        run: go vet ./...
+      - name: Build agent
         run: go build -trimpath -o /tmp/s5m-agent .
+
   web-assets:
     name: Embedded web asset checks
     runs-on: ubuntu-latest
@@ -55,11 +94,9 @@ jobs:
         run: |
           set -euo pipefail
           required=(
-            web/index.html
-            web/vendor/vue.global.prod.js
-            web/vendor/element-plus.full.js
-            web/vendor/element-plus.css
-            web/vendor/icons.js
+            source/web/index.html
+            source/web/app.js
+            source/web/agents.html
           )
           missing=0
           for file in "${required[@]}"; do
