@@ -96,6 +96,50 @@ jobs:
           bash -n scripts/install.sh
           password="$(openssl rand -hex 24)"
           [[ "$password" =~ ^[a-f0-9]{48}$ ]]
+      - name: Validate inline JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          class InlineScriptExtractor(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=False)
+                  self.inline = False
+                  self.parts = []
+                  self.scripts = []
+
+              def handle_starttag(self, tag, attrs):
+                  if tag.lower() == "script":
+                      self.inline = not any(key.lower() == "src" for key, _ in attrs)
+                      self.parts = []
+
+              def handle_data(self, data):
+                  if self.inline:
+                      self.parts.append(data)
+
+              def handle_endtag(self, tag):
+                  if tag.lower() == "script":
+                      if self.inline:
+                          self.scripts.append("".join(self.parts))
+                      self.inline = False
+                      self.parts = []
+
+          html = Path("source/web/index.html").read_text(encoding="utf-8")
+          parser = InlineScriptExtractor()
+          parser.feed(html)
+          if not parser.scripts:
+              raise SystemExit("No inline JavaScript blocks found")
+          for index, script in enumerate(parser.scripts):
+              target = Path(f"/tmp/s5m-inline-{index}.js")
+              target.write_text(script, encoding="utf-8")
+              print(f"Extracted {target} ({len(script)} characters)")
+          PY
+          for file in /tmp/s5m-inline-*.js; do
+            node --check "$file"
+          done
       - name: Verify required web files
         shell: bash
         run: |
