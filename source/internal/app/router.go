@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strings"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -20,20 +22,32 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{cfg: cfg, store: st, jwtKey: []byte(cfg.JWTSecret)}
-	a.ensureAdmin()
+	if err := a.ensureAdmin(); err != nil {
+		_ = st.db.Close()
+		return nil, err
+	}
 	return a, nil
 }
 
 func (a *App) ensureAdmin() error {
-	n, _ := a.store.CountUsers()
+	n, err := a.store.CountUsers()
+	if err != nil {
+		return fmt.Errorf("检查管理员账户失败: %w", err)
+	}
 	if n > 0 {
 		return nil
 	}
-	pass := a.cfg.AdminPass
+	pass := strings.TrimSpace(a.cfg.AdminPass)
 	if pass == "" {
-		pass = "hcd10086"
+		return fmt.Errorf("首次启动必须设置 S5M_ADMIN_PASSWORD；拒绝使用默认管理员密码")
 	}
-	h, _ := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if strings.TrimSpace(a.cfg.AdminUser) == "" {
+		return fmt.Errorf("首次启动必须设置有效的 S5M_ADMIN_USER")
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("生成管理员密码哈希失败: %w", err)
+	}
 	return a.store.CreateUser(a.cfg.AdminUser, string(h), "admin")
 }
 
