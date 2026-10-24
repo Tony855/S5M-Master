@@ -33,6 +33,19 @@
             <thead><tr><th>机器码</th><th>授权状态</th><th>Agent 状态</th><th>Mihomo 版本</th><th>连接数</th><th>上传 / 下载</th><th>最后心跳</th><th>操作</th></tr></thead>
             <tbody id="agentList"><tr><td colspan="8" class="empty">正在加载...</td></tr></tbody>
         </table>
+        </div>
+    <div id="configModal" class="container" style="display:none;margin-top:16px;max-width:1200px">
+        <div class="header"><h2 id="editorTitle">Agent Mihomo 完整配置</h2><button type="button" onclick="closeEditor()">关闭</button></div>
+        <p>此处编辑该 Agent 的完整 Mihomo YAML。保存后 Agent 下次拉取时会整体替换本地配置；若 Mihomo 重载失败，会尝试恢复旧配置。</p>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+            <label>TUN 开关 <select id="tunEnabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+            <label>DNS 开关 <select id="dnsEnabled"><option value="true">开启</option><option value="false">关闭</option></select></label>
+        </div>
+        <label for="dnsServers">DNS nameserver（每行一个地址）</label>
+        <textarea id="dnsServers" rows="3" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#0f172a;color:#f8fafc;border:1px solid #475569;border-radius:6px;padding:10px" placeholder="https://dns.alidns.com/dns-query"></textarea>
+        <label for="configYaml">完整 Mihomo YAML</label>
+        <textarea id="configYaml" spellcheck="false" rows="28" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#020617;color:#dbeafe;border:1px solid #475569;border-radius:6px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace"></textarea>
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="applyQuickSettings()">将上方 TUN/DNS 设置写入 YAML</button><button type="button" onclick="saveNodeConfig()">保存并下发</button><span id="editorMessage"></span></div>
     </div>
     <script>
         const TOKEN_KEY = 's5m_next_token';
@@ -85,9 +98,10 @@
                         '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
                         '<td>' + esc(formatTime(seen)) + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + '</td>' +
-                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button></td></tr>';
+                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
+                tbody.querySelectorAll('button[data-edit]').forEach(button => button.addEventListener('click', () => openEditor(button.dataset.edit)));
             } catch (e) {
                 tbody.innerHTML = '<tr><td colspan="8" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
             }
@@ -96,6 +110,107 @@
             try { await navigator.clipboard.writeText(value); alert('机器码已复制：' + value); }
             catch (_) { window.prompt('请复制机器码：', value); }
         }
+
+        let editingCode = '';
+        async function editorAPI(path, options = {}) {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token) throw new Error('请先登录主控台');
+            const headers = { Authorization: 'Bearer ' + token };
+            if (options.body) headers['Content-Type'] = 'application/json';
+            const res = await fetch(path, { ...options, headers });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || body.message || ('HTTP ' + res.status));
+            return body;
+        }
+        async function openEditor(code) {
+            editingCode = code;
+            document.getElementById('editorTitle').textContent = 'Agent Mihomo 完整配置：' + code;
+            document.getElementById('editorMessage').textContent = '正在读取配置...';
+            document.getElementById('configModal').style.display = 'block';
+            try {
+                const data = await editorAPI('/api/v1/nodes/' + encodeURIComponent(code) + '/config');
+                const yamlText = data.yaml || data.config_yaml || '';
+                if (!yamlText) throw new Error('没有保存的节点配置。请让 Agent 先成功连接主控端，再打开编辑器。');
+                document.getElementById('configYaml').value = yamlText;
+                syncControlsFromYaml();
+                document.getElementById('editorMessage').textContent = '配置已加载';
+                document.getElementById('configModal').scrollIntoView({behavior:'smooth',block:'start'});
+            } catch (e) { document.getElementById('editorMessage').textContent = '读取失败：' + e.message; }
+        }
+        function closeEditor() { document.getElementById('configModal').style.display = 'none'; editingCode = ''; }
+        function blockLines(yaml, name) {
+            const lines = yaml.split(/\r?\n/);
+            const start = lines.findIndex(line => new RegExp('^' + name + ':\\s*
+    </script>
+</body>
+</html>
+).test(line));
+            if (start < 0) return [];
+            let end = start + 1;
+            while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
+            return lines.slice(start, end);
+        }
+        function boolValue(lines, key) {
+            const line = lines.find(line => new RegExp('^\\s+' + key + ':\\s*(true|false)\\b', 'i').test(line));
+            return line ? /:\s*true\b/i.test(line) : false;
+        }
+        function syncControlsFromYaml() {
+            const yaml = document.getElementById('configYaml').value;
+            document.getElementById('tunEnabled').value = String(boolValue(blockLines(yaml, 'tun'), 'enable'));
+            const dns = blockLines(yaml, 'dns');
+            document.getElementById('dnsEnabled').value = String(boolValue(dns, 'enable'));
+            const i = dns.findIndex(line => /^\s{2}nameserver:\s*$/.test(line));
+            const values = [];
+            if (i >= 0) for (let n=i+1; n<dns.length && /^\s{4}-\s*/.test(dns[n]); n++) values.push(dns[n].replace(/^\s{4}-\s*/, '').replace(/^['"]|['"]$/g, ''));
+            document.getElementById('dnsServers').value = values.join('\n');
+        }
+        function replaceBool(lines, block, key, value) {
+            let start = lines.findIndex(line => new RegExp('^' + block + ':\\s*
+    </script>
+</body>
+</html>
+).test(line));
+            if (start < 0) { lines.push(block + ':', '  ' + key + ': ' + value); return; }
+            let end = start + 1;
+            while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
+            let idx = -1;
+            for (let i=start+1; i<end; i++) if (new RegExp('^\\s+' + key + ':').test(lines[i])) { idx=i; break; }
+            if (idx >= 0) lines[idx] = '  ' + key + ': ' + value;
+            else lines.splice(start+1, 0, '  ' + key + ': ' + value);
+        }
+        function replaceNameservers(lines, names) {
+            let start = lines.findIndex(line => /^dns:\s*$/.test(line));
+            if (start < 0) { lines.push('dns:', '  enable: ' + document.getElementById('dnsEnabled').value); start = lines.length-2; }
+            let end = start + 1;
+            while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
+            let idx = -1;
+            for (let i=start+1; i<end; i++) if (/^\s{2}nameserver:\s*$/.test(lines[i])) { idx=i; break; }
+            const entries = names.map(x => x.trim()).filter(Boolean).map(x => '    - ' + (/[:#"'{}\[\],\s]/.test(x) ? JSON.stringify(x) : x));
+            if (idx < 0) lines.splice(end, 0, '  nameserver:', ...entries);
+            else {
+                let stop=idx+1;
+                while (stop<end && /^\s{4}-/.test(lines[stop])) stop++;
+                lines.splice(idx+1, stop-idx-1, ...entries);
+            }
+        }
+        function applyQuickSettings() {
+            const lines = document.getElementById('configYaml').value.split(/\r?\n/);
+            replaceBool(lines, 'tun', 'enable', document.getElementById('tunEnabled').value);
+            replaceBool(lines, 'dns', 'enable', document.getElementById('dnsEnabled').value);
+            replaceNameservers(lines, document.getElementById('dnsServers').value.split(/\r?\n/));
+            document.getElementById('configYaml').value = lines.join('\n') + '\n';
+            document.getElementById('editorMessage').textContent = 'TUN/DNS 设置已写入编辑器，请检查后保存';
+        }
+        async function saveNodeConfig() {
+            if (!editingCode) return;
+            const message = document.getElementById('editorMessage');
+            message.textContent = '正在校验并保存...';
+            try {
+                const result = await editorAPI('/api/v1/nodes/' + encodeURIComponent(editingCode) + '/config', {method:'PUT', body:JSON.stringify({config_yaml:document.getElementById('configYaml').value})});
+                message.textContent = result.message || '已保存；Agent 将在下一次拉取时应用';
+            } catch (e) { message.textContent = '保存失败：' + e.message; }
+        }
+
         window.addEventListener('load', loadAgents);
     </script>
 </body>
