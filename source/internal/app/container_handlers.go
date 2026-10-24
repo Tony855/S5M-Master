@@ -73,7 +73,7 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 	var t struct {
 		ID        int64           `json:"id"`
 		Action    string          `json:"action"`
-		Params    json.RawMessage `json:"params"`
+		Params    string          `json:"-"`
 		CreatedAt string          `json:"created_at"`
 	}
 	err := a.store.db.QueryRow(`UPDATE agent_tasks
@@ -91,10 +91,11 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusInternalServerError, "领取任务失败")
 		return
 	}
-	if len(t.Params) == 0 || !json.Valid(t.Params) {
-		t.Params = json.RawMessage("{}")
+	params := json.RawMessage(t.Params)
+	if len(params) == 0 || !json.Valid(params) {
+		params = json.RawMessage("{}")
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "action": t.Action, "params": params, "created_at": t.CreatedAt})
 }
 
 func (a *App) handleContainerAgentTaskResult(w http.ResponseWriter, r *http.Request) {
