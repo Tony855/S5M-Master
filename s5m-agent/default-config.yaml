@@ -1,0 +1,17 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:8088
+secret: change-this-secret
+profile:
+  store-selected: true
+  store-fake-ip: true
+dns:
+  enable: false
+tun:
+  enable: false
+proxies: []
+proxy-groups: []
+rules:
+  - MATCH,DIRECT
