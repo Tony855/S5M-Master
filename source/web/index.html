@@ -1658,6 +1658,22 @@ createApp({
       }
     };
 
+    const containerIdentity = (row) => String(row && (row.ID || row.Id || row.Names) || '');
+    const isDockerSelected = (row) => selectedDockerIDs.value.includes(containerIdentity(row));
+    const onDockerSelectionChange = (rows) => {
+      selectedDockerIDs.value = rows.map(containerIdentity).filter(Boolean);
+    };
+    const toggleDockerSelection = (row, checked) => {
+      const id = containerIdentity(row);
+      if (!id) return;
+      const next = new Set(selectedDockerIDs.value);
+      if (checked) next.add(id); else next.delete(id);
+      selectedDockerIDs.value = Array.from(next);
+    };
+    const clearDockerSelection = () => {
+      selectedDockerIDs.value = [];
+    };
+
     const refreshDocker = async () => {
       dockerLoading.value = true;
       try {
