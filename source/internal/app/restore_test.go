@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,8 @@ func restoreRequest(t *testing.T, data []byte) *http.Request {
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/restore", &body)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	return req
+	admin := &User{Username: "admin", Role: "admin", Enabled: true}
+	return req.WithContext(context.WithValue(req.Context(), userKey, admin))
 }
 
 func TestRestoreBackupRejectsInvalidDatabaseWithoutClosingCurrentStore(t *testing.T) {
