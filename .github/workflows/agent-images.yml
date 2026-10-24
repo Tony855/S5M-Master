@@ -39,16 +39,17 @@ jobs:
               echo "tags<<EOF"
               echo "${IMAGE_NAME}:${version}"
               echo "${IMAGE_NAME}:latest"
+              echo "${IMAGE_NAME}:sha-${GITHUB_SHA}"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "tags<<EOF"
               echo "${IMAGE_NAME}:dev"
+              echo "${IMAGE_NAME}:sha-${GITHUB_SHA}"
               echo "EOF"
             } >> "$GITHUB_OUTPUT"
           fi
-          echo "${IMAGE_NAME}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
