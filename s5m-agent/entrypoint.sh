@@ -20,11 +20,24 @@ shutdown() {
   kill "$AGENT_PID" "$MIHOMO_PID" 2>/dev/null || true
   wait "$AGENT_PID" "$MIHOMO_PID" 2>/dev/null || true
 }
-trap shutdown INT TERM
 
-# Stop the container if either essential process exits.
-while kill -0 "$MIHOMO_PID" 2>/dev/null && kill -0 "$AGENT_PID" 2>/dev/null; do
+trap shutdown INT TERM HUP
+
+# kill -0 alone also succeeds for zombie processes; check the process state too.
+process_alive() {
+  pid="$1"
+  kill -0 "$pid" 2>/dev/null || return 1
+  state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+  case "$state" in
+    ""|Z*|X*) return 1 ;;
+  esac
+  return 0
+}
+
+# Stop the container if either essential process exits; Docker can then restart it.
+while process_alive "$MIHOMO_PID" && process_alive "$AGENT_PID"; do
   sleep 2
 done
+
 shutdown
 exit 1

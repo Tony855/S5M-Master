@@ -92,7 +92,7 @@ jobs:
         timeout-minutes: 2
         run: |
           set -euxo pipefail
-          timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
+          timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
 
       - name: Export amd64 archive
         run: |
@@ -136,7 +136,7 @@ jobs:
 
       - name: Validate ARM64 image contents
         run: |
-          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && /usr/local/bin/mihomo -v'
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
 
       - name: Export ARM64 archive
         run: |
