@@ -141,11 +141,7 @@
         function closeEditor() { document.getElementById('configModal').style.display = 'none'; editingCode = ''; }
         function blockLines(yaml, name) {
             const lines = yaml.split(/\r?\n/);
-            const start = lines.findIndex(line => new RegExp('^' + name + ':\\s*
-    </script>
-</body>
-</html>
-).test(line));
+            const start = lines.findIndex(line => line.startsWith(name + ':'));
             if (start < 0) return [];
             let end = start + 1;
             while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
@@ -166,11 +162,7 @@
             document.getElementById('dnsServers').value = values.join('\n');
         }
         function replaceBool(lines, block, key, value) {
-            let start = lines.findIndex(line => new RegExp('^' + block + ':\\s*
-    </script>
-</body>
-</html>
-).test(line));
+            let start = lines.findIndex(line => line.startsWith(block + ':'));
             if (start < 0) { lines.push(block + ':', '  ' + key + ': ' + value); return; }
             let end = start + 1;
             while (end < lines.length && (lines[end].trim() === '' || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
