@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"s5m-next/internal/app"
+	"s5m-server/internal/app"
 )
 
 //go:embed web
@@ -36,7 +36,7 @@ func main() {
 		Handler:           a.Router(sub),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	logger.Info("S5M Next 已启动", "addr", cfg.Addr)
+	logger.Info("S5M-Server 已启动", "addr", cfg.Addr)
 	if err := srv.ListenAndServe(); err != nil {
 		logger.Error("服务退出", "err", err)
 		os.Exit(1)

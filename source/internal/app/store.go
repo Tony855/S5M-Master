@@ -118,6 +118,34 @@ CREATE TABLE IF NOT EXISTS settings(
  key TEXT PRIMARY KEY,
  value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_status(
+ machine_code TEXT PRIMARY KEY,
+ hostname TEXT NOT NULL DEFAULT '',
+ os TEXT NOT NULL DEFAULT '',
+ arch TEXT NOT NULL DEFAULT '',
+ docker_available INTEGER NOT NULL DEFAULT 0,
+ mihomo_running INTEGER NOT NULL DEFAULT 0,
+ mihomo_version TEXT NOT NULL DEFAULT '',
+ status_json TEXT NOT NULL DEFAULT '{}',
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_tasks(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ machine_code TEXT NOT NULL,
+ action TEXT NOT NULL,
+ params_json TEXT NOT NULL DEFAULT '{}',
+ status TEXT NOT NULL DEFAULT 'pending',
+ result_json TEXT NOT NULL DEFAULT '',
+ error_text TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ claimed_at TEXT NOT NULL DEFAULT '',
+ finished_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_machine_status
+ ON agent_tasks(machine_code, status, id);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_created
+ ON agent_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
 	_, err := s.db.Exec(schema)
@@ -143,6 +171,12 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 		}
 	}
 	return nil
+}
+
+func (s *Store) GetSetting(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	return value, err
 }
 
 func (s *Store) GetSettings() (map[string]string, error) {
@@ -276,6 +310,21 @@ func (s *Store) ListProxies() ([]Proxy, error) {
 	return out, nil
 }
 
+func (s *Store) GetProxy(id int64) (*Proxy, error) {
+	var p Proxy
+	var extra string
+	var en int
+	err := s.db.QueryRow(`SELECT id,name,mode,type,server,port,source_cidr,machine_code,config_json,enabled FROM proxies WHERE id=?`, id).
+		Scan(&p.ID, &p.Name, &p.Mode, &p.Type, &p.Server, &p.Port, &p.SourceCIDR, &p.MachineCode, &extra, &en)
+	if err != nil {
+		return nil, err
+	}
+	p.Enabled = en == 1
+	p.Extra = map[string]any{}
+	_ = json.Unmarshal([]byte(extra), &p.Extra)
+	return &p, nil
+}
+
 func (s *Store) CreateProxy(p *Proxy) error {
 	extra, _ := json.Marshal(p.Extra)
 	res, err := s.db.Exec(`INSERT INTO proxies(name,mode,type,server,port,source_cidr,machine_code,config_json,enabled) VALUES(?,?,?,?,?,?,?,?,?)`, p.Name, p.Mode, p.Type, p.Server, p.Port, p.SourceCIDR, p.MachineCode, string(extra), b2i(p.Enabled))
@@ -356,6 +405,29 @@ func (s *Store) DeleteSettings(keys []string) error {
 	return tx.Commit()
 }
 
+// DeleteAgentBinding atomically revokes a machine credential and invalidates its live work.
+// Completed task history and the node's YAML are retained for audit/re-registration.
+func (s *Store) DeleteAgentBinding(machineCode string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, key := range []string{"agent_machine_" + machineCode, "agent_lastseen_" + machineCode} {
+		if _, err := tx.Exec(`DELETE FROM settings WHERE key=?`, key); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM agent_status WHERE machine_code=?`, machineCode); err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if _, err := tx.Exec(`UPDATE agent_tasks SET status='failed', error_text='Agent binding removed', updated_at=?, finished_at=? WHERE machine_code=? AND status IN ('pending','running')`, now, now, machineCode); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 type NodeConfig struct {
 	MachineCode string `json:"machine_code"`
 	YAML        string `json:"config_yaml"`
@@ -382,4 +454,48 @@ func (s *Store) GetNodeConfig(machineCode string) (*NodeConfig, error) {
 func (s *Store) SaveNodeConfig(machineCode, yamlText string) error {
 	_, err := s.db.Exec(`INSERT INTO node_configs(machine_code,yaml_text,updated_at) VALUES(?,?,?) ON CONFLICT(machine_code) DO UPDATE SET yaml_text=excluded.yaml_text, updated_at=excluded.updated_at`, machineCode, yamlText, time.Now().Format(time.RFC3339))
 	return err
+}
+
+// SaveNodeConfigIfEmpty 只初始化不存在或内容为空的节点配置。
+// 已存在的非空 YAML 不会被自动同步覆盖。
+func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
+	_, err := s.db.Exec(`INSERT INTO node_configs(machine_code,yaml_text,updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(machine_code) DO UPDATE SET
+                        yaml_text=excluded.yaml_text,
+                        updated_at=excluded.updated_at
+                WHERE trim(node_configs.yaml_text) = ''`,
+		machineCode, yamlText, time.Now().Format(time.RFC3339))
+	return err
+}
+
+// CreateAgentTask 创建一个等待 Agent 领取的任务。
+func (s *Store) CreateAgentTask(machineCode, action, paramsJSON string) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`
+        INSERT INTO agent_tasks
+            (machine_code, action, params_json, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'pending', ?, ?)`,
+		machineCode, action, paramsJSON, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateAgentTaskResult 仅允许更新属于指定机器且仍在执行中的任务。
+func (s *Store) UpdateAgentTaskResult(id int64, machineCode, status, resultJSON, errorText string) (int64, error) {
+	if status != "succeeded" && status != "failed" {
+		return 0, fmt.Errorf("invalid task status")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`
+        UPDATE agent_tasks
+        SET status=?, result_json=?, error_text=?, updated_at=?, finished_at=?
+        WHERE id=? AND machine_code=? AND status='running'`,
+		status, resultJSON, errorText, now, now, id, machineCode)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }

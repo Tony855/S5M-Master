@@ -1,4 +1,4 @@
-module s5m-next
+module s5m-server
 
 go 1.22
 
