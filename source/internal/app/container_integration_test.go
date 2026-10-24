@@ -124,7 +124,7 @@ func TestContainerTaskEndToEndAndAuthorization(t *testing.T) {
 		t.Fatalf("claim task: HTTP %d body=%s", claimed.Code, claimed.Body.String())
 	}
 	var claimedTask struct {
-		ID int64 `json:"id"`
+		ID     int64  `json:"id"`
 		Action string `json:"action"`
 	}
 	if err := json.Unmarshal(claimed.Body.Bytes(), &claimedTask); err != nil || claimedTask.ID != task.ID || claimedTask.Action != "docker.list" {
