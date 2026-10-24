@@ -812,7 +812,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "目标 Agent 未授权")
 		return
 	}
-	if settings["agent_command_" + in.MachineCode] != "" {
+	if settings["agent_command_"+in.MachineCode] != "" {
 		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
 		return
 	}
@@ -991,10 +991,11 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type AgentInfo struct {
-		Authorized    bool           `json:"authorized"`
-		LastSeen      int64          `json:"last_seen"`
-		Status        map[string]any `json:"status,omitempty"`
-		CommandResult map[string]any `json:"command_result,omitempty"`
+		Authorized          bool           `json:"authorized"`
+		LastSeen            int64          `json:"last_seen"`
+		Status              map[string]any `json:"status,omitempty"`
+		CommandResult       map[string]any `json:"command_result,omitempty"`
+		DesiredConfigSHA256 string         `json:"desired_config_sha256,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -1030,7 +1031,12 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_command_result_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &commandResult)
 		}
-		result[code] = AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status, CommandResult: commandResult}
+		info := AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status, CommandResult: commandResult}
+		if nodeConfig, configErr := a.store.GetNodeConfig(code); configErr == nil && nodeConfig != nil && strings.TrimSpace(nodeConfig.YAML) != "" {
+			sum := sha256.Sum256([]byte(strings.TrimSpace(nodeConfig.YAML)))
+			info.DesiredConfigSHA256 = fmt.Sprintf("%x", sum[:])
+		}
+		result[code] = info
 	}
 
 	writeJSON(w, 200, result)
@@ -1177,8 +1183,24 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg, err := a.store.GetNodeConfig(code)
 	if err != nil {
-		writeErr(w, 404, "该节点尚未保存独立 YAML 配置")
+		writeErr(w, 500, "读取节点配置失败")
 		return
+	}
+	if cfg == nil || strings.TrimSpace(cfg.YAML) == "" {
+		yml, buildErr := a.BuildConfigForMachine(code)
+		if buildErr != nil {
+			writeErr(w, 500, "生成节点默认配置失败: "+buildErr.Error())
+			return
+		}
+		if saveErr := a.store.SaveNodeConfig(code, yml); saveErr != nil {
+			writeErr(w, 500, "保存节点默认配置失败")
+			return
+		}
+		cfg, err = a.store.GetNodeConfig(code)
+		if err != nil || cfg == nil {
+			writeErr(w, 500, "读取刚生成的节点配置失败")
+			return
+		}
 	}
 	writeJSON(w, 200, cfg)
 }

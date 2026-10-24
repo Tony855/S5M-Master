@@ -12,9 +12,11 @@ This document records the currently implemented controller/Agent contract. It is
 ## Current limitations
 
 - A recent `last_seen` value reflects a successful config pull, not a separately verified Agent process health report.
-- The Agent currently synchronizes proxy and rule sections from the controller config. Other Mihomo settings are not guaranteed to synchronize.
-- Controller overview/traffic and Mihomo update handlers currently operate on the controller host's local Mihomo, not on a selected remote Agent.
-- There is no complete end-to-end remote command/acknowledgement protocol yet for per-Agent status, configuration apply results, restart, log retrieval, or upgrades. Do not interpret the online badge as proof that every Agent subsystem is healthy.
+- The Agent downloads and applies the complete node-specific Mihomo YAML, including TUN, DNS, ports, proxies and rules. The controller stores a desired-config SHA-256; the Agent reports the hash of its local config so the UI can show whether the desired configuration has been applied.
+- A node without a saved custom YAML receives a generated full configuration when its editor is first opened.
+- During a config change, the Agent authenticates the reload request with the currently running Mihomo secret from the previous config when available. This permits the new YAML to rotate the secret without locking out the reload request.
+- Controller overview/traffic and controller-side Mihomo update handlers still operate on the controller host's local Mihomo. Per-Agent kernel upgrades use the authenticated command/acknowledgement workflow described below.
+- Agent status is based on authenticated heartbeats and local Mihomo API probes; a recently received heartbeat alone does not prove all subsystems are healthy.
 
 ## UI behavior
 

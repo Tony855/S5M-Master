@@ -139,9 +139,24 @@ func reloadMihomo() error {
 	if err := yaml.Unmarshal(configData, &config); err != nil {
 		return fmt.Errorf("解析 Mihomo 配置失败: %w", err)
 	}
-	secret, _ := config["secret"].(string)
-	if strings.TrimSpace(secret) == "" {
-		return fmt.Errorf("Mihomo secret 未配置，无法执行重载")
+	// Mihomo 当前运行进程仍使用旧配置的 secret 来认证本次重载。
+	// 配置切换时先从 .previous 读取旧 secret；重载成功后调用方才删除备份。
+	secret := ""
+	for _, path := range []string{configPath + ".previous", configPath} {
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		var candidate map[string]interface{}
+		if yaml.Unmarshal(data, &candidate) == nil {
+			if value, ok := candidate["secret"].(string); ok && strings.TrimSpace(value) != "" {
+				secret = strings.TrimSpace(value)
+				break
+			}
+		}
+	}
+	if secret == "" {
+		return fmt.Errorf("当前 Mihomo 配置和备份均没有有效 secret，无法执行重载")
 	}
 
 	reloadBody := strings.NewReader(

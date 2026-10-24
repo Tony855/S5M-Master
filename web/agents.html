@@ -97,7 +97,7 @@
                         '<td><span class="status ' + (online && healthy ? 'online' : 'offline') + '">' + (online ? (healthy ? '在线 / 正常' : '在线 / 异常') : '离线') + '</span></td>' +
                         '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
-                        '<td>' + esc(formatTime(seen)) + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + (info.command_result ? '<div>内核更新：' + esc(info.command_result.status || '') + ' ' + esc(info.command_result.message || '') + '</div>' : '') + '</td>' +
+                        '<td>' + esc(formatTime(seen)) + (info.desired_config_sha256 ? '<div class="' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? 'online' : 'error') + '">' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? '配置已同步' : '配置待应用') + '</div>' : '') + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + (info.command_result ? '<div>内核更新：' + esc(info.command_result.status || '') + ' ' + esc(info.command_result.message || '') + '</div>' : '') + '</td>' +
                         '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> <button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
