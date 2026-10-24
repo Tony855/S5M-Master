@@ -87,6 +87,41 @@ func TestContainerTaskEndToEndAndAuthorization(t *testing.T) {
 		t.Fatalf("report status: HTTP %d body=%s", status.Code, status.Body.String())
 	}
 
+	// The admin node inventory must expose the latest heartbeat and runtime capabilities.
+	nodesRes := call(http.MethodGet, "/api/v1/container/nodes", adminToken, "")
+	if nodesRes.Code != http.StatusOK {
+		t.Fatalf("list container nodes: HTTP %d body=%s", nodesRes.Code, nodesRes.Body.String())
+	}
+	var nodesPayload struct {
+		Nodes []struct {
+			MachineCode     string `json:"machine_code"`
+			Hostname        string `json:"hostname"`
+			OS              string `json:"os"`
+			Arch            string `json:"arch"`
+			DockerAvailable bool   `json:"docker_available"`
+			MihomoRunning   bool   `json:"mihomo_running"`
+			MihomoVersion   string `json:"mihomo_version"`
+			Online          bool   `json:"online"`
+			UpdatedAt       string `json:"updated_at"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(nodesRes.Body.Bytes(), &nodesPayload); err != nil {
+		t.Fatalf("decode node inventory: %v body=%s", err, nodesRes.Body.String())
+	}
+	if len(nodesPayload.Nodes) != 1 {
+		t.Fatalf("node inventory returned %d nodes, want 1: %s", len(nodesPayload.Nodes), nodesRes.Body.String())
+	}
+	node := nodesPayload.Nodes[0]
+	if node.MachineCode != machineCode || node.Hostname != "e2e-host" || node.OS != "linux" || node.Arch != "amd64" {
+		t.Fatalf("node identity/runtime metadata mismatch: %+v", node)
+	}
+	if !node.DockerAvailable || !node.MihomoRunning || node.MihomoVersion != "test" {
+		t.Fatalf("node capabilities mismatch: %+v", node)
+	}
+	if !node.Online || node.UpdatedAt == "" {
+		t.Fatalf("fresh heartbeat should be online and have updated_at: %+v", node)
+	}
+
 	// An ordinary authenticated admin creates a task; a non-admin is forbidden.
 	createBody := `{"machine_code":"` + machineCode + `","action":"docker.list","params":{}}`
 	created := call(http.MethodPost, "/api/v1/container/tasks", adminToken, createBody)
