@@ -107,7 +107,20 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return buildConfigFromProxies(proxies, machineCode, secret)
+	yml, err := buildConfigFromProxies(proxies, machineCode, secret)
+	if err != nil {
+		return "", err
+	}
+	// The controller's TUN switch controls generated defaults. A saved per-node
+	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("读取 TUN 开关失败: %w", err)
+	}
+	if settings["tun_enable"] != "true" {
+		yml = strings.Replace(yml, "tun:\n    enable: true", "tun:\n    enable: false", 1)
+	}
+	return yml, nil
 }
 
 // getOrCreateMihomoSecret creates a cryptographically random API secret once per controller/Agent.
