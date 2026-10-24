@@ -837,8 +837,12 @@ func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if raw := settings["agent_command_"+code]; raw != "" {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_, _ = w.Write([]byte(raw))
+		var command map[string]string
+		if err := json.Unmarshal([]byte(raw), &command); err != nil {
+			writeErr(w, http.StatusInternalServerError, "待执行命令数据损坏")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"command": command})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"command": nil})

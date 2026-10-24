@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -265,6 +270,191 @@ func reportHeartbeat(cfg Config, status map[string]any) error {
 	return nil
 }
 
+type agentCommand struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+func processAgentCommand(cfg Config) error {
+	request, err := http.NewRequest(http.MethodGet, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/command", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+cfg.Token)
+	client := &http.Client{Timeout: 10 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
+		return fmt.Errorf("读取主控命令返回 HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var envelope struct {
+		Command *agentCommand `json:"command"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&envelope); err != nil {
+		return err
+	}
+	if envelope.Command == nil {
+		return nil
+	}
+	cmd := envelope.Command
+	var runErr error
+	message := ""
+	switch cmd.Type {
+	case "update_mihomo":
+		message, runErr = updateMihomoKernel(*cmd)
+	default:
+		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
+	}
+	status := "success"
+	if runErr != nil {
+		status = "failed"
+		message = runErr.Error()
+	}
+	ackBody, _ := json.Marshal(map[string]string{"id": cmd.ID, "status": status, "message": message})
+	ackReq, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/command/ack", bytes.NewReader(ackBody))
+	if err != nil {
+		return err
+	}
+	ackReq.Header.Set("Authorization", "Bearer "+cfg.Token)
+	ackReq.Header.Set("Content-Type", "application/json")
+	ackResp, err := (&http.Client{Timeout: 10 * time.Second}).Do(ackReq)
+	if err != nil {
+		return fmt.Errorf("执行命令后上报结果失败: %w", err)
+	}
+	defer ackResp.Body.Close()
+	if ackResp.StatusCode < 200 || ackResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(ackResp.Body, 2048))
+		return fmt.Errorf("上报命令结果返回 HTTP %d: %s", ackResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	if runErr != nil {
+		return runErr
+	}
+	fmt.Printf("Agent 命令 %s 执行成功: %s\\n", cmd.ID, message)
+	return nil
+}
+
+func updateMihomoKernel(cmd agentCommand) (string, error) {
+	if !strings.HasPrefix(cmd.Version, "v") || len(cmd.SHA256) != 64 {
+		return "", fmt.Errorf("更新命令版本号或 SHA-256 无效")
+	}
+	asset := ""
+	switch runtime.GOARCH {
+	case "amd64":
+		asset = "mihomo-linux-amd64-compatible-" + cmd.Version + ".gz"
+	case "arm64":
+		asset = "mihomo-linux-arm64-" + cmd.Version + ".gz"
+	default:
+		return "", fmt.Errorf("当前架构 %s 暂不支持自动更新", runtime.GOARCH)
+	}
+	url := "https://github.com/MetaCubeX/mihomo/releases/download/" + cmd.Version + "/" + asset
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 3 * time.Minute}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("下载官方 Mihomo 内核失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("官方 Mihomo 下载返回 HTTP %d", response.StatusCode)
+	}
+	compressed, err := io.ReadAll(io.LimitReader(response.Body, 200<<20))
+	if err != nil {
+		return "", err
+	}
+	if len(compressed) == 0 || len(compressed) >= 200<<20 {
+		return "", fmt.Errorf("下载文件为空或超过 200 MiB 限制")
+	}
+	sum := sha256.Sum256(compressed)
+	if !strings.EqualFold(hex.EncodeToString(sum[:]), cmd.SHA256) {
+		return "", fmt.Errorf("Mihomo 下载文件 SHA-256 不匹配，已拒绝安装")
+	}
+	gz, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return "", fmt.Errorf("Mihomo 压缩包损坏: %w", err)
+	}
+	defer gz.Close()
+	newBinary, err := os.CreateTemp("/usr/local/bin", ".mihomo-update-*")
+	if err != nil {
+		return "", fmt.Errorf("创建内核临时文件失败: %w", err)
+	}
+	newPath := newBinary.Name()
+	defer os.Remove(newPath)
+	written, copyErr := io.Copy(newBinary, io.LimitReader(gz, 256<<20))
+	closeErr := newBinary.Close()
+	if copyErr != nil {
+		return "", copyErr
+	}
+	if closeErr != nil {
+		return "", closeErr
+	}
+	if written == 0 || written >= 256<<20 {
+		return "", fmt.Errorf("解压后的内核为空或超过 256 MiB 限制")
+	}
+	if err := os.Chmod(newPath, 0755); err != nil {
+		return "", err
+	}
+	if output, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
+		return "", fmt.Errorf("新内核自检失败: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	configPath := "/data/s5m-next/config.yaml"
+	if output, err := exec.Command(newPath, "-t", "-d", "/data/s5m-next", "-f", configPath).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("新内核未通过当前配置校验: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", err
+	}
+	var config map[string]any
+	if err := yaml.Unmarshal(configData, &config); err != nil {
+		return "", err
+	}
+	secret, _ := config["secret"].(string)
+	if strings.TrimSpace(secret) == "" {
+		return "", fmt.Errorf("当前配置没有 Mihomo API secret")
+	}
+	const binaryPath = "/usr/local/bin/mihomo"
+	backupPath := binaryPath + ".previous"
+	_ = os.Remove(backupPath)
+	if err := os.Rename(binaryPath, backupPath); err != nil {
+		return "", fmt.Errorf("备份现有 Mihomo 内核失败: %w", err)
+	}
+	if err := os.Rename(newPath, binaryPath); err != nil {
+		_ = os.Rename(backupPath, binaryPath)
+		return "", fmt.Errorf("安装新 Mihomo 内核失败: %w", err)
+	}
+	restartReq, err := http.NewRequest(http.MethodPut, "http://127.0.0.1:8088/restart", nil)
+	if err != nil {
+		_ = os.Remove(binaryPath)
+		_ = os.Rename(backupPath, binaryPath)
+		return "", err
+	}
+	restartReq.Header.Set("Authorization", "Bearer "+secret)
+	restartResp, restartErr := (&http.Client{Timeout: 20 * time.Second}).Do(restartReq)
+	if restartErr != nil {
+		_ = os.Remove(binaryPath)
+		_ = os.Rename(backupPath, binaryPath)
+		return "", fmt.Errorf("新内核已替换，但请求 Mihomo 重启失败，已恢复旧内核: %w", restartErr)
+	}
+	defer restartResp.Body.Close()
+	if restartResp.StatusCode < 200 || restartResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(restartResp.Body, 2048))
+		_ = os.Remove(binaryPath)
+		_ = os.Rename(backupPath, binaryPath)
+		return "", fmt.Errorf("Mihomo 重启返回 HTTP %d: %s；已恢复旧内核", restartResp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	_ = os.Remove(backupPath)
+	return "Mihomo 内核已更新到 " + cmd.Version, nil
+}
+
 func getMachineID() string {
 	data, err := os.ReadFile("/etc/machine-id")
 	if err != nil {
@@ -361,6 +551,10 @@ func main() {
 		json.Unmarshal(data, &cfg)
 		if cfg.Token == "" {
 			continue
+		}
+
+		if err := processAgentCommand(cfg); err != nil {
+			fmt.Printf("Agent 命令处理失败: %v\\n", err)
 		}
 
 		fmt.Println("👉 正在向主控台发送心跳...")
