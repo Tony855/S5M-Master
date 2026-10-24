@@ -101,6 +101,10 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.WriteFile(tmpPath, agentYml, 0600); err != nil {
 		return false, err
 	}
+	if output, err := exec.Command("/usr/local/bin/mihomo", "-t", "-d", "/data/s5m-next", "-f", tmpPath).CombinedOutput(); err != nil {
+		_ = os.Remove(tmpPath)
+		return false, fmt.Errorf("新配置未通过 Mihomo 校验: %w: %s", err, strings.TrimSpace(string(output)))
+	}
 	if err := os.Rename(tmpPath, mainPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, err
