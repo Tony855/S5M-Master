@@ -48,12 +48,25 @@ func decrypt(cryptoText string) (string, error) {
 	return string(ciphertext), nil
 }
 
+// Mihomo 配置目录统一由 MIHOMO_HOME 控制，默认使用持久化挂载目录 /data。
+func mihomoHome() string {
+	home := strings.TrimSpace(os.Getenv("MIHOMO_HOME"))
+	if home == "" {
+		return "/data"
+	}
+	return strings.TrimRight(home, "/")
+}
+
+func mihomoConfigPath() string {
+	return mihomoHome() + "/config.yaml"
+}
+
 // 独立的重载函数，防止变量冲突
 
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
-	const mainPath = "/data/s5m-next/config.yaml"
+	mainPath := mihomoConfigPath()
 	const previousPath = mainPath + ".previous"
 	if len(agentYml) == 0 || len(agentYml) > 2*1024*1024 {
 		return false, fmt.Errorf("主控端配置为空或超过 2 MiB")
@@ -101,7 +114,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.WriteFile(tmpPath, agentYml, 0600); err != nil {
 		return false, err
 	}
-	if output, err := exec.Command("/usr/local/bin/mihomo", "-t", "-d", "/data/s5m-next", "-f", tmpPath).CombinedOutput(); err != nil {
+	if output, err := exec.Command("/usr/local/bin/mihomo", "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, fmt.Errorf("新配置未通过 Mihomo 校验: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -113,7 +126,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 }
 
 func rollbackConfigAfterReloadFailure() error {
-	const mainPath = "/data/s5m-next/config.yaml"
+	mainPath := mihomoConfigPath()
 	oldData, err := os.ReadFile(mainPath + ".previous")
 	if err != nil {
 		return fmt.Errorf("读取旧配置备份失败: %w", err)
@@ -130,7 +143,7 @@ func rollbackConfigAfterReloadFailure() error {
 }
 
 func reloadMihomo() error {
-	const configPath = "/data/s5m-next/config.yaml"
+	configPath := mihomoConfigPath()
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("读取 Mihomo 配置失败: %w", err)
@@ -160,7 +173,7 @@ func reloadMihomo() error {
 	}
 
 	reloadBody := strings.NewReader(
-		`{"path": "/data/s5m-next/config.yaml"}`,
+		fmt.Sprintf(`{"path": %q}`, mihomoConfigPath()),
 	)
 
 	reloadReq, err := http.NewRequest(
@@ -202,7 +215,7 @@ func collectMihomoStatus() map[string]any {
 		"upload_speed": float64(0), "download_speed": float64(0),
 		"connections": 0, "config_sha256": "", "last_error": "",
 	}
-	const configPath = "/data/s5m-next/config.yaml"
+	configPath := mihomoConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		status["last_error"] = "读取配置失败: " + err.Error()
@@ -424,8 +437,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if output, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核自检失败: %v: %s", err, strings.TrimSpace(string(output)))
 	}
-	configPath := "/data/s5m-next/config.yaml"
-	if output, err := exec.Command(newPath, "-t", "-d", "/data/s5m-next", "-f", configPath).CombinedOutput(); err != nil {
+	configPath := mihomoConfigPath()
+	if output, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核未通过当前配置校验: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 	configData, err := os.ReadFile(configPath)
@@ -492,7 +505,7 @@ func main() {
 	// 启动 81 端口提供 Web 注册界面
 	go func() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "/opt/s5m-next/s5m-agent/index.html")
+			http.ServeFile(w, r, "/opt/s5m-agent/index.html")
 		})
 
 		// ====== 提供前端页面的 API ======
@@ -587,7 +600,7 @@ func main() {
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+cfg.Token)
-		if localData, readErr := os.ReadFile("/data/s5m-next/config.yaml"); readErr == nil && len(localData) > 0 {
+		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
 			localSum := sha256.Sum256(localData)
 			req.Header.Set("If-None-Match", fmt.Sprintf("\"%x\"", localSum[:]))
 		}
@@ -638,7 +651,7 @@ func main() {
 			continue
 		}
 
-		fmt.Println("发现配置更新，已写入主配置 /data/s5m-next/config.yaml")
+		fmt.Printf("发现配置更新，已写入主配置 %s\\n", mihomoConfigPath())
 
 		if err := reloadMihomo(); err != nil {
 			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\\n", err)
@@ -653,7 +666,7 @@ func main() {
 			fmt.Println("已恢复旧配置并重新加载")
 			continue
 		}
-		_ = os.Remove("/data/s5m-next/config.yaml.previous")
+		_ = os.Remove(mihomoConfigPath() + ".previous")
 		fmt.Println("完整 Mihomo 配置应用成功")
 	}
 }

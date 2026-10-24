@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-MIHOMO_HOME="${MIHOMO_HOME:-/data/s5m-next}"
+MIHOMO_HOME="${MIHOMO_HOME:-/data}"
 CONFIG_PATH="${MIHOMO_HOME}/config.yaml"
 mkdir -p "$MIHOMO_HOME" /data
 
