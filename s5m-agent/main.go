@@ -15,8 +15,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -58,7 +58,6 @@ func mihomoHome() string {
 	}
 	return strings.TrimRight(home, "/")
 }
-
 
 // validateCentralURL rejects malformed URLs and URL userinfo/query/fragment fields.
 func validateCentralURL(raw string) (string, error) {
@@ -552,7 +551,7 @@ func main() {
 			_ = json.Unmarshal(data, &cfg)
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"has_token": cfg.Token != "",
+				"has_token":   cfg.Token != "",
 				"central_url": cfg.CentralURL,
 				// This is local binding state, not a live reachability probe.
 				"connected": cfg.Token != "",
