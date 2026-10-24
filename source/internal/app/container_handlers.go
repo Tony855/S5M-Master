@@ -340,3 +340,24 @@ func (a *App) handleListContainerTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{"tasks": tasks})
 }
+
+func (a *App) handleCancelContainerTask(w http.ResponseWriter, r *http.Request) {
+	if !a.requireContainerAdmin(w, r) {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "任务 ID 无效")
+		return
+	}
+	n, err := a.store.CancelPendingAgentTask(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "取消任务失败")
+		return
+	}
+	if n == 0 {
+		writeErr(w, http.StatusConflict, "任务不存在或已被领取/结束，无法取消")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "status": "cancelled"})
+}
