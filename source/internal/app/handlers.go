@@ -1,10 +1,10 @@
 package app
 
 import (
-	"errors"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
