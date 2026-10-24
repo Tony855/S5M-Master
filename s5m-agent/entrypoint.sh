@@ -11,7 +11,12 @@ if [ ! -s "$CONFIG_PATH" ]; then
 fi
 
 # Migrate the old public placeholder and initialize a unique local API secret.
-if grep -Eq '^secret:[[:space:]]*(__S5M_GENERATED_SECRET__|change-this-secret)?[[:space:]]*
+if grep -Eq '^secret:[[:space:]]*(__S5M_GENERATED_SECRET__|change-this-secret)?[[:space:]]*$' "$CONFIG_PATH"; then
+  secret="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d '[:space:]')"
+  [ "${#secret}" -eq 64 ] || { echo "无法生成 Mihomo API secret" >&2; exit 1; }
+  sed -i "s|^secret:.*|secret: \"$secret\"|" "$CONFIG_PATH"
+  chmod 0600 "$CONFIG_PATH"
+fi
 
 /usr/local/bin/mihomo -d "$MIHOMO_HOME" -f "$CONFIG_PATH" &
 MIHOMO_PID=$!
