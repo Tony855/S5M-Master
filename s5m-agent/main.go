@@ -504,27 +504,39 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		_ = os.Rename(backupPath, binaryPath)
 		return "", fmt.Errorf("安装新 Mihomo 内核失败: %w", err)
 	}
-	restartErr := restartMihomo(secret)
-	// Mihomo restarts itself with exec; the HTTP connection may close before
-	// the client receives a response even when the restart was accepted.
-	// Always verify the live version before deciding whether to roll back.
 	expectedVersion := strings.TrimPrefix(cmd.Version, "v")
-	if healthErr := waitForMihomoVersion(secret, expectedVersion, 30*time.Second); healthErr != nil {
-		if rollbackErr := restoreMihomoKernel(binaryPath, backupPath, secret); rollbackErr != nil {
-			if restartErr != nil {
-				return "", fmt.Errorf("重启请求返回错误: %v；新内核健康检查失败: %v；恢复旧内核失败: %w", restartErr, healthErr, rollbackErr)
-			}
-			return "", fmt.Errorf("新内核健康检查失败: %v；恢复旧内核失败: %w", healthErr, rollbackErr)
-		}
-		if restartErr != nil {
-			return "", fmt.Errorf("重启请求返回错误且新内核未通过健康检查，已恢复旧内核: %v（健康检查：%v）", restartErr, healthErr)
-		}
-		return "", fmt.Errorf("新内核健康检查失败，已恢复旧内核: %w", healthErr)
+	upgradeErr := verifyKernelUpgrade(
+		func() error { return restartMihomo(secret) },
+		func() error { return waitForMihomoVersion(secret, expectedVersion, 30*time.Second) },
+		func() error { return restoreMihomoKernel(binaryPath, backupPath, secret) },
+	)
+	if upgradeErr != nil {
+		return "", upgradeErr
 	}
 	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("新内核已通过健康检查，但删除旧内核备份失败: %w", err)
 	}
 	return "Mihomo 内核已更新到 " + cmd.Version, nil
+}
+
+// verifyKernelUpgrade treats the running version as authoritative when a
+// restart request fails because the controller connection may close on exec.
+func verifyKernelUpgrade(restart, healthCheck, rollback func() error) error {
+	restartErr := restart()
+	if healthErr := healthCheck(); healthErr != nil {
+		rollbackErr := rollback()
+		if rollbackErr != nil {
+			if restartErr != nil {
+				return fmt.Errorf("重启请求返回错误: %v；新内核健康检查失败: %v；恢复旧内核失败: %w", restartErr, healthErr, rollbackErr)
+			}
+			return fmt.Errorf("新内核健康检查失败: %v；恢复旧内核失败: %w", healthErr, rollbackErr)
+		}
+		if restartErr != nil {
+			return fmt.Errorf("重启请求返回错误且新内核未通过健康检查，已恢复旧内核: %v（健康检查：%v）", restartErr, healthErr)
+		}
+		return fmt.Errorf("新内核健康检查失败，已恢复旧内核: %w", healthErr)
+	}
+	return nil
 }
 
 // newMihomoRestartRequest builds the documented Mihomo restart request.

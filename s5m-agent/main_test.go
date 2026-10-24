@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -128,6 +129,90 @@ func TestMihomoVersionMatches(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := mihomoVersionMatches(tt.actual, tt.expected); got != tt.want {
 				t.Fatalf("mihomoVersionMatches(%q, %q) = %v, want %v", tt.actual, tt.expected, got, tt.want)
+			}
+		})
+	}
+}
+
+
+func TestVerifyKernelUpgrade(t *testing.T) {
+	restartFailure := errors.New("restart connection closed")
+	healthFailure := errors.New("version health check timed out")
+	rollbackFailure := errors.New("restore failed")
+
+	tests := []struct {
+		name          string
+		restartErr    error
+		healthErr     error
+		rollbackErr   error
+		wantErr       bool
+		wantRollback  bool
+		wantErrParts  []string
+	}{
+		{
+			name:       "restart transport error but new version healthy",
+			restartErr: restartFailure,
+		},
+		{
+			name:         "health check fails and rollback succeeds",
+			healthErr:    healthFailure,
+			wantErr:      true,
+			wantRollback: true,
+			wantErrParts: []string{"健康检查失败", "已恢复旧内核"},
+		},
+		{
+			name:         "health and rollback both fail",
+			healthErr:    healthFailure,
+			rollbackErr:  rollbackFailure,
+			wantErr:      true,
+			wantRollback: true,
+			wantErrParts: []string{"健康检查失败", "恢复旧内核失败", "restore failed"},
+		},
+		{
+			name:         "restart and health fail but rollback succeeds",
+			restartErr:   restartFailure,
+			healthErr:    healthFailure,
+			wantErr:      true,
+			wantRollback: true,
+			wantErrParts: []string{"重启请求返回错误", "健康检查", "已恢复旧内核"},
+		},
+		{
+			name:         "restart fails and rollback fails",
+			restartErr:   restartFailure,
+			healthErr:    healthFailure,
+			rollbackErr:  rollbackFailure,
+			wantErr:      true,
+			wantRollback: true,
+			wantErrParts: []string{"重启请求返回错误", "健康检查失败", "恢复旧内核失败"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rollbackCalled := false
+			err := verifyKernelUpgrade(
+				func() error { return tt.restartErr },
+				func() error { return tt.healthErr },
+				func() error {
+					rollbackCalled = true
+					return tt.rollbackErr
+				},
+			)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("verifyKernelUpgrade() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if rollbackCalled != tt.wantRollback {
+				t.Fatalf("rollback called = %v, want %v", rollbackCalled, tt.wantRollback)
+			}
+			if !tt.wantErr && rollbackCalled {
+				t.Fatal("successful health check must not trigger rollback")
+			}
+			if err != nil {
+				for _, part := range tt.wantErrParts {
+					if !strings.Contains(err.Error(), part) {
+						t.Errorf("error %q does not contain %q", err, part)
+					}
+				}
 			}
 		})
 	}
