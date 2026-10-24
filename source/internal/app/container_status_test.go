@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestAgentStatusIsOnline(t *testing.T) {
+func TestAgentStatusIsOnlineBoundaries(t *testing.T) {
 	now := time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name      string
