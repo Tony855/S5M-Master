@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -147,6 +148,84 @@ func reloadMihomo() error {
 	return nil
 }
 
+func collectMihomoStatus() map[string]any {
+	status := map[string]any{
+		"mihomo_version": "", "mihomo_healthy": false,
+		"upload_total": int64(0), "download_total": int64(0),
+		"upload_speed": float64(0), "download_speed": float64(0),
+		"connections": 0, "config_sha256": "", "last_error": "",
+	}
+	const configPath = "/data/s5m-next/config.yaml"
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		status["last_error"] = "读取配置失败: " + err.Error()
+		return status
+	}
+	sum := sha256.Sum256(data)
+	status["config_sha256"] = fmt.Sprintf("%x", sum[:])
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		status["last_error"] = "解析配置失败: " + err.Error()
+		return status
+	}
+	secret, _ := cfg["secret"].(string)
+	client := &http.Client{Timeout: 3 * time.Second}
+	get := func(path string) (map[string]any, error) {
+		req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:8088"+path, nil)
+		if err != nil { return nil, err }
+		if secret != "" { req.Header.Set("Authorization", "Bearer "+secret) }
+		resp, err := client.Do(req)
+		if err != nil { return nil, err }
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 { return nil, fmt.Errorf("HTTP %d", resp.StatusCode) }
+		var result map[string]any
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil { return nil, err }
+		return result, nil
+	}
+	version, err := get("/version")
+	if err != nil {
+		status["last_error"] = "读取 Mihomo 版本失败: " + err.Error()
+		return status
+	}
+	status["mihomo_version"] = version["version"]
+	traffic, err := get("/traffic")
+	if err == nil {
+		status["upload_speed"] = traffic["up"]
+		status["download_speed"] = traffic["down"]
+	} else {
+		status["last_error"] = "读取流量失败: " + err.Error()
+	}
+	connections, err := get("/connections")
+	if err == nil {
+		items, _ := connections["connections"].([]any)
+		status["connections"] = len(items)
+		status["upload_total"] = connections["uploadTotal"]
+		status["download_total"] = connections["downloadTotal"]
+	} else if status["last_error"] == "" {
+		status["last_error"] = "读取连接数失败: " + err.Error()
+	}
+	status["mihomo_healthy"] = true
+	return status
+}
+
+func reportHeartbeat(cfg Config, status map[string]any) error {
+	body, err := json.Marshal(status)
+	if err != nil { return err }
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	if err != nil { return err }
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil { return err }
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return fmt.Errorf("主控端心跳返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	return nil
+}
+
 func getMachineID() string {
 	data, err := os.ReadFile("/etc/machine-id")
 	if err != nil {
@@ -276,6 +355,9 @@ func main() {
 		if readErr != nil {
 			fmt.Printf("读取主控台配置失败: %v\\n", readErr)
 			continue
+		}
+		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
+			fmt.Printf("Agent 状态上报失败: %v\\n", err)
 		}
 		if len(strings.TrimSpace(string(newYml))) == 0 {
 			fmt.Println("主控台返回空配置，本次跳过")
