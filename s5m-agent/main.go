@@ -526,10 +526,14 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 // restartMihomo asks the local external controller to restart Mihomo.
 func restartMihomo(secret string) error {
 	restartReq, err := http.NewRequest(http.MethodPut, "http://127.0.0.1:8088/restart", nil)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	restartReq.Header.Set("Authorization", "Bearer "+secret)
 	restartResp, err := (&http.Client{Timeout: 20 * time.Second}).Do(restartReq)
-	if err != nil { return fmt.Errorf("请求 Mihomo 重启失败: %w", err) }
+	if err != nil {
+		return fmt.Errorf("请求 Mihomo 重启失败: %w", err)
+	}
 	defer restartResp.Body.Close()
 	if restartResp.StatusCode < 200 || restartResp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(restartResp.Body, 2048))
@@ -561,22 +565,40 @@ func waitForMihomoVersion(secret, expected string, timeout time.Duration) error 
 				decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&payload)
 				resp.Body.Close()
 				version, _ := payload["version"].(string)
-				if resp.StatusCode >= 200 && resp.StatusCode < 300 && decodeErr == nil && mihomoVersionMatches(version, expected) { return nil }
-				if decodeErr != nil { lastErr = decodeErr } else { lastErr = fmt.Errorf("Mihomo API 返回 HTTP %d，版本为 %q，期望 %q", resp.StatusCode, version, expected) }
+				if resp.StatusCode >= 200 && resp.StatusCode < 300 && decodeErr == nil && mihomoVersionMatches(version, expected) {
+					return nil
+				}
+				if decodeErr != nil {
+					lastErr = decodeErr
+				} else {
+					lastErr = fmt.Errorf("Mihomo API 返回 HTTP %d，版本为 %q，期望 %q", resp.StatusCode, version, expected)
+				}
 			}
-		} else { lastErr = err }
-		if time.Now().After(deadline) { break }
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			break
+		}
 		time.Sleep(time.Second)
 	}
-	if lastErr == nil { return fmt.Errorf("Mihomo 在 %s 内未通过版本健康检查", timeout) }
+	if lastErr == nil {
+		return fmt.Errorf("Mihomo 在 %s 内未通过版本健康检查", timeout)
+	}
 	return fmt.Errorf("Mihomo 在 %s 内未通过版本健康检查: %w", timeout, lastErr)
 }
 
 // restoreMihomoKernel reinstalls the backup and requests a restart.
 func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
-	if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) { return fmt.Errorf("删除异常内核失败: %w", err) }
-	if err := os.Rename(backupPath, binaryPath); err != nil { return fmt.Errorf("恢复旧内核文件失败: %w", err) }
-	if err := restartMihomo(secret); err != nil { return fmt.Errorf("旧内核文件已恢复，但请求重启失败: %w", err) }
+	if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("删除异常内核失败: %w", err)
+	}
+	if err := os.Rename(backupPath, binaryPath); err != nil {
+		return fmt.Errorf("恢复旧内核文件失败: %w", err)
+	}
+	if err := restartMihomo(secret); err != nil {
+		return fmt.Errorf("旧内核文件已恢复，但请求重启失败: %w", err)
+	}
 	return nil
 }
 
