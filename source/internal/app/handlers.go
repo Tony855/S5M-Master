@@ -49,8 +49,12 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 401, "账号或密码错误")
 		return
 	}
-	tok, _ := a.signToken(u)
-	writeJSON(w, 200, map[string]any{"token": tok, "user": u})
+	tok, err := a.signToken(u)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成登录凭证失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "user": u})
 }
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, currentUser(r)) }
@@ -998,10 +1002,9 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// 彻底从数据库删除机器码的 Token 和心跳记录
-	err := a.store.DeleteSettings([]string{"agent_machine_" + code, "agent_lastseen_" + code})
-	if err != nil {
-		writeErr(w, 500, "删除失败: "+err.Error())
+	// Revoke the credential and atomically clear node status and invalidate live tasks.
+	if err := a.store.DeleteAgentBinding(code); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
 	writeJSON(w, 200, map[string]string{"message": "已删除"})
