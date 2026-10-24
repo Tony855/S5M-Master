@@ -986,8 +986,19 @@ html, body, #app {
               </template>
             </el-table-column>
           </el-table>
+          <div class="docker-bulk-toolbar">
+            <div class="docker-bulk-copy"><strong>批量操作</strong><span>已选择 {{ selectedDockerIDs.length }} 个容器 · 最多 3 个并发任务</span></div>
+            <div class="docker-bulk-buttons">
+              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.start')">批量启动</el-button>
+              <el-button size="small" type="warning" plain :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.stop')">批量停止</el-button>
+              <el-button size="small" type="primary" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.restart')">批量重启</el-button>
+              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="clearDockerSelection">清空选择</el-button>
+            </div>
+          </div>
+          <div v-if="bulkDockerProgress" class="docker-status">{{ bulkDockerProgress }}</div>
           <div class="docker-table-wrap docker-desktop-table">
-            <el-table :data="dockerContainers" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
+            <el-table :data="dockerContainers" @selection-change="onDockerSelectionChange" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
+              <el-table-column type="selection" width="48" reserve-selection />
               <el-table-column prop="Names" label="容器名称" min-width="130" />
               <el-table-column prop="Image" label="镜像" min-width="150" />
               <el-table-column prop="State" label="状态" width="100" />
