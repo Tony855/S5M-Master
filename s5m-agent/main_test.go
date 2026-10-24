@@ -95,7 +95,6 @@ func TestValidateMihomoConfigYAML(t *testing.T) {
 	}
 }
 
-
 func TestNewMihomoRestartRequest(t *testing.T) {
 	req, err := newMihomoRestartRequest("test-secret")
 	if err != nil {
