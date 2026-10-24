@@ -23,7 +23,7 @@ func TestContainerTaskEndToEndAndAuthorization(t *testing.T) {
 	const machineCode = "node-e2e-01"
 	const machineSecret = "dedicated-agent-secret-for-tests"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token": "global-registration-secret",
+		"agent_token":                  "global-registration-secret",
 		"agent_machine_" + machineCode: machineSecret,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -94,7 +94,7 @@ func TestContainerTaskEndToEndAndAuthorization(t *testing.T) {
 		t.Fatalf("create task: HTTP %d body=%s", created.Code, created.Body.String())
 	}
 	var task struct {
-		ID int64 `json:"id"`
+		ID     int64  `json:"id"`
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(created.Body.Bytes(), &task); err != nil || task.ID <= 0 || task.Status != "pending" {
