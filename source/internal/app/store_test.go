@@ -66,13 +66,13 @@ func TestDeleteAgentBindingRevokesAndFailsOutstandingTasks(t *testing.T) {
 	defer store.db.Close()
 
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_node_123":  "s5m-secret",
-		"agent_lastseen_node_123": "1792750000",
-		"agent_status_node_123":    `{"stale":true}`,
-		"agent_command_node_123":   `{"id":"pending"}`,
+		"agent_machine_node_123":        "s5m-secret",
+		"agent_lastseen_node_123":       "1792750000",
+		"agent_status_node_123":         `{"stale":true}`,
+		"agent_command_node_123":        `{"id":"pending"}`,
 		"agent_command_result_node_123": `{"status":"old"}`,
-		"agent_secret_node_123":    "old-secret",
-		"agent_mihomo_secret_node_123": "old-mihomo-secret",
+		"agent_secret_node_123":         "old-secret",
+		"agent_mihomo_secret_node_123":  "old-mihomo-secret",
 	}); err != nil {
 		t.Fatalf("设置测试授权: %v", err)
 	}
