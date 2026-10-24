@@ -1,19 +1,11 @@
 services:
   s5m-agent:
-    build: .
+    image: ghcr.io/tony855/s5m-agent:dev
     container_name: s5m-agent
     restart: unless-stopped
     ports:
-      - "81:80"
+      - "81:81"
     volumes:
       - ./data:/data
-
-  mihomo:
-    image: metacubex/mihomo:latest
-    container_name: mihomo
-    restart: unless-stopped
-    cap_add: [NET_ADMIN]
-    devices: [/dev/net/tun]
-    volumes:
-      - ./data:/data
-    command: -d /data
+    # TUN is disabled by default. Enable only on hosts that support it and
+    # after configuring /dev/net/tun and NET_ADMIN appropriately.
