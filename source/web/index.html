@@ -909,17 +909,28 @@ html, body, #app {
           <div class="card-title"><span>实例节点管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新实例</el-button></div>
           <p class="import-note">在这里统一管理已注册实例、在线状态和 Docker 容器。容器操作由对应实例上的 S5M Agent 执行；目标实例必须在线并已安装 Docker。</p>
 
-          <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">{{ agentEntries.length }} 个实例</span></div>
+          <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">共 {{ agentEntries.length }} 个，当前显示 {{ filteredAgentEntries.length }} 个</span></div>
+          <div class="docker-controls" style="margin:10px 0 14px">
+            <el-input v-model="agentSearch" clearable placeholder="搜索机器码、主机名或系统" />
+            <el-select v-model="agentStatusFilter" style="max-width:170px" aria-label="筛选实例状态">
+              <el-option label="全部实例" value="all" />
+              <el-option label="仅在线" value="online" />
+              <el-option label="仅离线" value="offline" />
+              <el-option label="Docker 可用" value="docker" />
+            </el-select>
+          </div>
           <div v-if="agentLoading" class="empty-state">正在加载实例…</div>
           <div v-else-if="agentLoadError" class="empty-state error-state">{{ agentLoadError }}<div style="margin-top:10px"><el-button size="small" @click="loadAgentsData">重试</el-button></div></div>
           <div v-else-if="!agentEntries.length" class="empty-state">暂无已注册实例。请先在上方生成实例 Token，并在目标机器部署 Agent。</div>
+          <div v-else-if="!filteredAgentEntries.length" class="empty-state">没有符合搜索条件的实例，请调整关键词或状态筛选。</div>
           <div v-else class="instance-list">
-            <div v-for="item in agentEntries" :key="item.code" class="agent-item instance-row">
+            <div v-for="item in filteredAgentEntries" :key="item.code" class="agent-item instance-row">
               <div class="instance-main">
                 <div class="agent-code">{{ item.code }}</div>
                 <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? '在线' : '离线' }}</span>
               </div>
-              <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }}</div>
+              <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }} · 最近心跳：{{ item.last_seen ? new Date(item.last_seen * 1000).toLocaleString() : '暂无记录' }}</div>
+              <div v-if="item.updated_at" class="instance-token">状态更新时间：{{ item.updated_at }}</div>
               <div v-if="item.hostname || item.os || item.dockerAvailable || item.mihomoRunning" class="instance-token">
                 主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '未检测到' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
@@ -1080,6 +1091,19 @@ createApp({
     const agentEntries = ref([]);
     const agentLoadError = ref('');
     const agentLoading = ref(false);
+    const agentSearch = ref('');
+    const agentStatusFilter = ref('all');
+    const filteredAgentEntries = computed(() => {
+      const query = String(agentSearch.value || '').trim().toLowerCase();
+      return agentEntries.value.filter(item => {
+        const matchesQuery = !query || [item.code, item.hostname, item.os, item.arch].some(value => String(value || '').toLowerCase().includes(query));
+        const matchesStatus = agentStatusFilter.value === 'all'
+          || (agentStatusFilter.value === 'online' && item.online)
+          || (agentStatusFilter.value === 'offline' && !item.online)
+          || (agentStatusFilter.value === 'docker' && item.dockerAvailable);
+        return matchesQuery && matchesStatus;
+      });
+    });
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const dockerContainers = ref([]);
@@ -1476,7 +1500,8 @@ createApp({
             arch: node.arch || '',
             dockerAvailable: node.docker_available === true,
             mihomoRunning: node.mihomo_running === true,
-            mihomoVersion: node.mihomo_version || ''
+            mihomoVersion: node.mihomo_version || '',
+            updated_at: node.updated_at || ''
           });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
@@ -1761,7 +1786,7 @@ const safeCopy = async (text) => {
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount,
-      newMachineCode, generatedToken, generating, agentEntries, agentLoading,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
       containerTasks, containerTasksLoading, loadContainerTasks, cancelContainerTask, showContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
