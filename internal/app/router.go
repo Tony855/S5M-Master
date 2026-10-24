@@ -47,11 +47,14 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/agent/config", a.handleAgentConfig)
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", a.handleAgentHeartbeat)
+	mux.HandleFunc("GET /api/v1/agent/command", a.handleAgentCommand)
+	mux.HandleFunc("POST /api/v1/agent/command/ack", a.handleAgentCommandAck)
 
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/auth/me":             a.handleMe,
 		"GET /api/v1/agents":              a.handleGetAgents,
 		"POST /api/v1/agents/generate":    a.handleGenerateAgentToken,
+		"POST /api/v1/agents/kernel-update": a.handleQueueMihomoUpdate,
 		"DELETE /api/v1/agents":           a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":       a.handlePassword,
 		"GET /api/v1/settings":            a.handleGetSettings,

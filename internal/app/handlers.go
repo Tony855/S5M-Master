@@ -733,6 +733,158 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(yml))
 }
 
+
+// agentMachineFromRequest validates the per-machine JWT and confirms its dedicated token is still active.
+func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return "", fmt.Errorf("缺少 Agent Token")
+	}
+	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(t *jwt.Token) (interface{}, error) {
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, fmt.Errorf("不支持的 JWT 签名算法")
+		}
+		return a.jwtKey, nil
+	})
+	if err != nil || token == nil || !token.Valid {
+		return "", fmt.Errorf("无效或已过期的 Agent Token")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("Agent Token claims 无效")
+	}
+	code, codeOK := claims["sub"].(string)
+	role, roleOK := claims["role"].(string)
+	version, versionOK := claims["ver"].(string)
+	if !codeOK || code == "" || !roleOK || role != "agent" || !versionOK || version == "" {
+		return "", fmt.Errorf("Agent 身份无效")
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("读取 Agent 授权失败: %w", err)
+	}
+	machineToken := settings["agent_machine_"+code]
+	if machineToken == "" || machineToken == settings["agent_token"] ||
+		version != fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken))) {
+		return "", fmt.Errorf("Agent 未授权或授权已失效")
+	}
+	return code, nil
+}
+
+func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil || u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "仅管理员可以更新 Agent Mihomo 内核")
+		return
+	}
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		Version     string `json:"version"`
+		SHA256      string `json:"sha256"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.Version = strings.TrimSpace(in.Version)
+	in.SHA256 = strings.ToLower(strings.TrimSpace(in.SHA256))
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(in.MachineCode) ||
+		!regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(in.Version) ||
+		!regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(in.SHA256) {
+		writeErr(w, http.StatusBadRequest, "机器码、版本号或 SHA-256 格式无效")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 授权失败")
+		return
+	}
+	token := settings["agent_machine_"+in.MachineCode]
+	if token == "" || token == settings["agent_token"] {
+		writeErr(w, http.StatusNotFound, "目标 Agent 未授权")
+		return
+	}
+	if settings["agent_command_"+in.MachineCode] != "" {
+		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
+		return
+	}
+	command := map[string]string{
+		"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": "update_mihomo",
+		"version": in.Version, "sha256": in.SHA256,
+	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成内核更新命令失败")
+		return
+	}
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_"+in.MachineCode: string(payload)}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存内核更新命令失败")
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本", "command_id": command["id"]})
+}
+
+func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
+	code, err := a.agentMachineFromRequest(r)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 命令失败")
+		return
+	}
+	if raw := settings["agent_command_"+code]; raw != "" {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_, _ = w.Write([]byte(raw))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"command": nil})
+}
+
+func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
+	code, err := a.agentMachineFromRequest(r)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+	var in struct {
+		ID      string `json:"id"`
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "命令结果 JSON 无效")
+		return
+	}
+	if in.ID == "" || (in.Status != "success" && in.Status != "failed") {
+		writeErr(w, http.StatusBadRequest, "命令 ID 或状态无效")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取待执行命令失败")
+		return
+	}
+	var pending map[string]string
+	if json.Unmarshal([]byte(settings["agent_command_"+code]), &pending) != nil || pending["id"] != in.ID {
+		writeErr(w, http.StatusConflict, "命令已被替换或不存在")
+		return
+	}
+	result, _ := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_"+code: string(result)}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存命令结果失败")
+		return
+	}
+	if err := a.store.DeleteSettings([]string{"agent_command_" + code}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "清除已执行命令失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // handleAgentHeartbeat stores authenticated per-Agent runtime telemetry.
 func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
