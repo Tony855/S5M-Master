@@ -515,6 +515,7 @@ func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, err
 }
 
 // UpdateAgentTaskResult 仅允许更新属于指定机器且仍在执行中的任务。
+func (s *Store) UpdateAgentTaskResult(id int64, machineCode, status, resultJSON, errorText string) (int64, error) {
 	if status != "succeeded" && status != "failed" {
 		return 0, fmt.Errorf("invalid task status")
 	}
