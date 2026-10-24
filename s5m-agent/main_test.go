@@ -134,20 +134,19 @@ func TestMihomoVersionMatches(t *testing.T) {
 	}
 }
 
-
 func TestVerifyKernelUpgrade(t *testing.T) {
 	restartFailure := errors.New("restart connection closed")
 	healthFailure := errors.New("version health check timed out")
 	rollbackFailure := errors.New("restore failed")
 
 	tests := []struct {
-		name          string
-		restartErr    error
-		healthErr     error
-		rollbackErr   error
-		wantErr       bool
-		wantRollback  bool
-		wantErrParts  []string
+		name         string
+		restartErr   error
+		healthErr    error
+		rollbackErr  error
+		wantErr      bool
+		wantRollback bool
+		wantErrParts []string
 	}{
 		{
 			name:       "restart transport error but new version healthy",
