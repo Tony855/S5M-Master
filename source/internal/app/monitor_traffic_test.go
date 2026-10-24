@@ -38,7 +38,7 @@ func TestMonitorTrafficConcurrentRequests(t *testing.T) {
 			response := httptest.NewRecorder()
 			a.handleMonitorTraffic(response, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 			if response.Code != http.StatusOK {
-				errCh <- response.CodeString()
+				errCh <- "unexpected HTTP status"
 				return
 			}
 			if !strings.Contains(response.Body.String(), `"conns":0`) {
