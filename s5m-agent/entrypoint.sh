@@ -5,6 +5,24 @@ MIHOMO_HOME="${MIHOMO_HOME:-/data}"
 CONFIG_PATH="${MIHOMO_HOME}/config.yaml"
 mkdir -p "$MIHOMO_HOME" /data
 
+# An interrupted kernel upgrade leaves the previous binary in place.
+# Restore it before starting Mihomo; successful upgrades remove this backup
+# only after the running API confirms the requested version.
+MIHOMO_BIN="/usr/local/bin/mihomo"
+MIHOMO_BACKUP="${MIHOMO_BIN}.previous"
+if [ -e "$MIHOMO_BACKUP" ]; then
+  echo "检测到未完成的 Mihomo 内核升级，优先恢复旧内核"
+  if [ -x "$MIHOMO_BACKUP" ]; then
+    rm -f "$MIHOMO_BIN"
+    mv "$MIHOMO_BACKUP" "$MIHOMO_BIN"
+    chmod 0755 "$MIHOMO_BIN"
+    echo "已在启动前恢复旧 Mihomo 内核"
+  else
+    echo "旧 Mihomo 内核备份不存在或不可执行，拒绝自动覆盖当前内核" >&2
+    exit 1
+  fi
+fi
+
 # One-time migration from the retired directory; never overwrite the new config.
 LEGACY_CONFIG="/data/s5m-next/config.yaml"
 if [ ! -s "$CONFIG_PATH" ] && [ -s "$LEGACY_CONFIG" ]; then
