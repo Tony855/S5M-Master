@@ -954,11 +954,12 @@ html, body, #app {
           <div v-if="dockerStatus" class="docker-status">{{ dockerStatus }}</div>
           <div class="subsection-heading" style="margin-top:22px">
             <span>容器任务记录</span>
-            <span class="section-hint">最近 100 条 · 当前显示 {{ filteredContainerTasks.length }} 条</span>
+            <span class="section-hint">共 {{ containerTaskTotal }} 条 · 本页显示 {{ filteredContainerTasks.length }} 条</span>
             <el-button size="small" :loading="containerTasksLoading" @click="loadContainerTasks">刷新任务</el-button>
           </div>
           <div class="docker-controls" style="margin:10px 0 14px">
-            <el-input v-model="containerTaskSearch" clearable placeholder="搜索任务 ID、实例或操作" />
+            <el-input v-model="containerTaskSearch" clearable placeholder="搜索本页任务 ID、实例或操作" />
+            <el-select v-model="containerTaskMachineFilter" clearable filterable placeholder="筛选本页实例" style="max-width:190px"><el-option v-for="code in containerTaskMachineOptions" :key="code" :label="code" :value="code" /></el-select>
             <el-select v-model="containerTaskStatusFilter" style="max-width:170px" aria-label="筛选任务状态">
               <el-option label="全部任务" value="all" />
               <el-option label="等待执行" value="pending" />
@@ -978,6 +979,7 @@ html, body, #app {
               </template>
             </el-table-column>
             <el-table-column prop="created_at" label="创建时间" min-width="170" />
+            <el-table-column label="执行耗时" width="115"><template #default="scope">{{ containerTaskDuration(scope.row) }}</template></el-table-column>
             <el-table-column label="操作" width="170" fixed="right">
               <template #default="scope">
                 <el-button v-if="scope.row.status === 'pending'" size="small" type="danger" plain @click="cancelContainerTask(scope.row)">取消</el-button>
@@ -986,7 +988,8 @@ html, body, #app {
               </template>
             </el-table-column>
           </el-table>
-          <div class="docker-bulk-toolbar">
+ 
+          <el-pagination style="margin-top:14px;justify-content:flex-end;flex-wrap:wrap" background layout="prev, pager, next" :current-page="containerTaskPage" :page-size="100" :total="containerTaskTotal" @current-change="changeContainerTaskPage" />         <div class="docker-bulk-toolbar">
             <div class="docker-bulk-copy"><strong>批量操作</strong><span>已选择 {{ selectedDockerIDs.length }} 个容器 · 最多 3 个并发任务</span></div>
             <div class="docker-bulk-buttons">
               <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.start')">批量启动</el-button>
@@ -1127,7 +1130,8 @@ createApp({
           || (agentStatusFilter.value === 'online' && item.online)
           || (agentStatusFilter.value === 'offline' && !item.online)
           || (agentStatusFilter.value === 'docker' && item.runtimeReported && item.dockerAvailable);
-        return matchesQuery && matchesStatus;
+        const matchesMachine = !containerTaskMachineFilter.value || task.machine_code === containerTaskMachineFilter.value;
+        return matchesQuery && matchesStatus && matchesMachine;
       });
     });
     const dockerMachineCode = ref('');
@@ -1142,6 +1146,16 @@ createApp({
     const containerTasksLoading = ref(false);
     const containerTaskSearch = ref('');
     const containerTaskStatusFilter = ref('all');
+    const containerTaskMachineFilter = ref('');
+    const containerTaskPage = ref(1);
+    const containerTaskTotal = ref(0);
+    const containerTaskMachineOptions = computed(() => [...new Set(containerTasks.value.map(t => t.machine_code).filter(Boolean))].sort());
+    const containerTaskDuration = (task) => {
+      if (!task.claimed_at || !task.finished_at) return '—';
+      const elapsed = Date.parse(task.finished_at) - Date.parse(task.claimed_at);
+      if (!Number.isFinite(elapsed) || elapsed < 0) return '—';
+      return elapsed < 1000 ? '<1 秒' : (elapsed < 60000 ? Math.round(elapsed / 1000) + ' 秒' : (elapsed / 60000).toFixed(1) + ' 分钟');
+    };
     const filteredContainerTasks = computed(() => {
       const query = String(containerTaskSearch.value || '').trim().toLowerCase();
       return containerTasks.value.filter(task => {
@@ -1607,15 +1621,22 @@ createApp({
       const silent = options.silent === true;
       containerTasksLoading.value = true;
       try {
-        const res = await api('/api/v1/container/tasks?limit=100&t=' + Date.now());
+        const res = await api('/api/v1/container/tasks?limit=100&offset=' + ((containerTaskPage.value - 1) * 100) + '&t=' + Date.now());
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || '读取容器任务失败');
         containerTasks.value = Array.isArray(data.tasks) ? data.tasks : [];
+        containerTaskTotal.value = Number.isFinite(Number(data.total)) ? Number(data.total) : containerTasks.value.length;
       } catch (e) {
         if (!silent) showMsg(e.message || '读取容器任务失败', 'error');
       } finally {
         containerTasksLoading.value = false;
       }
+    };
+    const changeContainerTaskPage = (page) => {
+      containerTaskPage.value = page;
+      containerTaskSearch.value = '';
+      containerTaskMachineFilter.value = '';
+      loadContainerTasks();
     };
     const showContainerTask = (task) => {
       const formatJSON = value => value == null ? '' : (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
@@ -1992,7 +2013,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
+      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
