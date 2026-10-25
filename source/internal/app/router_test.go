@@ -3,10 +3,10 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
-	"testing/fstest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestEnsureAdminRequiresExplicitPassword(t *testing.T) {
