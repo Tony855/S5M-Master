@@ -1071,13 +1071,31 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func validateAgentRegistrationInput(machineCode, secret string) (string, string, string) {
+	machineCode = strings.TrimSpace(machineCode)
+	secret = strings.TrimSpace(secret)
+	if len(machineCode) < 1 || len(machineCode) > 64 || !regexp.MustCompile("^[A-Za-z0-9_-]+$").MatchString(machineCode) {
+		return machineCode, secret, "机器码格式错误"
+	}
+	if len(secret) < 1 || len(secret) > 256 {
+		return machineCode, secret, "专属 Token 长度无效"
+	}
+	return machineCode, secret, ""
+}
+
 func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
 		Secret      string `json:"secret"`
 	}
-	if err := decode(r, &in); err != nil || in.MachineCode == "" || in.Secret == "" {
-		writeErr(w, 400, "机器码和密钥不能为空")
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	var validationError string
+	in.MachineCode, in.Secret, validationError = validateAgentRegistrationInput(in.MachineCode, in.Secret)
+	if validationError != "" {
+		writeErr(w, http.StatusBadRequest, validationError)
 		return
 	}
 	settings, err := a.store.GetSettings()
