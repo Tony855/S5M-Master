@@ -104,6 +104,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"POST /api/v1/config/rollback":        a.handleRollback,
 		"GET /api/v1/monitor/overview":        a.handleOverview,
 		"GET /api/v1/monitor/traffic":         a.handleMonitorTraffic,
+		"GET /api/v1/mihomo/status":           a.handleMihomoStatus,
 		"POST /api/v1/mihomo/update":          a.handleUpdateMihomo,
 		"GET /api/v1/logs":                    a.handleGetLogs,
 		"POST /api/v1/restore":                a.handleRestoreBackup,
