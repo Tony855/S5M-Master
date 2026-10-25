@@ -21,7 +21,7 @@ func TestDecodeErrorStatus(t *testing.T) {
 		err  error
 		want int
 	}{
-		{name: "oversized body", err: errors.New("请求体超过 8 KiB 限制"), want: http.StatusRequestEntityTooLarge},
+		{name: "oversized body", err: errRequestBodyTooLarge, want: http.StatusRequestEntityTooLarge},
 		{name: "malformed JSON", err: errors.New("invalid character"), want: http.StatusBadRequest},
 		{name: "nil error", err: nil, want: http.StatusBadRequest},
 	}
