@@ -696,8 +696,11 @@ html, body, #app {
         <el-menu-item index="dashboard">系统概览</el-menu-item>
         <el-menu-item index="proxies">代理管理</el-menu-item>
         <el-menu-item index="instances">节点实例管理</el-menu-item>
-        <el-menu-item index="docker">Docker 容器</el-menu-item>
-        <el-menu-item index="routeros-containers">RouterOS 容器</el-menu-item>
+        <el-sub-menu index="containers">
+          <template #title>容器管理</template>
+          <el-menu-item index="docker">Docker 容器</el-menu-item>
+          <el-menu-item index="routeros-containers">RouterOS 容器</el-menu-item>
+        </el-sub-menu>
         <el-menu-item index="config">配置管理</el-menu-item>
         <el-menu-item index="system">系统运维</el-menu-item>
       </el-menu>
