@@ -39,18 +39,25 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 
 const maxJSONRequestBody = 2 << 20
 
-func decode(r *http.Request, v any) error {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONRequestBody+1))
+func decodeLimited(r *http.Request, maxBytes int64, sizeLabel string, v any) error {
+	if maxBytes <= 0 {
+		return errors.New("请求体大小限制无效")
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBytes+1))
 	if err != nil {
 		return err
 	}
-	if len(body) > maxJSONRequestBody {
-		return errors.New("请求体超过 2 MiB 限制")
+	if int64(len(body)) > maxBytes {
+		return fmt.Errorf("请求体超过 %s 限制", sizeLabel)
 	}
 	if err := json.Unmarshal(body, v); err != nil {
 		return err
 	}
 	return nil
+}
+
+func decode(r *http.Request, v any) error {
+	return decodeLimited(r, maxJSONRequestBody, "2 MiB", v)
 }
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -1226,7 +1233,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		Version     string `json:"version"`
 		SHA256      string `json:"sha256"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
 		return
 	}
@@ -1305,7 +1312,7 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		Status  string `json:"status"`
 		Message string `json:"message"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&in); err != nil {
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "命令结果 JSON 无效")
 		return
 	}
@@ -1337,9 +1344,8 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 
 // handleAgentHeartbeat stores authenticated per-Agent runtime telemetry.
 func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	var in map[string]any
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in == nil {
+	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil || in == nil {
 		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
 		return
 	}
@@ -1467,8 +1473,7 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 限制请求体大小，避免异常大请求占用资源。
-	r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "JSON 参数错误")
 		return
 	}
