@@ -3,7 +3,6 @@ package app
 import (
 	"database/sql"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -142,14 +141,13 @@ func (a *App) handleContainerAgentTaskResult(w http.ResponseWriter, r *http.Requ
 		writeErr(w, http.StatusBadRequest, "任务 ID 无效")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 	var in struct {
 		Status string          `json:"status"`
 		Result json.RawMessage `json:"result"`
 		Error  string          `json:"error"`
 	}
-	if err = json.NewDecoder(r.Body).Decode(&in); err != nil && err != io.EOF {
-		writeErr(w, http.StatusBadRequest, "结果数据格式错误")
+	if err = decodeLimited(r, 256<<10, "256 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "结果数据格式错误")
 		return
 	}
 	if in.Status != "succeeded" && in.Status != "failed" {
