@@ -554,7 +554,6 @@ func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, err
 	return res.RowsAffected()
 }
 
-
 // RenewAgentTaskLease refreshes the lease timestamp only while the task is running
 // and belongs to the authenticated Agent.
 func (s *Store) RenewAgentTaskLease(id int64, machineCode string) (int64, error) {
