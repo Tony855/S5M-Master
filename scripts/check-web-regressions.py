@@ -12,6 +12,7 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "shared JSON decoder bounds request bodies and rejects trailing JSON values": "const maxJSONRequestBody = 2 << 20" in handlers and "io.LimitReader(r.Body, maxJSONRequestBody+1)" in handlers and "TestDecodeBoundsJSONRequestBody" in handlers_test,
     "bulk proxy import bounds request body and validates parsed proxy ports": "http.MaxBytesReader(w, r.Body, 1<<20)" in handlers and "port < 1 || port > 65535" in handlers and "a.validateProxy(p)" in import_handler,
     "proxy validation rejects unsupported protocols and normalizes supported protocol": "代理类型无效" in handlers and '"socks5", "http", "ss", "vmess", "vless", "trojan"' in handlers and "TestValidateProxyRejectsUnsupportedProtocol" in handlers_test,
     "instance creation trims and validates name, machine code, and HTTP API URL": "func validateInstance(in *Instance) string" in handlers and "url.ParseRequestURI(in.APIURL)" in handlers and "TestValidateInstance" in handlers_test,
