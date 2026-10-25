@@ -257,14 +257,13 @@ func (a *App) handleCreateContainerTask(w http.ResponseWriter, r *http.Request) 
 	if !a.requireContainerAdmin(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	var in struct {
 		MachineCode string          `json:"machine_code"`
 		Action      string          `json:"action"`
 		Params      json.RawMessage `json:"params"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, 400, "任务数据格式错误")
+	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "任务数据格式错误")
 		return
 	}
 	if strings.TrimSpace(in.MachineCode) == "" || len(in.MachineCode) > 200 {
