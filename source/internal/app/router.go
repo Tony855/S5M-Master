@@ -74,6 +74,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 	// Agent credential validator; admin endpoints remain behind the user auth.
 	mux.HandleFunc("POST /api/v1/agent/container/status", a.handleContainerAgentStatus)
 	mux.HandleFunc("GET /api/v1/agent/container/tasks/next", a.handleContainerAgentNextTask)
+	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/heartbeat", a.handleContainerAgentTaskHeartbeat)
 	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/result", a.handleContainerAgentTaskResult)
 
 	authed := map[string]http.HandlerFunc{
