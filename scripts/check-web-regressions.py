@@ -52,7 +52,7 @@ if missing_handlers:
 
 
 # Keep frontend API calls and backend route declarations in sync. This catches
-// accidental path/method drift when either the Vue UI or Go router is refactored.
+# accidental path/method drift when either the Vue UI or Go router is refactored.
 router_source = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 route_patterns = set(
     (method, path)
