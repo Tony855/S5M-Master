@@ -326,3 +326,36 @@ func TestImportProxiesRejectsOversizedBodyWith413(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
 	}
 }
+
+func TestSaveNodeConfigRejectsOversizedBodyWith413(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-oversize.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "node_oversize"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":           "global-secret",
+		"agent_machine_" + code: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	app := &App{store: store}
+	body := `{"config_yaml":"` + strings.Repeat("x", (2<<20)+1) + `"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+code+"/config", strings.NewReader(body))
+	req.SetPathValue("code", code)
+	rec := httptest.NewRecorder()
+
+	app.handleSaveNodeConfig(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(code)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg != nil {
+		t.Fatal("oversized request unexpectedly persisted a node config")
+	}
+}
