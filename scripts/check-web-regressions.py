@@ -12,7 +12,7 @@ checks = {
     "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in html and "所选机器码不是可用的 Docker Agent" in html,
     "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in html and "当前选择不是 RouterOS Agent" in html,
     "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in html and "loadSystemLogs" in html and "/api/v1/logs" in html and "/api/v1/mihomo/update" in html,
-    "backup restore has size checks and explicit destructive confirmation": "/api/v1/backup?token=" in html and "/api/v1/restore" in html and "128 MiB" in html and "确认恢复数据库" in html,
+    "backup download uses Authorization header and restore has destructive confirmation": "fetch('/api/v1/backup', { headers: authHeaders() })" in html and "/api/v1/backup?token=" not in html and "/api/v1/restore" in html and "128 MiB" in html and "确认恢复数据库" in html,
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in html and "/api/v1/config/save" in html and "/api/v1/config/publish" in html and "selectedConfigNode" in html,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
     "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in html and "retryNodeConfigSync" in html and "立即重试同步所有节点" in html,
