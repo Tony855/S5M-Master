@@ -489,6 +489,18 @@ func (a *App) Rollback(version int) (*ConfigVersion, error) {
 		return nil, fmt.Errorf("历史 YAML 损坏: %w", err)
 	}
 
+	// Proxy rows and routing rules are managed by the database. Roll back the
+	// historical global settings, but regenerate those managed sections from the
+	// current database so the live config cannot diverge from the proxy inventory.
+	managedYAML, err := a.BuildConfigForMachine("")
+	if err != nil {
+		return nil, fmt.Errorf("生成当前代理和规则失败，未回滚: %w", err)
+	}
+	yml, err = mergeManagedProxySections(yml, managedYAML)
+	if err != nil {
+		return nil, fmt.Errorf("合并当前代理和规则失败，未回滚: %w", err)
+	}
+
 	configDir := filepath.Dir(a.cfg.ConfigPath)
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return nil, fmt.Errorf("创建配置目录失败: %w", err)

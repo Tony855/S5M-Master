@@ -483,7 +483,7 @@
       <div v-if="page === 'config'">
         <div class="card-panel">
           <div class="card-title">全局配置与版本发布</div>
-          <p class="import-note">此处编辑的是全局 Mihomo YAML，与下方每台节点的独立 YAML 分开保存。保存只更新草稿；发布会生成并记录配置版本，回滚会恢复指定历史版本。</p>
+          <p class="import-note">此处编辑的是全局 Mihomo YAML，与下方每台节点的独立 YAML 分开保存。保存只更新草稿；发布会生成并记录配置版本。回滚会恢复指定版本的全局设置，但代理列表和路由规则始终以当前代理数据库为准。</p>
           <el-input v-model="globalConfigYaml" type="textarea" :rows="16" placeholder="全局 Mihomo YAML 配置..."></el-input>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
             <el-button @click="loadGlobalConfig">重新加载全局配置</el-button>
