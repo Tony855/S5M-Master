@@ -77,6 +77,43 @@ func TestBuildConfigRejectsInvalidCIDR(t *testing.T) {
 	}
 }
 
+func TestBuildConfigRejectsInvalidPersistedProxy(t *testing.T) {
+	tests := []struct {
+		name  string
+		proxy Proxy
+	}{
+		{name: "empty name", proxy: Proxy{Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 1080, Enabled: true}},
+		{name: "unsupported type", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "vmess+ws", Server: "proxy.example", Port: 1080, Enabled: true}},
+		{name: "invalid mode", proxy: Proxy{Name: "proxy-a", Mode: "unknown", Type: "socks5", Server: "proxy.example", Port: 1080, Enabled: true}},
+		{name: "empty server", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Port: 1080, Enabled: true}},
+		{name: "server contains whitespace", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy example", Port: 1080, Enabled: true}},
+		{name: "invalid port", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 65536, Enabled: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := buildConfigFromProxies([]Proxy{tt.proxy}, "", "test-secret"); err == nil {
+				t.Fatal("invalid persisted proxy should be rejected")
+			}
+		})
+	}
+}
+
+func TestBuildConfigNormalizesPersistedProxyFields(t *testing.T) {
+	proxy := Proxy{
+		Name: " proxy-a ", Mode: " proxy ", Type: " SOCKS5 ",
+		Server: " proxy.example ", Port: 1080, Enabled: true,
+	}
+	got, err := buildConfigFromProxies([]Proxy{proxy}, "", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	for _, want := range []string{"name: proxy-a", "type: socks5", "server: proxy.example"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated config missing normalized field %q:\\n%s", want, got)
+		}
+	}
+}
+
 func TestMergeManagedProxySectionsPreservesCustomSettings(t *testing.T) {
 	custom := `mode: global
 mixed-port: 7890
