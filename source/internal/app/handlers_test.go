@@ -37,7 +37,6 @@ func TestDecodeErrorStatus(t *testing.T) {
 	}
 }
 
-
 func TestDecodeLimitedRejectsOversizedAndTrailingJSON(t *testing.T) {
 	t.Run("oversized body", func(t *testing.T) {
 		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"12345"}`))
