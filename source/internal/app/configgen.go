@@ -209,10 +209,8 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 		}
 		configs[machineCode] = generated
 	}
-	for machineCode, yml := range configs {
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			return fmt.Errorf("保存机器 %s 的配置失败: %w", machineCode, err)
-		}
+	if err := a.store.SaveNodeConfigs(configs); err != nil {
+		return fmt.Errorf("批量保存节点配置失败: %w", err)
 	}
 	return nil
 }

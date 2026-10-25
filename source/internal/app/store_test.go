@@ -199,3 +199,56 @@ func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
 		t.Fatalf("repeat stale-task cleanup: changed=%d err=%v, want 0", changed, err)
 	}
 }
+
+func TestSaveNodeConfigsRollsBackWholeBatchOnFailure(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-node-config-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.SaveNodeConfigs(map[string]string{
+		"node-a": "proxies: [old-a]",
+		"node-b": "proxies: [old-b]",
+	}); err != nil {
+		t.Fatalf("seed node configs: %v", err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_node_b_update BEFORE UPDATE ON node_configs
+		WHEN OLD.machine_code = 'node-b'
+		BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	err = store.SaveNodeConfigs(map[string]string{
+		"node-a": "proxies: [new-a]",
+		"node-b": "proxies: [new-b]",
+	})
+	if err == nil {
+		t.Fatal("SaveNodeConfigs() expected simulated write failure")
+	}
+
+	for machineCode, want := range map[string]string{
+		"node-a": "proxies: [old-a]",
+		"node-b": "proxies: [old-b]",
+	} {
+		got, err := store.GetNodeConfig(machineCode)
+		if err != nil {
+			t.Fatalf("GetNodeConfig(%q): %v", machineCode, err)
+		}
+		if got == nil || got.YAML != want {
+			t.Errorf("node %q YAML = %#v, want %q; batch should roll back completely", machineCode, got, want)
+		}
+	}
+}
+
+func TestSaveNodeConfigsRejectsBlankMachineCode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "blank-machine-config-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.SaveNodeConfigs(map[string]string{"  ": "proxies: []"}); err == nil {
+		t.Fatal("SaveNodeConfigs() should reject a blank machine code")
+	}
+}
