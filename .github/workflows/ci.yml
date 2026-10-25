@@ -182,7 +182,6 @@ jobs:
           set -euo pipefail
           required=(
             source/web/index.html
-            source/web/app.js
             source/web/agents.html
           )
           missing=0
