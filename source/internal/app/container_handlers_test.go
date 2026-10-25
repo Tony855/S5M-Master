@@ -42,3 +42,29 @@ func TestValidContainerID(t *testing.T) {
 		}
 	}
 }
+
+func TestValidRouterOSContainerActionAndID(t *testing.T) {
+	for _, action := range []string{
+		"routeros.container.list",
+		"routeros.container.start",
+		"routeros.container.stop",
+		"routeros.container.restart",
+	} {
+		if !validContainerAction(action) {
+			t.Errorf("valid RouterOS action %q was rejected", action)
+		}
+	}
+	for _, id := range []string{"*1", "*A1", "*abcdef"} {
+		if !validRouterOSContainerID(id) {
+			t.Errorf("valid RouterOS ID %q was rejected", id)
+		}
+	}
+	for _, id := range []string{"", "*", "1", "*1; /system reboot", "*1/2", "*xyz"} {
+		if validRouterOSContainerID(id) {
+			t.Errorf("invalid RouterOS ID %q was accepted", id)
+		}
+	}
+	if validContainerAction("routeros.cli.exec") {
+		t.Fatal("arbitrary RouterOS CLI execution must remain disabled")
+	}
+}
