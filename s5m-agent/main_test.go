@@ -331,7 +331,6 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
-
 func TestNormalizeMachineID(t *testing.T) {
 	tests := []struct { name string; data []byte; want string }{
 		{name: "valid id", data: []byte("0123456789abcdef0123456789abcdef\n"), want: "0123456789a"},
