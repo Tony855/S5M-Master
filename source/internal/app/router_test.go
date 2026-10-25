@@ -184,7 +184,7 @@ func TestSaveGlobalConfigRejectsInvalidDraftWithoutOverwriting(t *testing.T) {
 	}
 	defer store.db.Close()
 
-	if err := store.UpdateSettings(map[string]string{"config_yaml": "mode: rule\\nmixed-port: 7890\\n"}); err != nil {
+	if err := store.UpdateSettings(map[string]string{"config_yaml": "mode: rule\nmixed-port: 7890\n"}); err != nil {
 		t.Fatalf("seed config draft: %v", err)
 	}
 	a := &App{store: store}
@@ -193,7 +193,7 @@ func TestSaveGlobalConfigRejectsInvalidDraftWithoutOverwriting(t *testing.T) {
 		"empty":       `{"config_yaml":"  "}`,
 		"invalid yaml": `{"config_yaml":"mode: [unterminated"}`,
 		"empty map":   `{"config_yaml":"{}"}`,
-		"non-object":  `{"config_yaml":"- one\\n- two"}`,
+		"non-object":  `{"config_yaml":"- one\n- two"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
@@ -206,7 +206,7 @@ func TestSaveGlobalConfigRejectsInvalidDraftWithoutOverwriting(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GetSettings: %v", err)
 			}
-			if settings["config_yaml"] != "mode: rule\\nmixed-port: 7890\\n" {
+			if settings["config_yaml"] != "mode: rule\nmixed-port: 7890\n" {
 				t.Fatalf("invalid draft overwrote saved configuration: %q", settings["config_yaml"])
 			}
 		})
@@ -238,7 +238,7 @@ func TestSaveGlobalConfigAcceptsValidDraft(t *testing.T) {
 	defer store.db.Close()
 
 	a := &App{store: store}
-	body := `{"config_yaml":"mode: rule\\nmixed-port: 7890\\ndns:\\n  enable: true"}`
+	body := `{"config_yaml":"mode: rule\nmixed-port: 7890\ndns:\n  enable: true"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
 	response := httptest.NewRecorder()
 	a.handleSaveConfig(response, req)
