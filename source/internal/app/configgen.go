@@ -338,8 +338,8 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 }
 
 // BuildConfig builds the managed default and overlays user-owned global settings.
- // The database remains authoritative for proxies and rules, while other YAML keys
- // (ports, DNS, TUN options, sniffer settings, etc.) can be customized by admins.
+// The database remains authoritative for proxies and rules, while other YAML keys
+// (ports, DNS, TUN options, sniffer settings, etc.) can be customized by admins.
 func (a *App) BuildConfig() (string, error) {
 	generated, err := a.BuildConfigForMachine("")
 	if err != nil {
