@@ -282,6 +282,12 @@ WantedBy=multi-user.target
 SERVICEEOF
 
 systemctl daemon-reload
+systemctl enable mihomo
+if ! systemctl restart mihomo; then
+  echo "❌ 主控 Mihomo 服务启动失败。请检查：journalctl -u mihomo -n 100 --no-pager" >&2
+  systemctl status mihomo --no-pager -l >&2 || true
+  exit 1
+fi
 systemctl enable "$UNIT"
 systemctl restart "$UNIT"
 
