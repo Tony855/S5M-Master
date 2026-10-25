@@ -95,3 +95,34 @@ func TestBackupEndpointRequiresBearerAuthentication(t *testing.T) {
 		t.Fatalf("unauthenticated backup request returned HTTP %d, want %d", response.Code, http.StatusUnauthorized)
 	}
 }
+
+func TestManagementEndpointsRequireAdminRole(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "role-auth.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.CreateUser("operator", "test-hash", "operator"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	operator, err := store.UserByUsername("operator")
+	if err != nil {
+		t.Fatalf("UserByUsername: %v", err)
+	}
+	a := &App{cfg: Config{DBPath: dbPath}, store: store, jwtKey: []byte("test-signing-key")}
+	token, err := a.signToken(operator)
+	if err != nil {
+		t.Fatalf("signToken: %v", err)
+	}
+
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("operator management request returned HTTP %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+}
