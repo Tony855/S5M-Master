@@ -1492,10 +1492,12 @@ createApp({
           extra = JSON.parse(proxyForm.extra_json || '{}');
         } catch (_) {
           showMsg('高级参数 JSON 格式无效，请检查后再保存', 'warning');
+          savingProxy.value = false;
           return;
         }
         if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
           showMsg('高级参数必须是 JSON 对象，例如 {"uuid":"..."}', 'warning');
+          savingProxy.value = false;
           return;
         }
         // Non-empty credential fields override JSON; empty inputs never silently erase
