@@ -35,3 +35,23 @@ func TestFindMihomoCompatibleAsset(t *testing.T) {
 		t.Fatalf("findMihomoCompatibleAsset(nil) = %q, want empty", got)
 	}
 }
+
+func TestIsGzipHeader(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{name: "gzip magic", data: []byte{0x1f, 0x8b, 0x08}, want: true},
+		{name: "HTML proxy error page", data: []byte("<h"), want: false},
+		{name: "short response", data: []byte{0x1f}, want: false},
+		{name: "empty response", data: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isGzipHeader(tt.data); got != tt.want {
+				t.Fatalf("isGzipHeader() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
