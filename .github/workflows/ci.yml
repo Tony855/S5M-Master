@@ -21,7 +21,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
       - name: Validate native installer shell syntax
-        run: bash -n scripts/install.sh
+        run: bash -n ../scripts/install.sh
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
