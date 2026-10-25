@@ -699,6 +699,7 @@ html, body, #app {
         <el-menu-item index="docker">Docker 容器</el-menu-item>
         <el-menu-item index="routeros-containers">RouterOS 容器</el-menu-item>
         <el-menu-item index="config">配置管理</el-menu-item>
+        <el-menu-item index="system">系统运维</el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -1149,6 +1150,33 @@ html, body, #app {
           <p style="color:var(--sub);font-size:12px;margin-top:10px;">每个机器码独立保存。保存后只有对应节点会获取这份 YAML；未保存配置的节点不会回退到全局 YAML。</p>
         </div>
       </div>
+
+      <div v-if="page === 'system'">
+        <div class="card-panel">
+          <div class="card-title">
+            <span>系统运维</span>
+            <el-button size="small" :loading="loadingSystemLogs" @click="loadSystemLogs">刷新日志</el-button>
+          </div>
+          <p class="import-note">显示最近 100 行 S5M 服务日志。日志读取依赖服务器上的 systemd journal 权限。</p>
+          <pre style="max-height:55vh;min-height:180px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#101828;color:#e5edf8;padding:14px;border-radius:10px;font-size:12px;">{{ systemLogs || '暂无日志，或尚未加载。点击“刷新日志”读取。' }}</pre>
+        </div>
+        <div class="card-panel">
+          <div class="card-title">数据库备份与恢复</div>
+          <p class="import-note">备份会下载 SQLite 数据库快照。恢复操作会覆盖当前数据库，请务必先备份；仅接受有效的 S5M SQLite 数据库，上传上限 128 MiB。</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <el-button type="primary" @click="downloadBackup">下载数据库备份</el-button>
+            <label class="el-button" :class="{ 'is-loading': restoringBackup }" style="margin-left:0;">
+              {{ restoringBackup ? '正在恢复…' : '选择备份并恢复' }}
+              <input type="file" accept=".db,.sqlite,.sqlite3,application/octet-stream" :disabled="restoringBackup" @change="restoreBackup" style="display:none;">
+            </label>
+          </div>
+        </div>
+        <div class="card-panel">
+          <div class="card-title">Mihomo 内核</div>
+          <p class="import-note">提交内核更新任务后，Agent 将按其现有更新流程执行。请先确认目标节点在线，并在更新后检查系统概览。</p>
+          <el-button type="primary" :loading="updatingKernel" @click="updateKernel">检查并更新 Mihomo 内核</el-button>
+        </div>
+      </div>
     </el-main>
   </el-container>
 </div>
@@ -1243,6 +1271,9 @@ createApp({
     const savingConfig = ref(false);
     const publishing = ref(false);
     const updatingKernel = ref(false);
+    const systemLogs = ref('');
+    const loadingSystemLogs = ref(false);
+    const restoringBackup = ref(false);
 
     const proxyDialog = ref(false);
     const proxyForm = reactive({ id: 0, name: '', mode: 'proxy', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
@@ -1409,6 +1440,7 @@ createApp({
         loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
       }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
+      if (v === 'system') loadSystemLogs();
     };
 
     const loadOverview = async () => {
@@ -1438,7 +1470,79 @@ createApp({
         if (res.ok) showMsg(d.message || '操作成功', 'success'); else showMsg(d.error || '更新失败', 'error');
         loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
-      updatingKernel.value = false;
+      finally { updatingKernel.value = false; }
+    };
+
+    const loadSystemLogs = async () => {
+      loadingSystemLogs.value = true;
+      try {
+        const res = await api('/api/v1/logs?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '读取系统日志失败');
+        systemLogs.value = data.logs || '';
+      } catch (e) {
+        showMsg(e.message || '读取系统日志失败', 'error');
+      } finally {
+        loadingSystemLogs.value = false;
+      }
+    };
+
+    const downloadBackup = async () => {
+      try {
+        // The current backup endpoint accepts the admin token as a query parameter.
+        const res = await fetch('/api/v1/backup?token=' + encodeURIComponent(token.value));
+        if (res.status === 401) { logout(); throw new Error('登录已失效'); }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        }
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = 's5m_backup.db';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(objectUrl);
+        showMsg('数据库备份已开始下载', 'success');
+      } catch (e) {
+        showMsg(e.message || '下载备份失败', 'error');
+      }
+    };
+
+    const restoreBackup = async (event) => {
+      const file = event && event.target && event.target.files && event.target.files[0];
+      if (!file) return;
+      // Reset the input so the same file can be selected again after an error.
+      event.target.value = '';
+      if (file.size <= 0 || file.size > 128 * 1024 * 1024) {
+        showMsg('备份文件为空或超过 128 MiB 限制', 'warning');
+        return;
+      }
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '恢复数据库会覆盖当前代理、节点、设置和任务数据。请先下载当前备份；恢复后需要重新登录。',
+          '确认恢复数据库',
+          { type: 'warning', confirmButtonText: '确认覆盖', cancelButtonText: '取消' }
+        );
+      } catch (_) {
+        return;
+      }
+      restoringBackup.value = true;
+      try {
+        const form = new FormData();
+        form.append('file', file, file.name);
+        const res = await api('/api/v1/restore', { method: 'POST', body: form });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        showMsg(data.message || '数据库恢复请求已完成，请重新登录并检查数据', 'success');
+        logout();
+      } catch (e) {
+        showMsg(e.message || '恢复数据库失败', 'error');
+      } finally {
+        restoringBackup.value = false;
+      }
     };
 
     const loadProxies = async () => {
@@ -2240,6 +2344,7 @@ const safeCopy = async (text) => {
       routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout,

@@ -11,6 +11,8 @@ checks = {
     "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in html and "同步失败" in html,
     "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in html and "所选机器码不是可用的 Docker Agent" in html,
     "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in html and "当前选择不是 RouterOS Agent" in html,
+    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in html and "loadSystemLogs" in html and "/api/v1/logs" in html and "/api/v1/mihomo/update" in html,
+    "backup restore has size checks and explicit destructive confirmation": "/api/v1/backup?token=" in html and "/api/v1/restore" in html and "128 MiB" in html and "确认恢复数据库" in html,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
