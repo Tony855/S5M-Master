@@ -68,7 +68,6 @@ COPY s5m-agent/healthcheck.sh /healthcheck.sh
 COPY s5m-agent/default-config.yaml /app/default-config.yaml
 COPY s5m-agent/cont-init.d/ /etc/cont-init.d/
 COPY s5m-agent/services/ /etc/s6-overlay/s6-rc.d/
-COPY s5m-agent/s6-overlay/user-bundles.d/ /etc/s6-overlay/user-bundles.d/
 RUN chmod 0755 /healthcheck.sh /etc/cont-init.d/10-mihomo-config \
     /etc/s6-overlay/s6-rc.d/mihomo/run \
     /etc/s6-overlay/s6-rc.d/agent/run \
