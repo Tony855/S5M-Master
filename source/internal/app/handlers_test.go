@@ -219,7 +219,6 @@ func TestValidateAgentRegistrationInput(t *testing.T) {
 	}
 }
 
-
 func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-auth-test.db"))
 	if err != nil {
