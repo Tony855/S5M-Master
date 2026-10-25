@@ -1,6 +1,7 @@
 package app
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -156,4 +157,29 @@ func TestValidateInstance(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecodeBoundsJSONRequestBody(t *testing.T) {
+	t.Run("rejects oversized body", func(t *testing.T) {
+		body := strings.NewReader(`{"value":"` + strings.Repeat("a", maxJSONRequestBody) + `"}`)
+		req := httptest.NewRequest("POST", "/", body)
+		var dst map[string]string
+		if err := decode(req, &dst); err == nil || !strings.Contains(err.Error(), "2 MiB") {
+			t.Fatalf("decode() error = %v, want request-size error", err)
+		}
+	})
+	t.Run("rejects trailing JSON value", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"ok":true} {"extra":true}`))
+		var dst map[string]bool
+		if err := decode(req, &dst); err == nil {
+			t.Fatal("decode() accepted multiple JSON values")
+		}
+	})
+	t.Run("accepts valid JSON", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"ok":true}`))
+		var dst map[string]bool
+		if err := decode(req, &dst); err != nil || !dst["ok"] {
+			t.Fatalf("decode() = %#v, %v; want valid JSON", dst, err)
+		}
+	})
 }
