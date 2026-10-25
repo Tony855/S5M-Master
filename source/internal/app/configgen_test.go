@@ -76,3 +76,46 @@ func TestBuildConfigRejectsInvalidCIDR(t *testing.T) {
 		t.Fatal("无效 CIDR 应返回错误")
 	}
 }
+
+func TestMergeManagedProxySectionsPreservesCustomSettings(t *testing.T) {
+	custom := `mode: global
+mixed-port: 7890
+dns:
+  enable: true
+proxies:
+  - name: stale-proxy
+    type: socks5
+rules:
+  - MATCH,DIRECT
+`
+	generated := `mode: rule
+mixed-port: 8080
+proxies:
+  - name: managed-proxy
+    type: http
+rules:
+  - MATCH,managed-proxy
+`
+
+	got, err := mergeManagedProxySections(custom, generated)
+	if err != nil {
+		t.Fatalf("合并全局配置失败: %v", err)
+	}
+	for _, want := range []string{"mode: global", "mixed-port: 7890", "enable: true", "managed-proxy", "MATCH,managed-proxy"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("合并配置缺少 %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "stale-proxy") || strings.Contains(got, "MATCH,DIRECT") {
+		t.Fatalf("代理数据库管理的 proxies/rules 应覆盖旧内容:\n%s", got)
+	}
+}
+
+func TestMergeManagedProxySectionsRejectsInvalidOrEmptyYAML(t *testing.T) {
+	generated := "mode: rule\nproxies: []\nrules: []\n"
+	for _, custom := range []string{"not: [valid", "[]", ""} {
+		if _, err := mergeManagedProxySections(custom, generated); err == nil {
+			t.Errorf("全局配置 %q 应返回错误", custom)
+		}
+	}
+}

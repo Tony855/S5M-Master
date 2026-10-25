@@ -337,7 +337,51 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 	return out, nil
 }
 
-func (a *App) BuildConfig() (string, error) { return a.BuildConfigForMachine("") }
+// BuildConfig builds the managed default and overlays user-owned global settings.
+// The database remains authoritative for proxies and rules, while other YAML keys
+// (ports, DNS, TUN options, sniffer settings, etc.) can be customized by admins.
+func (a *App) BuildConfig() (string, error) {
+	generated, err := a.BuildConfigForMachine("")
+	if err != nil {
+		return "", err
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("读取全局配置失败: %w", err)
+	}
+	custom := strings.TrimSpace(settings["config_yaml"])
+	if custom == "" {
+		return generated, nil
+	}
+	return mergeManagedProxySections(custom, generated)
+}
+
+// mergeManagedProxySections keeps the admin's global YAML settings but refreshes
+// proxies/rules from the authoritative proxy database before preview or publish.
+func mergeManagedProxySections(customYAML, generatedYAML string) (string, error) {
+	var customDoc map[string]any
+	if err := yaml.Unmarshal([]byte(customYAML), &customDoc); err != nil {
+		return "", fmt.Errorf("全局 YAML 语法错误: %w", err)
+	}
+	if len(customDoc) == 0 {
+		return "", fmt.Errorf("全局 YAML 必须是非空映射")
+	}
+
+	var generatedDoc map[string]any
+	if err := yaml.Unmarshal([]byte(generatedYAML), &generatedDoc); err != nil {
+		return "", fmt.Errorf("生成的 YAML 无效: %w", err)
+	}
+	for _, section := range []string{"proxies", "rules"} {
+		if value, ok := generatedDoc[section]; ok {
+			customDoc[section] = value
+		}
+	}
+	merged, err := yaml.Marshal(customDoc)
+	if err != nil {
+		return "", fmt.Errorf("序列化全局 YAML 失败: %w", err)
+	}
+	return string(merged), nil
+}
 
 func (a *App) Publish() (*ConfigVersion, error) {
 	yml, err := a.BuildConfig()
