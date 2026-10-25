@@ -315,7 +315,7 @@ func calculateMihomoSpeeds(upload, download uint64, now time.Time) (uint64, uint
 
 func collectMihomoStatus() map[string]any {
 	status := map[string]any{
-		"arch": runtime.GOARCH,
+		"arch":           runtime.GOARCH,
 		"mihomo_version": "", "mihomo_healthy": false,
 		"upload_total": int64(0), "download_total": int64(0),
 		"upload_speed": float64(0), "download_speed": float64(0),
