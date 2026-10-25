@@ -98,6 +98,8 @@ jobs:
           go-version: '1.22.x'
           cache: true
           cache-dependency-path: routeros-agent/go.mod
+      - name: Format Go source
+        run: gofmt -w .
       - name: Verify Go formatting
         shell: bash
         run: |
