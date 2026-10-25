@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -154,5 +155,30 @@ func TestMergeManagedProxySectionsRejectsInvalidOrEmptyYAML(t *testing.T) {
 		if _, err := mergeManagedProxySections(custom, generated); err == nil {
 			t.Errorf("全局配置 %q 应返回错误", custom)
 		}
+	}
+}
+
+
+func TestGetOrCreateMihomoSecretReusesConfiguredSecret(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "mihomo-secret-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	app := &App{cfg: Config{MihomoSecret: "configured-secret"}, store: store}
+	got, err := app.getOrCreateMihomoSecret("mihomo_secret_controller")
+	if err != nil {
+		t.Fatalf("getOrCreateMihomoSecret(): %v", err)
+	}
+	if got != "configured-secret" {
+		t.Fatalf("secret = %q, want configured secret", got)
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings(): %v", err)
+	}
+	if settings["mihomo_secret_controller"] != "configured-secret" {
+		t.Fatalf("persisted secret = %q, want configured secret", settings["mihomo_secret_controller"])
 	}
 }
