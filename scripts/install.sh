@@ -188,11 +188,19 @@ ENVEOF
 fi
 
 # Keep the main Mihomo controller API and its systemd service aligned with the
-# environment used by S5M-Server. Preserve an existing user configuration.
-MIHOMO_API_URL="$(grep -E '^MIHOMO_API=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+# environment used by S5M-Server. Preserve existing values, but backfill keys that
+# may be absent from older installations before reading them under `set -e`.
+if ! grep -qE '^MIHOMO_API=' "$ENV_FILE"; then
+  printf '\nMIHOMO_API=http://127.0.0.1:8088\n' >> "$ENV_FILE"
+fi
+if ! grep -qE '^MIHOMO_SECRET=' "$ENV_FILE"; then
+  printf '\nMIHOMO_SECRET=%s\n' "$(openssl rand -hex 24)" >> "$ENV_FILE"
+fi
+chmod 0600 "$ENV_FILE"
+MIHOMO_API_URL="$(awk -F= '/^MIHOMO_API=/ { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE")"
 MIHOMO_PORT="$(printf '%s' "$MIHOMO_API_URL" | sed -nE 's#^https?://[^/:]+:([0-9]+)(/.*)?$#\1#p')"
 MIHOMO_PORT="${MIHOMO_PORT:-8088}"
-MIHOMO_SECRET_VALUE="$(grep -E '^MIHOMO_SECRET=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+MIHOMO_SECRET_VALUE="$(awk -F= '/^MIHOMO_SECRET=/ { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE")"
 if [[ ! -s "$DB_DIR/config.yaml" ]]; then
   install -d -o root -g root -m 0750 "$DB_DIR"
   cat > "$DB_DIR/config.yaml" <<MIHOMO_CONFIG_EOF
