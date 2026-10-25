@@ -3,10 +3,55 @@ package main
 import (
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMihomoSecretCandidates(t *testing.T) {
+	dir := t.TempDir()
+	configPath := dir + "/config.yaml"
+	previousPath := configPath + ".previous"
+
+	if err := os.WriteFile(previousPath, []byte("secret: old-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("secret: \"new-secret\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := mihomoSecretCandidates(configPath)
+	if err != nil {
+		t.Fatalf("mihomoSecretCandidates() error = %v", err)
+	}
+	if len(got) != 2 || got[0] != "old-secret" || got[1] != "new-secret" {
+		t.Fatalf("secret candidates = %#v, want previous then current", got)
+	}
+
+	if err := os.WriteFile(previousPath, []byte("secret: same-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("secret: same-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = mihomoSecretCandidates(configPath)
+	if err != nil {
+		t.Fatalf("deduplicated candidates returned error: %v", err)
+	}
+	if len(got) != 1 || got[0] != "same-secret" {
+		t.Fatalf("duplicate secret candidates = %#v, want one unique secret", got)
+	}
+
+	if err := os.WriteFile(configPath, []byte("secret: \"\"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(previousPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mihomoSecretCandidates(configPath); err == nil {
+		t.Fatal("expected error when no valid secret exists")
+	}
+}
 
 func TestValidateCentralURL(t *testing.T) {
 	tests := []struct {
