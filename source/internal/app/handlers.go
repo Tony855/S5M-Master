@@ -37,7 +37,21 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-func decode(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
+const maxJSONRequestBody = 2 << 20
+
+func decode(r *http.Request, v any) error {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxJSONRequestBody+1))
+	if err != nil {
+		return err
+	}
+	if len(body) > maxJSONRequestBody {
+		return errors.New("请求体超过 2 MiB 限制")
+	}
+	if err := json.Unmarshal(body, v); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
