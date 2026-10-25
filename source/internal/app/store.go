@@ -536,9 +536,8 @@ func (s *Store) CancelPendingAgentTask(id int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-// FailStaleAgentTasks marks expired running tasks as failed instead of replaying
-// them automatically. This avoids duplicate side effects when an Agent crashes after
-// executing a command but before the controller receives its result.
+// FailStaleAgentTasks marks running tasks as failed when their lease heartbeat expires.
+// It does not requeue them, avoiding duplicate side effects after a lost result response.
 func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.Exec(`
@@ -547,8 +546,20 @@ func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, err
 		    error_text='Agent task lease expired; task was not automatically retried',
 		    updated_at=?, finished_at=?
 		WHERE machine_code=? AND status='running'
-		  AND claimed_at<>'' AND claimed_at < ?`,
+		  AND updated_at < ?`,
 		now, now, machineCode, staleBefore)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// RenewAgentTaskLease refreshes the lease timestamp only while the task is running
+// and belongs to the authenticated Agent.
+func (s *Store) RenewAgentTaskLease(id int64, machineCode string) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(`UPDATE agent_tasks SET updated_at=?
+		WHERE id=? AND machine_code=? AND status='running'`, now, id, machineCode)
 	if err != nil {
 		return 0, err
 	}

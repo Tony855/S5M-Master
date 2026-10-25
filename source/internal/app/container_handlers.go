@@ -108,6 +108,29 @@ func (a *App) handleContainerAgentNextTask(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"id": t.ID, "action": t.Action, "params": params, "created_at": t.CreatedAt})
 }
 
+func (a *App) handleContainerAgentTaskHeartbeat(w http.ResponseWriter, r *http.Request) {
+	code, ok := a.agentMachineCode(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "Agent 身份验证失败")
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "任务 ID 无效")
+		return
+	}
+	n, err := a.store.RenewAgentTaskLease(id, code)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "续租任务失败")
+		return
+	}
+	if n == 0 {
+		writeErr(w, http.StatusConflict, "任务不存在、不属于此节点或已结束")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (a *App) handleContainerAgentTaskResult(w http.ResponseWriter, r *http.Request) {
 	code, ok := a.agentMachineCode(r)
 	if !ok {
