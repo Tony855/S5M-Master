@@ -106,11 +106,11 @@ jobs:
           printf '%s\\n' '0123456789abcdef0123456789abcdef' > "$fake_id_file"
           chmod 0444 "$fake_id_file"
 
-          docker run -d --name "$container" --restart no \\
-            -p 127.0.0.1::80/tcp \\
-            -p 127.0.0.1::7890/tcp \\
-            -v "$data_dir:/data" \\
-            -v "$fake_id_file:/etc/machine-id:ro" \\
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -p 127.0.0.1::7890/tcp \
+            -v "$data_dir:/data" \
+            -v "$fake_id_file:/etc/machine-id:ro" \
             s5m-agent:amd64-test >/dev/null
 
           for attempt in $(seq 1 60); do
@@ -163,11 +163,11 @@ jobs:
 
           # Recreate with the same /data and machine-id bind mount.
           docker rm -f "$container" >/dev/null
-          docker run -d --name "$container" --restart no \\
-            -p 127.0.0.1::80/tcp \\
-            -p 127.0.0.1::7890/tcp \\
-            -v "$data_dir:/data" \\
-            -v "$fake_id_file:/etc/machine-id:ro" \\
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -p 127.0.0.1::7890/tcp \
+            -v "$data_dir:/data" \
+            -v "$fake_id_file:/etc/machine-id:ro" \
             s5m-agent:amd64-test >/dev/null
           for attempt in $(seq 1 60); do
             health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
