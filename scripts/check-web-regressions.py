@@ -6,6 +6,7 @@ html = Path("source/web/index.html").read_text(encoding="utf-8")
 app_js = Path("source/web/app.js").read_text(encoding="utf-8")
 configgen = Path("source/internal/app/configgen.go").read_text(encoding="utf-8")
 handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
+handlers_test = Path("source/internal/app/handlers_test.go").read_text(encoding="utf-8")
 import_handler = handlers[handlers.index("func (a *App) handleImportProxies"):handlers.index("func (a *App) handleAgentRegister")]
 rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.index("func (a *App) Rollback")+5000]
 ui = html + "\n" + app_js
