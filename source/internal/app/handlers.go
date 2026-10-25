@@ -60,6 +60,13 @@ func decode(r *http.Request, v any) error {
 	return decodeLimited(r, maxJSONRequestBody, "2 MiB", v)
 }
 
+func decodeErrorStatus(err error) int {
+	if err != nil && strings.Contains(err.Error(), "请求体超过 ") {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
+}
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
