@@ -200,6 +200,54 @@ func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
 	}
 }
 
+func TestRenewAgentTaskLeaseOnlyTouchesRunningOwnedTask(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "renew-task-lease.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	runningID, err := store.CreateAgentTask("node-1", "docker.logs", `{}`)
+	if err != nil {
+		t.Fatalf("Create running task: %v", err)
+	}
+	pendingID, err := store.CreateAgentTask("node-1", "docker.list", `{}`)
+	if err != nil {
+		t.Fatalf("Create pending task: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE agent_tasks SET status='running', updated_at=? WHERE id=?`, "2020-01-01T00:00:00Z", runningID); err != nil {
+		t.Fatalf("Set old lease: %v", err)
+	}
+
+	changed, err := store.RenewAgentTaskLease(runningID, "node-1")
+	if err != nil || changed != 1 {
+		t.Fatalf("RenewAgentTaskLease owned running task: changed=%d err=%v, want 1", changed, err)
+	}
+	var updated string
+	if err := store.db.QueryRow(`SELECT updated_at FROM agent_tasks WHERE id=?`, runningID).Scan(&updated); err != nil {
+		t.Fatalf("Read renewed lease: %v", err)
+	}
+	if updated == "2020-01-01T00:00:00Z" {
+		t.Fatal("lease timestamp was not refreshed")
+	}
+
+	for _, tc := range []struct {
+		name string
+		id int64
+		code string
+	}{
+		{name: "wrong machine", id: runningID, code: "node-2"},
+		{name: "pending task", id: pendingID, code: "node-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			changed, err := store.RenewAgentTaskLease(tc.id, tc.code)
+			if err != nil || changed != 0 {
+				t.Fatalf("RenewAgentTaskLease: changed=%d err=%v, want 0", changed, err)
+			}
+		})
+	}
+}
+
 func TestSaveNodeConfigsRollsBackWholeBatchOnFailure(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-node-config-test.db"))
 	if err != nil {
