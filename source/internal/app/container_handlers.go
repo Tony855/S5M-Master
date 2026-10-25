@@ -16,7 +16,6 @@ func (a *App) handleContainerAgentStatus(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusUnauthorized, "Agent 身份验证失败")
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 32768)
 	var in struct {
 		Hostname        string          `json:"hostname"`
 		OS              string          `json:"os"`
