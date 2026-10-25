@@ -69,22 +69,27 @@
       </el-dialog>
 
       <el-dialog v-model="kernelUpdateDialog" title="更新节点 Mihomo 内核" width="min(620px, 94vw)" :close-on-click-modal="false">
-        <p class="import-note">目标节点：<strong>{{ kernelUpdateMachineCode }}</strong>。更新命令会进入该 Agent 的待执行队列；Agent 在线时会下载文件、校验 SHA-256，并测试新内核及当前配置后再应用。</p>
-        <el-form label-position="top">
-          <el-form-item label="目标版本" required>
-            <el-input v-model="kernelUpdateVersion" placeholder="例如 v1.19.31（填写官方版本）" />
-          </el-form-item>
-          <el-form-item label="官方 Release 压缩包 SHA-256" required>
-            <el-input v-model="kernelUpdateSHA256" maxlength="64" placeholder="64 位十六进制 SHA-256" />
-          </el-form-item>
-        </el-form>
-        <p class="section-hint">请从 Mihomo 官方 GitHub Release 核对对应架构的 .gz 文件及 SHA-256。amd64 常用文件名为 mihomo-linux-amd64-compatible-版本.gz；arm64 为 mihomo-linux-arm64-版本.gz。不要使用未经核实的校验值。</p>
+        <p class="import-note">目标节点：<strong>{{ kernelUpdateMachineCode }}</strong>。系统自动查询 Mihomo 官方最新稳定版，并根据节点架构选择发行文件、计算 SHA-256。</p>
+        <div v-if="kernelUpdateInfoLoading" class="empty-state">正在查询官方稳定版本并校验发行文件…</div>
+        <div v-else-if="kernelUpdateInfo && kernelUpdateInfo.error" class="empty-state error-state">
+          {{ kernelUpdateInfo.error }}
+          <div style="margin-top:10px"><el-button size="small" @click="loadAgentKernelUpdateInfo">重新查询</el-button></div>
+        </div>
+        <div v-else-if="kernelUpdateInfo" class="node-update-summary">
+          <div class="instance-link-summary">
+            <span>当前版本：<strong>{{ kernelUpdateInfo.current_version || '尚未上报' }}</strong></span>
+            <span>官方稳定版：<strong>{{ kernelUpdateInfo.latest_version }}</strong></span>
+            <span>节点架构：<strong>{{ kernelUpdateInfo.arch }}</strong></span>
+          </div>
+          <p class="section-hint">发行文件：{{ kernelUpdateInfo.asset_name }}</p>
+          <p class="section-hint">SHA-256 已由主控从官方发行文件计算；Agent 执行时仍会自行校验并测试新内核。</p>
+        </div>
         <template #footer>
           <el-button @click="kernelUpdateDialog = false">取消</el-button>
-          <el-button type="primary" :loading="queueingKernelUpdate" @click="queueAgentKernelUpdate">验证并排队更新</el-button>
+          <el-button @click="loadAgentKernelUpdateInfo" :disabled="kernelUpdateInfoLoading || queueingKernelUpdate">重新检查版本</el-button>
+          <el-button type="primary" :loading="queueingKernelUpdate" :disabled="kernelUpdateInfoLoading || !kernelUpdateInfo || !!kernelUpdateInfo.error || !kernelUpdateSHA256" @click="queueAgentKernelUpdate">一键更新</el-button>
         </template>
       </el-dialog>
-
       <div v-if="page === 'dashboard'">
         <div class="grid-cards">
           <div class="stat-card"><div class="stat-title">Agent 在线节点</div><div class="stat-value">{{ overview.remote_online || 0 }} <span class="stat-total">/ {{ overview.remote_node_total || 0 }}</span></div><div class="section-hint">已连接的远程实例</div></div>
