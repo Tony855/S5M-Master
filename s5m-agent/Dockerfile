@@ -37,14 +37,14 @@ RUN set -eux; \
 FROM alpine:${ALPINE_VERSION} AS runtime
 RUN apk add --no-cache ca-certificates tzdata tini \
     && addgroup -S s5m && adduser -S -D -H -G s5m s5m \
-    && mkdir -p /data /opt/s5m-agent
+    && mkdir -p /data /app
 WORKDIR /app
 COPY --from=agent-builder /out/s5m-agent /app/s5m-agent
 COPY --from=mihomo-fetch /usr/local/bin/mihomo /usr/local/bin/mihomo
-COPY s5m-agent/index.html /opt/s5m-agent/index.html
+COPY s5m-agent/index.html /app/index.html
 COPY s5m-agent/entrypoint.sh /entrypoint.sh
 COPY s5m-agent/healthcheck.sh /healthcheck.sh
-COPY s5m-agent/default-config.yaml /opt/s5m/default-config.yaml
+COPY s5m-agent/default-config.yaml /app/default-config.yaml
 RUN chmod 0755 /entrypoint.sh /healthcheck.sh
 ENV S5M_AGENT_PORT=81 \
     MIHOMO_HOME=/data \
