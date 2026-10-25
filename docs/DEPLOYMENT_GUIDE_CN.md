@@ -138,7 +138,7 @@ sudo docker run -d \
 - `/data` 是持久化目录，保存 `config.yaml`、绑定凭据等；不要在普通升级时删除。
 - 不要添加 `-p 8088:8088`。Mihomo 控制 API 不应暴露到宿主机公网。
 - 如果该节点不需要给其他设备提供代理服务，可删掉 `-p 7890:7890`。
-- 若端口 80 已被占用，可改成 `-p 18080:80`，随后通过 `http://节点IP:18081/` 访问。
+- 若端口 80 已被占用，可改成 `-p 18080:80`，随后通过 `http://节点IP:18080/` 访问。
 - 若 Docker 守护进程以 root 运行，宿主机目录权限应允许容器运行用户写入。若日志报 `permission denied`，先检查目录权限和容器日志，不要直接将目录权限改为全局可写。
 
 ### 5.4 验证 Agent 容器
@@ -159,7 +159,7 @@ curl -fsS http://127.0.0.1:80/api/config
 只向管理网或可信管理员 IP 开放 80/TCP；7890/TCP 是否开放取决于代理用途。示例（UFW，先确认 SSH 管理端口已放行，避免锁死远程连接）：
 
 ```bash
-sudo ufw allow from ADMIN_PUBLIC_IP to any port 81 proto tcp
+sudo ufw allow from ADMIN_PUBLIC_IP to any port 80 proto tcp
 # 只有确实需要对外提供代理时才开放：
 sudo ufw allow 7890/tcp
 sudo ufw status numbered
