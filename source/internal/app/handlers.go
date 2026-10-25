@@ -486,19 +486,30 @@ func (a *App) handleMihomoStatus(w http.ResponseWriter, _ *http.Request) {
 		out["binary_error"] = "目标不是可执行的普通文件"
 	} else if versionOutput, err := exec.Command(binaryPath, "-v").CombinedOutput(); err != nil {
 		out["binary_error"] = strings.TrimSpace(string(versionOutput))
-		if out["binary_error"] == "" { out["binary_error"] = err.Error() }
+		if out["binary_error"] == "" {
+			out["binary_error"] = err.Error()
+		}
 	} else {
 		version := parseMihomoVersion(versionOutput)
 		out["version"] = version
 		out["binary_ok"] = version != "unknown"
-		if version == "unknown" { out["binary_error"] = "版本输出无法识别: " + strings.TrimSpace(string(versionOutput)) }
+		if version == "unknown" {
+			out["binary_error"] = "版本输出无法识别: " + strings.TrimSpace(string(versionOutput))
+		}
 	}
 	serviceOutput, serviceErr := exec.Command("systemctl", "is-active", "mihomo").CombinedOutput()
 	serviceState := strings.TrimSpace(string(serviceOutput))
-	if serviceState == "" && serviceErr != nil { serviceState = "unknown" }
+	if serviceState == "" && serviceErr != nil {
+		serviceState = "unknown"
+	}
 	out["service"] = serviceState
 	out["service_error"] = ""
-	if serviceErr != nil { out["service_error"] = strings.TrimSpace(string(serviceOutput)); if out["service_error"] == "" { out["service_error"] = serviceErr.Error() } }
+	if serviceErr != nil {
+		out["service_error"] = strings.TrimSpace(string(serviceOutput))
+		if out["service_error"] == "" {
+			out["service_error"] = serviceErr.Error()
+		}
+	}
 	out["online"] = out["binary_ok"] == true && serviceState == "active"
 	writeJSON(w, http.StatusOK, out)
 }
