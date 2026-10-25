@@ -1132,6 +1132,39 @@ html, body, #app {
 
       <div v-if="page === 'config'">
         <div class="card-panel">
+          <div class="card-title">全局配置与版本发布</div>
+          <p class="import-note">此处编辑的是全局 Mihomo YAML，与下方每台节点的独立 YAML 分开保存。保存只更新草稿；发布会生成并记录配置版本，回滚会恢复指定历史版本。</p>
+          <el-input v-model="globalConfigYaml" type="textarea" :rows="16" placeholder="全局 Mihomo YAML 配置..."></el-input>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+            <el-button @click="loadGlobalConfig">重新加载全局配置</el-button>
+            <el-button @click="saveGlobalConfig" :loading="savingGlobalConfig">保存草稿</el-button>
+            <el-button type="primary" @click="publishGlobalConfig" :loading="publishingGlobalConfig">保存并发布</el-button>
+          </div>
+          <div class="subsection-heading" style="margin-top:24px;">
+            <span>历史配置版本</span>
+            <el-button size="small" :loading="loadingConfigVersions" @click="loadConfigVersions">刷新版本</el-button>
+          </div>
+          <el-table :data="configVersions" v-loading="loadingConfigVersions" class="desktop-table" empty-text="暂无已发布的配置版本">
+            <el-table-column prop="version" label="版本" width="90">
+              <template #default="scope">v{{ scope.row.version }}</template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="120"></el-table-column>
+            <el-table-column prop="sha256" label="SHA-256" min-width="180" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="created_at" label="创建时间" min-width="170"></el-table-column>
+            <el-table-column label="操作" width="110" fixed="right">
+              <template #default="scope">
+                <el-button size="small" type="warning" @click="rollbackGlobalConfig(scope.row)">回滚</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="proxy-mobile-card" v-for="item in configVersions" :key="item.version">
+            <div class="proxy-mobile-row"><span class="proxy-mobile-label">版本</span><strong class="proxy-mobile-value">v{{ item.version }}</strong></div>
+            <div class="proxy-mobile-row"><span class="proxy-mobile-label">状态</span><span class="proxy-mobile-value">{{ item.status || '—' }}</span></div>
+            <div class="proxy-mobile-row"><span class="proxy-mobile-label">创建时间</span><span class="proxy-mobile-value">{{ item.created_at || '—' }}</span></div>
+            <div class="proxy-mobile-actions"><el-button size="small" type="warning" @click="rollbackGlobalConfig(item)">回滚到此版本</el-button></div>
+          </div>
+        </div>
+        <div class="card-panel">
           <div class="card-title">客户端订阅链接</div>
           <el-input v-model="subUrl" readonly style="margin-bottom: 20px;"><template #prepend>订阅地址</template></el-input>
           <div class="card-title" style="margin-top: 30px;">节点独立配置 (YAML)</div>
@@ -1266,6 +1299,11 @@ createApp({
     });
 
     const subUrl = ref('');
+    const globalConfigYaml = ref('');
+    const savingGlobalConfig = ref(false);
+    const publishingGlobalConfig = ref(false);
+    const loadingConfigVersions = ref(false);
+    const configVersions = ref([]);
     const configYaml = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
@@ -1439,7 +1477,7 @@ createApp({
         if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
         loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
       }
-      if (v === 'config') { loadAgentsData(); loadSettings(); }
+      if (v === 'config') { loadAgentsData(); loadSettings(); loadGlobalConfig(); loadConfigVersions(); }
       if (v === 'system') loadSystemLogs();
     };
 
@@ -2276,6 +2314,99 @@ const safeCopy = async (text) => {
       } catch (e) { console.warn(e); }
     };
 
+    const loadGlobalConfig = async () => {
+      try {
+        const res = await api('/api/v1/config/preview?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '读取全局配置失败');
+        globalConfigYaml.value = data.config_yaml || data.yaml || data.yaml_text || '';
+      } catch (e) {
+        showMsg(e.message || '读取全局配置失败', 'error');
+      }
+    };
+
+    const saveGlobalConfig = async () => {
+      if (!globalConfigYaml.value.trim()) return showMsg('全局配置不能为空', 'warning');
+      savingGlobalConfig.value = true;
+      try {
+        const res = await api('/api/v1/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: globalConfigYaml.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '保存全局配置失败');
+        showMsg(data.message || '全局配置草稿已保存', 'success');
+      } catch (e) {
+        showMsg(e.message || '保存全局配置失败', 'error');
+      } finally {
+        savingGlobalConfig.value = false;
+      }
+    };
+
+    const loadConfigVersions = async () => {
+      loadingConfigVersions.value = true;
+      try {
+        const res = await api('/api/v1/config/versions?t=' + Date.now());
+        const data = await res.json().catch(() => []);
+        if (!res.ok) throw new Error(data.error || data.message || '读取配置版本失败');
+        configVersions.value = Array.isArray(data) ? data : [];
+      } catch (e) {
+        showMsg(e.message || '读取配置版本失败', 'error');
+      } finally {
+        loadingConfigVersions.value = false;
+      }
+    };
+
+    const publishGlobalConfig = async () => {
+      if (!globalConfigYaml.value.trim()) return showMsg('全局配置不能为空', 'warning');
+      publishingGlobalConfig.value = true;
+      try {
+        const saveRes = await api('/api/v1/config/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: globalConfigYaml.value })
+        });
+        const saveData = await saveRes.json().catch(() => ({}));
+        if (!saveRes.ok) throw new Error(saveData.error || saveData.message || '保存全局配置失败');
+        const res = await api('/api/v1/config/publish', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.message || data.error || '发布全局配置失败');
+        showMsg(data.message || '全局配置已发布', 'success');
+        await loadConfigVersions();
+      } catch (e) {
+        showMsg(e.message || '发布全局配置失败', 'error');
+      } finally {
+        publishingGlobalConfig.value = false;
+      }
+    };
+
+    const rollbackGlobalConfig = async (row) => {
+      if (!row || !Number(row.version)) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确定回滚到配置版本 v' + row.version + '？这会替换当前发布配置。',
+          '确认回滚配置',
+          { type: 'warning', confirmButtonText: '确认回滚', cancelButtonText: '取消' }
+        );
+      } catch (_) {
+        return;
+      }
+      try {
+        const res = await api('/api/v1/config/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ version: Number(row.version) })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.message || data.error || '回滚失败');
+        showMsg(data.message || ('已回滚到 v' + row.version), 'success');
+        await Promise.all([loadGlobalConfig(), loadConfigVersions()]);
+      } catch (e) {
+        showMsg(e.message || '回滚配置失败', 'error');
+      }
+    };
+
     const loadSettings = async () => {
       try {
         const res = await api('/api/v1/settings?t=' + Date.now());
@@ -2343,7 +2474,9 @@ const safeCopy = async (text) => {
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
       routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
-      subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      subUrl, globalConfigYaml, savingGlobalConfig, publishingGlobalConfig, loadingConfigVersions, configVersions,
+      saveGlobalConfig, publishGlobalConfig, loadGlobalConfig, loadConfigVersions, rollbackGlobalConfig,
+      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
