@@ -200,7 +200,6 @@ func TestFailStaleAgentTasksDoesNotRequeueOrTouchOtherTasks(t *testing.T) {
 	}
 }
 
-
 func TestSaveNodeConfigsRollsBackWholeBatchOnFailure(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-node-config-test.db"))
 	if err != nil {
