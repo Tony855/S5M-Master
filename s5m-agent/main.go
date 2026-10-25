@@ -171,70 +171,87 @@ func rollbackConfigAfterReloadFailure() error {
 	return nil
 }
 
-func reloadMihomo() error {
-	configPath := mihomoConfigPath()
-	configData, err := os.ReadFile(configPath)
-	if err != nil {
-		return fmt.Errorf("读取 Mihomo 配置失败: %w", err)
-	}
-	var config map[string]interface{}
-	if err := yaml.Unmarshal(configData, &config); err != nil {
-		return fmt.Errorf("解析 Mihomo 配置失败: %w", err)
-	}
-	// Mihomo 当前运行进程仍使用旧配置的 secret 来认证本次重载。
-	// 配置切换时先从 .previous 读取旧 secret；重载成功后调用方才删除备份。
-	secret := ""
+// mihomoSecretCandidates returns unique secrets in previous-then-current order.
+// During a config transition, the running core may still accept the old secret,
+// or it may already have applied the new one despite a lost/ambiguous response.
+func mihomoSecretCandidates(configPath string) ([]string, error) {
+	seen := make(map[string]struct{}, 2)
+	secrets := make([]string, 0, 2)
 	for _, path := range []string{configPath + ".previous", configPath} {
-		data, readErr := os.ReadFile(path)
-		if readErr != nil {
+		data, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
 		var candidate map[string]interface{}
-		if yaml.Unmarshal(data, &candidate) == nil {
-			if value, ok := candidate["secret"].(string); ok && strings.TrimSpace(value) != "" {
-				secret = strings.TrimSpace(value)
-				break
-			}
+		if err := yaml.Unmarshal(data, &candidate); err != nil {
+			continue
 		}
+		value, ok := candidate["secret"].(string)
+		secret := strings.TrimSpace(value)
+		if !ok || secret == "" {
+			continue
+		}
+		if _, exists := seen[secret]; exists {
+			continue
+		}
+		seen[secret] = struct{}{}
+		secrets = append(secrets, secret)
 	}
-	if secret == "" {
-		return fmt.Errorf("当前 Mihomo 配置和备份均没有有效 secret，无法执行重载")
+	if len(secrets) == 0 {
+		return nil, fmt.Errorf("当前 Mihomo 配置和备份均没有有效 secret")
 	}
+	return secrets, nil
+}
 
-	reloadBody := strings.NewReader(
-		fmt.Sprintf(`{"path": %q}`, mihomoConfigPath()),
-	)
-
-	reloadReq, err := http.NewRequest(
-		http.MethodPut,
-		"http://127.0.0.1:8088/configs?force=true",
-		reloadBody,
-	)
+func reloadMihomo() error {
+	configPath := mihomoConfigPath()
+	secrets, err := mihomoSecretCandidates(configPath)
 	if err != nil {
-		return fmt.Errorf("创建 Mihomo 重载请求失败: %w", err)
+		return fmt.Errorf("无法确定 Mihomo API 鉴权密钥: %w", err)
 	}
-
-	reloadReq.Header.Set("Content-Type", "application/json")
-	reloadReq.Header.Set("Authorization", "Bearer "+secret)
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	reloadResp, err := client.Do(reloadReq)
-	if err != nil {
-		return fmt.Errorf("请求 Mihomo 重载失败: %w", err)
-	}
-	defer reloadResp.Body.Close()
+	var lastUnauthorized string
+	for _, secret := range secrets {
+		reloadBody := strings.NewReader(
+			fmt.Sprintf(`{"path": %q}`, configPath),
+		)
+		reloadReq, err := http.NewRequest(
+			http.MethodPut,
+			"http://127.0.0.1:8088/configs?force=true",
+			reloadBody,
+		)
+		if err != nil {
+			return fmt.Errorf("创建 Mihomo 重载请求失败: %w", err)
+		}
+		reloadReq.Header.Set("Content-Type", "application/json")
+		reloadReq.Header.Set("Authorization", "Bearer "+secret)
 
-	responseBody, _ := io.ReadAll(io.LimitReader(reloadResp.Body, 4096))
-	if reloadResp.StatusCode != http.StatusOK &&
-		reloadResp.StatusCode != http.StatusNoContent {
+		reloadResp, err := client.Do(reloadReq)
+		if err != nil {
+			return fmt.Errorf("请求 Mihomo 重载失败: %w", err)
+		}
+		responseBody, _ := io.ReadAll(io.LimitReader(reloadResp.Body, 4096))
+		statusCode := reloadResp.StatusCode
+		_ = reloadResp.Body.Close()
+
+		if statusCode == http.StatusOK || statusCode == http.StatusNoContent {
+			return nil
+		}
+		if statusCode == http.StatusUnauthorized {
+			lastUnauthorized = strings.TrimSpace(string(responseBody))
+			continue
+		}
 		return fmt.Errorf(
 			"Mihomo 重载返回 HTTP %d: %s",
-			reloadResp.StatusCode,
+			statusCode,
 			strings.TrimSpace(string(responseBody)),
 		)
 	}
-
-	return nil
+	if lastUnauthorized == "" {
+		lastUnauthorized = http.StatusText(http.StatusUnauthorized)
+	}
+	return fmt.Errorf("Mihomo 重载鉴权失败：已尝试旧配置和当前配置的有效密钥，最后返回 HTTP 401: %s", lastUnauthorized)
 }
 
 var mihomoSpeedMu sync.Mutex
