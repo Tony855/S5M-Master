@@ -190,10 +190,10 @@ func TestSaveGlobalConfigRejectsInvalidDraftWithoutOverwriting(t *testing.T) {
 	a := &App{store: store}
 
 	for name, body := range map[string]string{
-		"empty":       `{"config_yaml":"  "}`,
+		"empty":        `{"config_yaml":"  "}`,
 		"invalid yaml": `{"config_yaml":"mode: [unterminated"}`,
-		"empty map":   `{"config_yaml":"{}"}`,
-		"non-object":  `{"config_yaml":"- one\n- two"}`,
+		"empty map":    `{"config_yaml":"{}"}`,
+		"non-object":   `{"config_yaml":"- one\n- two"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
