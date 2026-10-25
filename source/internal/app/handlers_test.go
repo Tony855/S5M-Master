@@ -535,3 +535,28 @@ func TestRunningMihomoAPIVersionRejectsUnavailableController(t *testing.T) {
 		t.Fatalf("runningMihomoAPIVersion() = %q, nil error; want API error", version)
 	}
 }
+
+
+func TestDecodeLimitedRejectsTrailingJSONAndOversizedBodies(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		max  int64
+		want string
+	}{
+		{name: "trailing JSON value", body: `{"status":"succeeded"} {}`, max: 128, want: "invalid character"},
+		{name: "oversized body", body: `{"status":"succeeded"}`, max: 8, want: "超过"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(tc.body))
+			var payload map[string]any
+			err := decodeLimited(req, tc.max, "test limit", &payload)
+			if err == nil {
+				t.Fatal("decodeLimited() succeeded, want error")
+				}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("decodeLimited() error = %q, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
