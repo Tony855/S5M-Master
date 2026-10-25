@@ -40,6 +40,11 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 			want: "运行模式无效",
 		},
 		{
+			name: "unsupported direct mode",
+			proxy: Proxy{Name: "proxy-a", Mode: "direct"},
+			want: "运行模式无效",
+		},
+		{
 			name: "zero port",
 			proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "example.com", Port: 0},
 			want: "代理端口必须在 1–65535 之间",
