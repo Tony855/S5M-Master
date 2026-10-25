@@ -97,6 +97,7 @@ createApp({
     const kernelUpdateSHA256 = ref('');
     const queueingKernelUpdate = ref(false);
     const systemLogs = ref('');
+    const mainMihomoStatus = ref({ loading: false, version: '未知', service: 'unknown', online: false, binary_path: '/opt/mihomo/mihomo' });
     const loadingSystemLogs = ref(false);
     const restoringBackup = ref(false);
 
@@ -265,7 +266,7 @@ createApp({
         loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
       }
       if (v === 'config') { loadAgentsData(); loadSettings(); loadGlobalConfig(); loadConfigVersions(); }
-      if (v === 'system') loadSystemLogs();
+      if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }
     };
 
     const loadOverview = async () => {
@@ -306,6 +307,18 @@ createApp({
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
+    };
+
+    const loadMainMihomoStatus = async () => {
+      mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: true };
+      try {
+        const res = await api('/api/v1/mihomo/status?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '读取主控 Mihomo 状态失败');
+        mainMihomoStatus.value = { ...data, loading: false };
+      } catch (e) {
+        mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: false, online: false, queryError: e.message || '状态查询失败' };
+      }
     };
 
     const loadSystemLogs = async () => {
@@ -1296,6 +1309,7 @@ const safeCopy = async (text) => {
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate,
       openAgentKernelUpdate, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout, loadOverview,
