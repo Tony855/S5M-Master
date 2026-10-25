@@ -327,7 +327,6 @@ func TestImportProxiesRejectsOversizedBodyWith413(t *testing.T) {
 	}
 }
 
-
 func TestSaveNodeConfigRejectsOversizedBodyWith413(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-oversize.db"))
 	if err != nil {
