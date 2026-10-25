@@ -385,15 +385,25 @@ func TestLoadOrCreateMachineIDFallbackIsStableAcrossRestart(t *testing.T) {
 	systemPath := filepath.Join(dir, "missing-machine-id")
 	storagePath := filepath.Join(dir, "persistent-data", "machine-id")
 	first, err := loadOrCreateMachineID(systemPath, storagePath)
-	if err != nil { t.Fatal(err) }
-	if len(first) != 11 { t.Fatalf("machine ID length = %d, want 11", len(first)) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 11 {
+		t.Fatalf("machine ID length = %d, want 11", len(first))
+	}
 	info, err := os.Stat(storagePath)
-	if err != nil { t.Fatalf("fallback was not persisted: %v", err) }
-	if info.Mode().Perm() != 0600 { t.Fatalf("fallback permissions = %o, want 600", info.Mode().Perm()) }
+	if err != nil {
+		t.Fatalf("fallback was not persisted: %v", err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("fallback permissions = %o, want 600", info.Mode().Perm())
+	}
 	// A second invocation simulates restart while /data stays mounted.
 	second, err := loadOrCreateMachineID(systemPath, storagePath)
 	if err != nil { t.Fatal(err) }
-	if first != second { t.Fatalf("machine ID changed after restart: %q != %q", first, second) }
+	if first != second {
+		t.Fatalf("machine ID changed after restart: %q != %q", first, second)
+	}
 }
 
 func TestLoadOrCreateMachineIDReplacesEmptyPersistedFallback(t *testing.T) {
@@ -425,9 +435,13 @@ func TestLoadOrCreateMachineIDReplacesEmptyPersistedFallback(t *testing.T) {
 func TestLoadOrCreateMachineIDRejectsUnwritableStorage(t *testing.T) {
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "not-a-directory")
-	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	_, err := loadOrCreateMachineID(filepath.Join(dir, "missing"), filepath.Join(blocker, "machine-id"))
-	if err == nil { t.Fatal("expected a clear storage error") }
+	if err == nil {
+		t.Fatal("expected a clear storage error")
+	}
 }
 
 func TestMachineIDHandler(t *testing.T) {
@@ -435,12 +449,20 @@ func TestMachineIDHandler(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/machine-id", nil)
 	rec := httptest.NewRecorder()
 	machineIDHandler(rec, req)
-	if rec.Code != http.StatusOK { t.Fatalf("GET status = %d, body=%s", rec.Code, rec.Body.String()) }
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, body=%s", rec.Code, rec.Body.String())
+	}
 	var result map[string]string
-	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil { t.Fatal(err) }
-	if len(result["machine_id"]) != 11 { t.Fatalf("unexpected response: %#v", result) }
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result["machine_id"]) != 11 {
+		t.Fatalf("unexpected response: %#v", result)
+	}
 	req = httptest.NewRequest(http.MethodPost, "/api/machine-id", nil)
 	rec = httptest.NewRecorder()
 	machineIDHandler(rec, req)
-	if rec.Code != http.StatusMethodNotAllowed { t.Fatalf("POST status = %d, want 405", rec.Code) }
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST status = %d, want 405", rec.Code)
+	}
 }
