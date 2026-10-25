@@ -1197,7 +1197,7 @@ createApp({
       });
     });
     const routerOSAgentEntries = computed(() => agentEntries.value.filter(item => item.os === 'routeros'));
-    const dockerAgentEntries = computed(() => agentEntries.value.filter(item => item.os !== 'routeros' && item.dockerAvailable));
+    const dockerAgentEntries = computed(() => agentEntries.value.filter(item => item.os !== 'routeros'));
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const routerosLoading = ref(false);
