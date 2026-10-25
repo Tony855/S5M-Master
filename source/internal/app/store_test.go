@@ -233,7 +233,7 @@ func TestRenewAgentTaskLeaseOnlyTouchesRunningOwnedTask(t *testing.T) {
 
 	for _, tc := range []struct {
 		name string
-		id int64
+		id   int64
 		code string
 	}{
 		{name: "wrong machine", id: runningID, code: "node-2"},
