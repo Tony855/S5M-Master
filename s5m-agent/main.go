@@ -285,14 +285,13 @@ func collectMihomoStatus() map[string]any {
 		status["last_error"] = "读取 Mihomo 版本失败: " + err.Error()
 		return status
 	}
-	status["mihomo_version"] = version["version"]
-	traffic, err := get("/traffic")
-	if err == nil {
-		status["upload_speed"] = traffic["up"]
-		status["download_speed"] = traffic["down"]
-	} else {
-		status["last_error"] = "读取流量失败: " + err.Error()
+	versionText, ok := version["version"].(string)
+	if !ok || strings.TrimSpace(versionText) == "" {
+		status["last_error"] = "读取 Mihomo 版本失败: /version 响应缺少有效 version 字段"
+		return status
 	}
+	status["mihomo_version"] = versionText
+	status["mihomo_healthy"] = true
 	connections, err := get("/connections")
 	if err == nil {
 		items, _ := connections["connections"].([]any)
@@ -302,7 +301,6 @@ func collectMihomoStatus() map[string]any {
 	} else if status["last_error"] == "" {
 		status["last_error"] = "读取连接数失败: " + err.Error()
 	}
-	status["mihomo_healthy"] = true
 	return status
 }
 
