@@ -301,7 +301,6 @@ func TestSaveNodeConfigsRejectsBlankMachineCode(t *testing.T) {
 	}
 }
 
-
 func TestCreateSettingIfAbsentDoesNotOverwritePendingCommand(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-setting-test.db"))
 	if err != nil {
