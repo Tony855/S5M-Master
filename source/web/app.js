@@ -571,7 +571,9 @@ createApp({
         if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
         const success = Number(data.success) || 0;
         const fail = Number(data.fail) || 0;
-        if (success === 0) {
+        if (data.sync_failed) {
+          showMsg(`代理导入已完成：成功 ${success} 条，失败 ${fail} 条。${data.message || ''}。请进入配置管理点击“立即重试同步所有节点”。`, 'warning');
+        } else if (success === 0) {
           showMsg(data.message || '没有成功导入节点，请检查格式和服务端日志', 'warning');
         } else if (fail > 0) {
           showMsg(`导入完成：成功 ${success} 条，失败 ${fail} 条。${data.message || ''}`, 'warning');
