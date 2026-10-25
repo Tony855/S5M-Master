@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -419,5 +420,40 @@ func TestParseProxyImportContentRejectsMalformedJSON(t *testing.T) {
 	proxies, failures := parseProxyImportContent(`{"protocol":"socks5","servers":[`)
 	if len(proxies) != 0 || len(failures) == 0 {
 		t.Fatalf("expected malformed JSON failure, got proxies=%v failures=%v", proxies, failures)
+	}
+}
+
+
+func TestWaitForMihomoAPIVersionConfirmsRunningVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/version" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"v1.2.3"}`))
+	}))
+	defer server.Close()
+
+	app := &App{cfg: Config{MihomoAPI: server.URL}}
+	if err := app.waitForMihomoAPIVersion("v1.2.3", time.Second); err != nil {
+		t.Fatalf("waitForMihomoAPIVersion() unexpected error: %v", err)
+	}
+}
+
+func TestWaitForMihomoAPIVersionRejectsWrongRunningVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"v1.2.2"}`))
+	}))
+	defer server.Close()
+
+	app := &App{cfg: Config{MihomoAPI: server.URL}}
+	err := app.waitForMihomoAPIVersion("v1.2.3", 25*time.Millisecond)
+	if err == nil {
+		t.Fatal("waitForMihomoAPIVersion() accepted a mismatched running version")
+	}
+	if !strings.Contains(err.Error(), "运行版本不匹配") {
+		t.Fatalf("error = %q, want version mismatch diagnostic", err)
 	}
 }
