@@ -455,16 +455,78 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 		connections = []any{}
 	}
 
+	// Remote Agent telemetry is stored separately from the controller's own Mihomo
+	// overview. Include it explicitly because the dashboard renders remote_nodes.
+	remoteNodes := make([]map[string]any, 0)
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr == nil {
+		now := time.Now().Unix()
+		for key := range settings {
+			if !strings.HasPrefix(key, "agent_machine_") {
+				continue
+			}
+			code := strings.TrimPrefix(key, "agent_machine_")
+			if code == "" {
+				continue
+			}
+			lastSeen, _ := strconv.ParseInt(settings["agent_lastseen_"+code], 10, 64)
+			status := map[string]any{}
+			if raw := settings["agent_status_"+code]; raw != "" {
+				_ = json.Unmarshal([]byte(raw), &status)
+			}
+			online := lastSeen > 0 && now-lastSeen < 90
+			healthy, _ := status["mihomo_healthy"].(bool)
+			apiOnline := healthy
+			remoteNodes = append(remoteNodes, map[string]any{
+				"machine_code":      code,
+				"online":            online,
+				"healthy":           online && healthy,
+				"mihomo_api_online": online && apiOnline,
+				"mihomo_version":    status["mihomo_version"],
+				"connections":       status["connections"],
+				"downloadSpeed":     status["download_speed"],
+				"uploadSpeed":       status["upload_speed"],
+				"downloadTotal":     status["download_total"],
+				"uploadTotal":       status["upload_total"],
+				"last_seen":         lastSeen,
+				"last_error":        status["last_error"],
+			})
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"mihomo":        mihomo,
-		"total":         len(list),
-		"enabled":       enabled,
-		"proxy_total":   len(list),
-		"proxy_enabled": enabled,
-		"downloadTotal": downloadTotal,
-		"uploadTotal":   uploadTotal,
-		"connections":   connections,
+		"mihomo":         mihomo,
+		"total":          len(list),
+		"enabled":        enabled,
+		"proxy_total":    len(list),
+		"proxy_enabled":  enabled,
+		"downloadTotal":  downloadTotal,
+		"uploadTotal":    uploadTotal,
+		"connections":    connections,
+		"remote_nodes":   remoteNodes,
+		"agent_total":    len(remoteNodes),
+		"agent_online":   countRemoteAgentOnline(remoteNodes),
+		"mihomo_healthy": countRemoteMihomoHealthy(remoteNodes),
 	})
+}
+
+func countRemoteAgentOnline(nodes []map[string]any) int {
+	count := 0
+	for _, node := range nodes {
+		if online, _ := node["online"].(bool); online {
+			count++
+		}
+	}
+	return count
+}
+
+func countRemoteMihomoHealthy(nodes []map[string]any) int {
+	count := 0
+	for _, node := range nodes {
+		if healthy, _ := node["healthy"].(bool); healthy {
+			count++
+		}
+	}
+	return count
 }
 
 var trafficMu sync.Mutex
