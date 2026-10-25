@@ -21,7 +21,7 @@
   <el-container v-else class="layout">
     <el-aside class="aside">
       <div class="logo">S5M Proxy</div>
-      <el-menu :default-active="page" :default-openeds="['containers']" @select="switchPage">
+      <el-menu :default-active="page" @select="switchPage">
         <el-menu-item index="dashboard">系统概览</el-menu-item>
         <el-menu-item index="proxies">代理管理</el-menu-item>
         <el-menu-item index="instances">节点实例管理</el-menu-item>

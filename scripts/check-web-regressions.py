@@ -39,7 +39,7 @@ checks = {
     "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in ui and "retryNodeConfigSync" in ui and "立即重试同步所有节点" in ui,
     "primary UI loads the extracted application bundle": 'src="/app.js"' in html and Path("source/web/app.js").is_file() and Path("source/web/app.js").stat().st_size > 10000,
     "main UI stylesheet is external and present": '<link rel="stylesheet" href="/app.css">' in html and "<style>" not in html and Path("source/web/app.css").is_file() and Path("source/web/app.css").stat().st_size > 1000,
-    "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in ui and "default-openeds=\"['containers']\"" in ui and 'index="docker">Docker 容器' in ui and 'index="routeros-containers">RouterOS 容器' in ui,
+    "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in ui and "default-openeds=" not in ui and 'index="docker">Docker 容器' in ui and 'index="routeros-containers">RouterOS 容器' in ui and "position: absolute" in Path("source/web/app.css").read_text(encoding="utf-8"),
     "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in ui and "/api/v1/agents/kernel-update" in ui and r"/^v\d+\.\d+\.\d+$/" in ui and r"/^[a-f0-9]{64}$/" in ui,
     "global Mihomo update validates candidate binary before replacing live binary": "candidateVersion != release.TagName" in handlers and "copyFileAtomic(binaryPath, backupPath)" in handlers and "已成功更新至 " in handlers,
     "global Mihomo update checks HTTP status and service recovery paths": "resp.StatusCode < 200 || resp.StatusCode >= 300" in handlers and "自动恢复旧二进制失败" in handlers and "systemctl" in handlers,
