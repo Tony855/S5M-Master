@@ -1593,6 +1593,7 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	type AgentInfo struct {
 		Authorized          bool           `json:"authorized"`
+		TokenConfigured     bool           `json:"token_configured"`
 		LastSeen            int64          `json:"last_seen"`
 		Status              map[string]any    `json:"status,omitempty"`
 		CommandResult       map[string]any    `json:"command_result,omitempty"`
@@ -1638,7 +1639,7 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal([]byte(raw), &pendingCommand)
 		}
 		info := AgentInfo{
-			Authorized: true, LastSeen: lastSeen, Status: status,
+			Authorized: true, TokenConfigured: true, LastSeen: lastSeen, Status: status,
 			CommandResult: commandResult, PendingCommand: pendingCommand,
 		}
 		if nodeConfig, configErr := a.store.GetNodeConfig(code); configErr == nil && nodeConfig != nil && strings.TrimSpace(nodeConfig.YAML) != "" {
