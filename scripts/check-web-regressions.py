@@ -31,6 +31,7 @@ checks = {
     "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in ui and "/api/v1/agents/kernel-update" in ui and r"/^v\d+\.\d+\.\d+$/" in ui and r"/^[a-f0-9]{64}$/" in ui,
     "global Mihomo update validates candidate binary before replacing live binary": "candidateVersion != release.TagName" in handlers and "copyFileAtomic(binaryPath, backupPath)" in handlers and "已成功更新至 " in handlers,
     "global Mihomo update checks HTTP status and service recovery paths": "resp.StatusCode < 200 || resp.StatusCode >= 300" in handlers and "自动恢复旧二进制失败" in handlers and "systemctl" in handlers,
+    "Mihomo update falls back from proxy error pages to direct gzip download": "isGzipHeader(header[:n])" in handlers and "if err := download(\"https://ghproxy.net/\" + assetURL); err != nil" in handlers and "func TestIsGzipHeader" in Path("source/internal/app/mihomo_update_test.go").read_text(encoding="utf-8"),
 }
 # Every simple event handler used in the main Vue template must be exposed by setup().
 event_names = set()
