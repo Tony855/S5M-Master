@@ -218,7 +218,6 @@
     .aside{position:relative;top:auto}
     .main{width:100%;padding:14px 12px calc(28px + env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:visible}
     .card-panel{width:100%;}
-    .instance-list{grid-template-columns:minmax(0,1fr)}
     .instance-panel,.token-panel{overflow:visible;contain:none}
     .remote-mihomo-table-wrap{max-width:calc(100vw - 56px)}
     .card-title{align-items:center}
