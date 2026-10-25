@@ -266,3 +266,21 @@ func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T)
 		t.Fatal("boolean Agent validator accepted a revoked JWT")
 	}
 }
+
+
+func TestDecodeLimitedRejectsTrailingJSONAndOversizedBody(t *testing.T) {
+	t.Run("trailing JSON", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"ok":true} {"extra":true}`))
+		var dst map[string]bool
+		if err := decodeLimited(req, 128, "128 bytes", &dst); err == nil {
+			t.Fatal("decodeLimited() accepted multiple JSON values")
+		}
+	})
+	t.Run("oversized body", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"value":"`+strings.Repeat("x", 129)+`"}`))
+		var dst map[string]string
+		if err := decodeLimited(req, 128, "128 bytes", &dst); err == nil || !strings.Contains(err.Error(), "128 bytes") {
+			t.Fatalf("decodeLimited() error = %v, want size-limit error", err)
+		}
+	})
+}
