@@ -64,7 +64,6 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/health", a.handleHealth)
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
-	mux.HandleFunc("GET /api/v1/backup", a.handleDownloadBackup)
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/agent/config", a.handleAgentConfig)
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", a.handleAgentHeartbeat)
@@ -78,6 +77,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/result", a.handleContainerAgentTaskResult)
 
 	authed := map[string]http.HandlerFunc{
+        "GET /api/v1/backup":                 a.handleDownloadBackup,
 		"GET /api/v1/auth/me":                 a.handleMe,
 		"GET /api/v1/agents":                  a.handleGetAgents,
 		"POST /api/v1/agents/generate":        a.handleGenerateAgentToken,
