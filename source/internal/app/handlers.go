@@ -1663,7 +1663,7 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		YAML string `json:"config_yaml"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&in); err != nil {
+	if err := decodeLimited(r, 2<<20, "2 MiB", &in); err != nil {
 		writeErr(w, 400, "请求 JSON 无效")
 		return
 	}
