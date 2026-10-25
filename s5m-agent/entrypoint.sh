@@ -57,11 +57,12 @@ shutdown() {
 
 trap shutdown INT TERM HUP
 
-# kill -0 alone also succeeds for zombie processes; check the process state too.
+# BusyBox ps (Alpine) does not support the procps-style -p PID option.
+# Enumerate PID and state instead, so live children are not misdetected as dead.
 process_alive() {
   pid="$1"
   kill -0 "$pid" 2>/dev/null || return 1
-  state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+  state="$(ps -o pid,stat 2>/dev/null | awk -v pid="$pid" '$1 == pid { print $2; found=1; exit } END { if (!found) exit 1 }' | tr -d '[:space:]' || true)"
   case "$state" in
     ""|Z*|X*) return 1 ;;
   esac
