@@ -212,9 +212,14 @@ func (a *App) validateProxy(p *Proxy) string {
 	}
 	switch p.Mode {
 	case "proxy", "china", "game":
-		p.Type = strings.TrimSpace(p.Type)
+		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
 		p.Server = strings.TrimSpace(p.Server)
-		if p.Type == "" || p.Server == "" {
+		switch p.Type {
+		case "socks5", "http", "ss", "vmess", "vless", "trojan":
+		default:
+			return "代理类型无效，必须是 socks5、http、ss、vmess、vless 或 trojan"
+		}
+		if p.Server == "" {
 			return "代理必须填写类型、服务器和端口"
 		}
 		if p.Port < 1 || p.Port > 65535 {

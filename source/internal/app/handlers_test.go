@@ -103,3 +103,22 @@ func TestParseProxyLineAcceptsValidPort(t *testing.T) {
 		t.Fatalf("validateProxy() = %q, want success", msg)
 	}
 }
+
+func TestValidateProxyRejectsUnsupportedProtocol(t *testing.T) {
+	for _, protocol := range []string{"", "unknown", "socks", "vmess+ws"} {
+		proxy := Proxy{Name: "proxy-a", Mode: "proxy", Type: protocol, Server: "example.com", Port: 1080}
+		if msg := (&App{}).validateProxy(&proxy); !strings.Contains(msg, "代理类型无效") {
+			t.Errorf("validateProxy(type=%q) = %q, want unsupported-protocol error", protocol, msg)
+		}
+	}
+}
+
+func TestValidateProxyNormalizesSupportedProtocol(t *testing.T) {
+	proxy := Proxy{Name: "proxy-a", Mode: "proxy", Type: " SOCKS5 ", Server: "example.com", Port: 1080}
+	if msg := (&App{}).validateProxy(&proxy); msg != "" {
+		t.Fatalf("validateProxy() = %q, want success", msg)
+	}
+	if proxy.Type != "socks5" {
+		t.Fatalf("type = %q, want normalized socks5", proxy.Type)
+	}
+}
