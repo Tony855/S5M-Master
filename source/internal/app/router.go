@@ -112,8 +112,17 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/container/tasks":         a.handleListContainerTasks,
 		"DELETE /api/v1/container/tasks/{id}": a.handleCancelContainerTask,
 	}
+	// Only explicitly read-only/user-scoped endpoints are available to any
+	// authenticated account. Mutating and infrastructure-wide endpoints require admin.
+	userScoped := map[string]bool{
+		"GET /api/v1/auth/me": true,
+	}
 	for pat, h := range authed {
-		mux.HandleFunc(pat, a.auth(h))
+		handler := a.auth(h)
+		if !userScoped[pat] {
+			handler = a.auth(a.requireAdmin(h))
+		}
+		mux.HandleFunc(pat, handler)
 	}
 
 	mux.Handle("/", http.FileServer(http.FS(static)))
