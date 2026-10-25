@@ -55,13 +55,14 @@ Create a RouterOS environment list. Values below are placeholders; use the exact
 /container/envs/add list=S5M_ROUTEROS key=ROUTEROS_CA_FILE value="/etc/s5m/routeros-ca.pem"
 ~~~
 
-If a CA file is used, create a RouterOS mount that maps a file on the router's storage to /etc/s5m/routeros-ca.pem inside the container, and ensure the file contains the trusted CA certificate chain. The API certificate must include the DNS name in ROUTEROS_TLS_SERVER_NAME. TLS verification is enabled and is not bypassed.
+If a CA file is used, create a directory on RouterOS storage such as disk1/s5m/certs and place routeros-ca.pem in it. Create a mount list for that directory and attach it to the container as shown below. The file must contain the trusted CA certificate chain. The API certificate must include the DNS name in ROUTEROS_TLS_SERVER_NAME. TLS verification is enabled and is not bypassed.
 
 Set the container registry according to your image source, then create the container. Use external storage for root-dir; RouterOS containers can consume substantial disk space.
 
 ~~~routeros
+/container/mounts/add list=S5M_ROUTEROS_CA src=disk1/s5m/certs dst=/etc/s5m
 /container/config/set registry-url=https://ghcr.io tmpdir=disk1/tmp
-/container/add remote-image=ghcr.io/tony855/s5m-routeros-agent:dev interface=veth-s5m-agent root-dir=disk1/s5m-routeros-agent envlist=S5M_ROUTEROS name=s5m-routeros-agent start-on-boot=yes logging=yes
+/container/add remote-image=ghcr.io/tony855/s5m-routeros-agent:dev interface=veth-s5m-agent root-dir=disk1/s5m-routeros-agent envlist=S5M_ROUTEROS mountlists=S5M_ROUTEROS_CA name=s5m-routeros-agent start-on-boot=yes logging=yes
 /container/print
 /container/start [find where name="s5m-routeros-agent"]
 ~~~
