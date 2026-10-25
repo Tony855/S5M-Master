@@ -79,7 +79,6 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 	}
 }
 
-
 func TestParseProxyLineRejectsInvalidPort(t *testing.T) {
 	for _, line := range []string{
 		"socks5://user:pass@example.com:not-a-port",
