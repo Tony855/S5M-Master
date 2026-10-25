@@ -559,9 +559,9 @@
           </div>
         </div>
         <div class="card-panel">
-          <div class="card-title">Mihomo 内核</div>
-          <p class="import-note">提交内核更新任务后，Agent 将按其现有更新流程执行。请先确认目标节点在线，并在更新后检查系统概览。</p>
-          <el-button type="primary" :loading="updatingKernel" @click="updateKernel">检查并更新 Mihomo 内核</el-button>
+          <div class="card-title">主控服务器 Mihomo 内核</div>
+          <p class="import-note">此操作更新主控服务器的 /opt/mihomo/mihomo，并重启主控机的 mihomo systemd 服务；不会更新各个 Agent 节点。更新前会验证候选二进制并备份旧版本，但仍建议在维护窗口执行。Agent 节点内核请在节点实例列表中单独排队更新，并核对官方版本与 SHA-256。</p>
+          <el-button type="primary" :loading="updatingKernel" @click="updateKernel">更新主控 Mihomo 内核</el-button>
         </div>
       </div>
     </el-main>
