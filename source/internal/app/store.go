@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -458,6 +460,45 @@ func (s *Store) SaveNodeConfig(machineCode, yamlText string) error {
 
 // SaveNodeConfigIfEmpty 只初始化不存在或内容为空的节点配置。
 // 已存在的非空 YAML 不会被自动同步覆盖。
+// SaveNodeConfigs atomically replaces a batch of node configurations.
+// If any write fails, the transaction rolls back so nodes cannot be left on a
+// partially synchronized generation.
+func (s *Store) SaveNodeConfigs(configs map[string]string) error {
+	if len(configs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(configs))
+	for machineCode := range configs {
+		if strings.TrimSpace(machineCode) == "" {
+			return fmt.Errorf("机器码不能为空")
+		}
+		keys = append(keys, machineCode)
+	}
+	sort.Strings(keys)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`INSERT INTO node_configs(machine_code,yaml_text,updated_at) VALUES(?,?,?) ON CONFLICT(machine_code) DO UPDATE SET yaml_text=excluded.yaml_text, updated_at=excluded.updated_at`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	now := time.Now().Format(time.RFC3339)
+	for _, machineCode := range keys {
+		if _, err := stmt.Exec(machineCode, configs[machineCode], now); err != nil {
+			return fmt.Errorf("保存机器 %s 的配置失败: %w", machineCode, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
 	_, err := s.db.Exec(`INSERT INTO node_configs(machine_code,yaml_text,updated_at)
                 VALUES(?,?,?)
