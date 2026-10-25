@@ -1,9 +1,15 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestIsInternalSettingKey(t *testing.T) {
@@ -210,5 +216,54 @@ func TestValidateAgentRegistrationInput(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+
+func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-auth-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "node_01"
+	const machineSecret = "dedicated-secret"
+	const globalSecret = "global-secret"
+	app := &App{store: store, jwtKey: []byte("test-jwt-secret")}
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":                 globalSecret,
+		"agent_machine_" + machineCode: machineSecret,
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	version := sha256.Sum256([]byte(machineSecret))
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub": machineCode,
+		"role": "agent",
+		"ver": hex.EncodeToString(version[:]),
+	}).SignedString(app.jwtKey)
+	if err != nil {
+		t.Fatalf("sign Agent token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/config", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	code, err := app.agentMachineFromRequest(req)
+	if err != nil || code != machineCode {
+		t.Fatalf("agentMachineFromRequest() = %q, %v; want %q", code, err, machineCode)
+	}
+	if got, ok := app.agentMachineCode(req); !ok || got != machineCode {
+		t.Fatalf("agentMachineCode() = %q, %v; want %q, true", got, ok, machineCode)
+	}
+
+	if err := store.UpdateSettings(map[string]string{"agent_machine_" + machineCode: "rotated-secret"}); err != nil {
+		t.Fatalf("rotate dedicated token: %v", err)
+	}
+	if _, err := app.agentMachineFromRequest(req); err == nil {
+		t.Fatal("old Agent JWT remained valid after dedicated token rotation")
+	}
+	if _, ok := app.agentMachineCode(req); ok {
+		t.Fatal("boolean Agent validator accepted a revoked JWT")
 	}
 }
