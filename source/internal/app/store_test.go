@@ -328,7 +328,6 @@ func TestCreateSettingIfAbsentDoesNotOverwritePendingCommand(t *testing.T) {
 	}
 }
 
-
 func TestGetSettingsReturnsAllStoredValues(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "get-settings-test.db"))
 	if err != nil {
