@@ -1,3 +1,18 @@
+package app
+
+import (
+	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
 func TestDecodeErrorStatus(t *testing.T) {
 	tests := []struct {
 		name string
@@ -17,20 +32,6 @@ func TestDecodeErrorStatus(t *testing.T) {
 	}
 }
 
-package app
-
-import (
-	"errors"
-	"crypto/sha256"
-	"encoding/hex"
-	"net/http"
-	"net/http/httptest"
-	"path/filepath"
-	"strings"
-	"testing"
-
-	"github.com/golang-jwt/jwt/v5"
-)
 
 func TestIsInternalSettingKey(t *testing.T) {
 	internal := []string{
