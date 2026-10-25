@@ -25,7 +25,7 @@ done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl > /dev/null
+apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl python3 gzip > /dev/null
 
 # === 新增：智能处理端口占用 ===
 PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
@@ -47,6 +47,93 @@ if ss -lntp 2>/dev/null | grep -q ":${PORT_TO_USE} "; then
     fi
 fi
 # ==============================
+
+# Ensure the main-controller Mihomo binary exists before installing the panel.
+# An already working installation is preserved; this bootstrap never overwrites it.
+MIHOMO_DIR="/opt/mihomo"
+MIHOMO_BIN="$MIHOMO_DIR/mihomo"
+ensure_mihomo() {
+  if [[ -e "$MIHOMO_BIN" ]]; then
+    if [[ -x "$MIHOMO_BIN" ]] && "$MIHOMO_BIN" -v >/tmp/s5m-mihomo-version.txt 2>&1; then
+      echo "✅ 检测到主控 Mihomo 已安装：$(head -n 1 /tmp/s5m-mihomo-version.txt)"
+      echo "   按要求跳过内核下载与替换。"
+      return 0
+    fi
+    echo "❌ 检测到 $MIHOMO_BIN 已存在，但无法成功执行版本检查。" >&2
+    echo "   为避免覆盖现有内核，安装器不会自动替换；请先检查文件和权限。" >&2
+    return 1
+  fi
+
+  local arch asset_url release_tag tmpdir archive candidate
+  case "$(uname -m)" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *)
+      echo "❌ 当前架构 $(uname -m) 暂不支持自动安装 Mihomo（仅支持 amd64/arm64）。" >&2
+      return 1
+      ;;
+  esac
+
+  echo "ℹ️ 未检测到主控 Mihomo，正在查询 GitHub 最新稳定版..."
+  local release_json
+  release_json="$(curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' \
+    https://api.github.com/repos/MetaCubeX/mihomo/releases/latest)" || {
+      echo "❌ 无法读取 Mihomo 最新稳定版发布信息。" >&2
+      return 1
+    }
+
+  read -r release_tag asset_url < <(python3 -c '
+import json, sys
+d=json.load(sys.stdin)
+tag=d.get("tag_name", "")
+assets=d.get("assets", [])
+arch=sys.argv[1]
+matches=[a.get("browser_download_url", "") for a in assets
+         if a.get("name", "").startswith("mihomo-linux-"+arch+"-")
+         and a.get("name", "").endswith(".gz")]
+if not tag or len(matches) != 1:
+    print("", "")
+else:
+    print(tag, matches[0])
+' "$arch" <<<"$release_json")
+
+  if [[ -z "$release_tag" || -z "$asset_url" ]]; then
+    echo "❌ 最新稳定版中未找到唯一的 Linux $arch 二进制包。" >&2
+    return 1
+  fi
+
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "${tmpdir:-}"' RETURN
+  archive="$tmpdir/mihomo.gz"
+  candidate="$tmpdir/mihomo"
+  echo "⬇️ 正在下载 Mihomo $release_tag（linux/$arch）..."
+  if ! curl -fL --retry 3 --connect-timeout 10 --max-time 180 "$asset_url" -o "$archive"; then
+    echo "❌ Mihomo 下载失败。" >&2
+    return 1
+  fi
+  if ! gzip -t "$archive" || ! gzip -dc "$archive" > "$candidate"; then
+    echo "❌ Mihomo 压缩包校验或解压失败。" >&2
+    return 1
+  fi
+  chmod 0755 "$candidate"
+  if ! "$candidate" -v >/tmp/s5m-mihomo-candidate-version.txt 2>&1; then
+    echo "❌ 下载的 Mihomo 二进制无法运行，拒绝安装。" >&2
+    cat /tmp/s5m-mihomo-candidate-version.txt >&2 || true
+    return 1
+  fi
+
+  install -d -o root -g root -m 0755 "$MIHOMO_DIR"
+  install -o root -g root -m 0755 "$candidate" "$MIHOMO_BIN"
+  if ! "$MIHOMO_BIN" -v >/tmp/s5m-mihomo-version.txt 2>&1; then
+    echo "❌ Mihomo 安装后版本检查失败。" >&2
+    rm -f "$MIHOMO_BIN"
+    return 1
+  fi
+  echo "✅ 已安装主控 Mihomo：$(head -n 1 /tmp/s5m-mihomo-version.txt)"
+}
+ensure_mihomo
 
 if ! getent passwd s5m-server >/dev/null; then useradd --system --home-dir "$DB_DIR" --shell /usr/sbin/nologin s5m-server; fi
 install -d -o s5m-server -g s5m-server -m 0750 "$DB_DIR" "$DB_DIR/backups"
