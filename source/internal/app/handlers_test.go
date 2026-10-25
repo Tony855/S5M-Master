@@ -491,6 +491,9 @@ func TestHandleGetAgentsExposesPendingAndCompletedCommandState(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	node := payload[machineCode]
+	if node["token_configured"] != true {
+		t.Fatalf("token_configured = %#v, want true for an authorized Agent", node["token_configured"])
+	}
 	pendingCommand, ok := node["pending_command"].(map[string]any)
 	if !ok || pendingCommand["id"] != "cmd-2" || pendingCommand["version"] != "v1.2.3" {
 		t.Fatalf("pending_command = %#v, want pending Mihomo update cmd-2/v1.2.3", node["pending_command"])
