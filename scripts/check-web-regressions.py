@@ -4,7 +4,7 @@ from pathlib import Path
 
 html = Path("source/web/index.html").read_text(encoding="utf-8")
 app_js = Path("source/web/app.js").read_text(encoding="utf-8")
-ui = html + "\\n" + app_js
+ui = html + "\n" + app_js
 
 checks = {
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "mode: row.mode || 'proxy'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
@@ -24,6 +24,18 @@ checks = {
     "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in ui and "default-openeds=\"['containers']\"" in ui and 'index="docker">Docker 容器' in ui and 'index="routeros-containers">RouterOS 容器' in ui,
     "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in ui and "/api/v1/agents/kernel-update" in ui and r"/^v\d+\.\d+\.\d+$/" in ui and r"/^[a-f0-9]{64}$/" in ui,
 }
+# Every simple event handler used in the main Vue template must be exposed by setup().
+event_names = set()
+for match in __import__("re").finditer(r'@(click|change|input|keyup|submit|selection-change|current-change|size-change|close|confirm|upload|remove|preview|success|error|clear|visible-change|command)\s*=\s*["\']([A-Za-z_$][\w$]*)["\']', html):
+    event_names.add(match.group(2))
+return_start = app_js.rfind("return {")
+return_end = app_js.find("\n    };", return_start)
+returned = app_js[return_start:return_end] if return_start >= 0 and return_end >= 0 else ""
+missing_handlers = sorted(name for name in event_names if not __import__("re").search(r"\b" + __import__("re").escape(name) + r"\b", returned))
+checks["simple template event handlers are exposed by Vue setup"] = not missing_handlers
+if missing_handlers:
+    print("Missing setup return handlers: " + ", ".join(missing_handlers))
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
