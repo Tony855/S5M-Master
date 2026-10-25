@@ -1070,7 +1070,7 @@ func machineIDHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"machine_id": id})
 }
 func main() {
-	// 启动 81 端口提供 Web 注册界面
+	// 启动 80 端口提供 Web 注册界面
 	go func() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFile(w, r, "/app/index.html")
@@ -1169,8 +1169,8 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "绑定成功"})
 		})
-		fmt.Println("Agent Web 服务已启动: :81")
-		if err := http.ListenAndServe(":81", nil); err != nil {
+		fmt.Println("Agent Web 服务已启动: :80")
+		if err := http.ListenAndServe(":80", nil); err != nil {
 			fmt.Println("Agent Web 服务启动失败:", err)
 		}
 	}()
