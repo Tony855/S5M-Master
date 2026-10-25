@@ -347,7 +347,9 @@ func TestNormalizeMachineID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := normalizeMachineID(tt.data)
-			if len(got) > 11 { got = got[:11] }
+			if len(got) > 11 {
+				got = got[:11]
+			}
 			if got != tt.want {
 				t.Fatalf("normalizeMachineID() = %q, want %q", got, tt.want)
 			}
