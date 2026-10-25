@@ -450,6 +450,7 @@ func findMihomoCompatibleAsset(assets []mihomoReleaseAsset) string {
 	for _, asset := range assets {
 		if strings.Contains(asset.Name, "linux-amd64-compatible") &&
 			strings.HasSuffix(asset.Name, ".gz") &&
+			!strings.HasSuffix(asset.Name, ".tar.gz") &&
 			strings.HasPrefix(asset.BrowserDownloadURL, "https://") {
 			return asset.BrowserDownloadURL
 		}
