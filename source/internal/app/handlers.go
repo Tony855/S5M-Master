@@ -458,6 +458,10 @@ func findMihomoCompatibleAsset(assets []mihomoReleaseAsset) string {
 	return ""
 }
 
+func isGzipHeader(header []byte) bool {
+	return len(header) >= 2 && header[0] == 0x1f && header[1] == 0x8b
+}
+
 func copyFileAtomic(source, destination string) error {
 	in, err := os.Open(source)
 	if err != nil {
@@ -569,6 +573,16 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 		}
 		if !info.Mode().IsRegular() || info.Size() == 0 {
 			return fmt.Errorf("下载文件为空或无效")
+		}
+		downloaded, err := os.Open(gzPath)
+		if err != nil {
+			return err
+		}
+		header := make([]byte, 2)
+		n, readErr := io.ReadFull(downloaded, header)
+		closeErr := downloaded.Close()
+		if readErr != nil || closeErr != nil || !isGzipHeader(header[:n]) {
+			return fmt.Errorf("下载内容不是有效的 gzip 文件")
 		}
 		return nil
 	}
