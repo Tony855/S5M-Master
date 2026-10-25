@@ -797,3 +797,35 @@ html, body, #app {
     box-sizing: border-box;
   }
 }
+
+
+/* Container navigation uses Element Plus dropdown/teleport to avoid clipping
+   by the horizontally scrollable mobile navigation strip. */
+.container-nav-dropdown { display: flex; align-items: center; flex: 0 0 auto; }
+.container-nav-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #aab6c9;
+  font: inherit;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.container-nav-trigger:hover { background: #1d293b; color: #fff; }
+.container-nav-trigger.is-active {
+  background: linear-gradient(90deg,rgba(67,122,245,.28),rgba(67,122,245,.10));
+  box-shadow: inset 3px 0 #6ea5ff;
+  color: #fff;
+}
+.container-nav-caret { font-size: 12px; opacity: .8; }
+.el-dropdown-menu { max-width: calc(100vw - 24px); }
+.el-dropdown-menu__item { white-space: nowrap; }
+@media (max-width: 760px) {
+  .container-nav-trigger { height: 42px; padding: 0 13px; }
+}
