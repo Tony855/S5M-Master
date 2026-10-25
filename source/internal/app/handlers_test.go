@@ -191,7 +191,7 @@ func TestValidateAgentRegistrationInput(t *testing.T) {
 		secret      string
 		wantErr     string
 	}{
-		{name: "trims valid values", machineCode: " node_01-abc ", secret: " token ",},
+		{name: "trims valid values", machineCode: " node_01-abc ", secret: " token "},
 		{name: "rejects blank machine code", machineCode: "   ", secret: "token", wantErr: "机器码格式错误"},
 		{name: "rejects invalid machine code characters", machineCode: "node/01", secret: "token", wantErr: "机器码格式错误"},
 		{name: "rejects oversized machine code", machineCode: strings.Repeat("a", 65), secret: "token", wantErr: "机器码格式错误"},
