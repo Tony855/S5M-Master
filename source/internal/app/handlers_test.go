@@ -314,3 +314,15 @@ func TestDecodeLimitedRejectsTrailingJSONAndOversizedBody(t *testing.T) {
 		}
 	})
 }
+
+func TestImportProxiesRejectsOversizedBodyWith413(t *testing.T) {
+	app := &App{}
+	body := `{"content":"` + strings.Repeat("x", (1<<20)+1) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	app.handleImportProxies(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusRequestEntityTooLarge, rec.Body.String())
+	}
+}

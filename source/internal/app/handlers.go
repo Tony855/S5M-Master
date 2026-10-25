@@ -1038,7 +1038,12 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := decode(r, &in); err != nil {
-		writeErr(w, 400, "参数错误")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "代理导入请求超过 1 MiB 限制")
+		} else {
+			writeErr(w, http.StatusBadRequest, "参数错误")
+		}
 		return
 	}
 	successCount := 0
