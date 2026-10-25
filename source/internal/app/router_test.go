@@ -245,6 +245,9 @@ func TestSaveGlobalConfigAcceptsValidDraft(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("valid draft returned HTTP %d: %s", response.Code, response.Body.String())
 	}
+	if !strings.Contains(response.Body.String(), "尚未发布") || !strings.Contains(response.Body.String(), "不会自动更新节点独立 YAML") {
+		t.Fatalf("save response must clarify this only saves a draft: %s", response.Body.String())
+	}
 	settings, err := store.GetSettings()
 	if err != nil {
 		t.Fatalf("GetSettings: %v", err)
