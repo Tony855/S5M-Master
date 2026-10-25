@@ -288,12 +288,22 @@ createApp({
     };
 
     const updateKernel = async () => {
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '此操作只更新主控服务器上的 Mihomo 二进制文件，并会重启主控机的 mihomo 服务；不会更新各个 Agent 节点。更新期间主控代理流量可能中断，请确认已安排维护窗口。',
+          '确认更新主控 Mihomo',
+          { type: 'warning', confirmButtonText: '确认更新', cancelButtonText: '取消' }
+        );
+      } catch (_) {
+        return;
+      }
       updatingKernel.value = true;
       try {
         const res = await api('/api/v1/mihomo/update', { method: 'POST' });
         const d = await res.json().catch(() => ({}));
-        if (res.ok) showMsg(d.message || '操作成功', 'success'); else showMsg(d.error || '更新失败', 'error');
-        loadOverview();
+        if (res.ok) showMsg(d.message || '操作成功', d.status === 'latest' ? 'info' : 'success');
+        else showMsg(d.error || '更新失败', 'error');
+        await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
     };
