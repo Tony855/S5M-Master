@@ -197,7 +197,7 @@ for entry in \
   "S5M_ADMIN_USER=admin"; do
   key="${entry%%=*}"
   if ! grep -qE "^${key}=" "$ENV_FILE"; then
-    printf '%s\\n' "$entry" >> "$ENV_FILE"
+    printf '%s\n' "$entry" >> "$ENV_FILE"
   fi
 done
 chmod 0600 "$ENV_FILE"
