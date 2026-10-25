@@ -16,7 +16,7 @@ checks = {
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in html and "/api/v1/config/save" in html and "/api/v1/config/publish" in html and "selectedConfigNode" in html,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
     "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in html and "retryNodeConfigSync" in html and "立即重试同步所有节点" in html,
-    "primary UI does not load the legacy standalone app.js": 'src="/app.js"' not in html and 'src="./app.js"' not in html,
+    "primary UI loads the extracted application bundle": 'src="/app.js"' in html and Path("source/web/app.js").is_file() and Path("source/web/app.js").stat().st_size > 10000,
     "main UI stylesheet is external and present": '<link rel="stylesheet" href="/app.css">' in html and "<style>" not in html and Path("source/web/app.css").is_file() and Path("source/web/app.css").stat().st_size > 1000,
     "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in html and "default-openeds=\"['containers']\"" in html and 'index="docker">Docker 容器' in html and 'index="routeros-containers">RouterOS 容器' in html,
     "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in html and "/api/v1/agents/kernel-update" in html and r"/^v\d+\.\d+\.\d+$/" in html and r"/^[a-f0-9]{64}$/" in html,
