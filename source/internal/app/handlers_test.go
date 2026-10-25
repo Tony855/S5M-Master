@@ -315,7 +315,6 @@ func TestDecodeLimitedRejectsTrailingJSONAndOversizedBody(t *testing.T) {
 	})
 }
 
-
 func TestImportProxiesRejectsOversizedBodyWith413(t *testing.T) {
 	app := &App{}
 	body := `{"content":"` + strings.Repeat("x", (1<<20)+1) + `"}`
