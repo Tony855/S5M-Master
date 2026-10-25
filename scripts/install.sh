@@ -238,23 +238,31 @@ MIHOMO_PORT="$(printf '%s' "$MIHOMO_API_URL" | sed -nE 's#^https?://[^/:]+:([0-9
 MIHOMO_PORT="${MIHOMO_PORT:-8088}"
 MIHOMO_SECRET_VALUE="$(awk -F= '/^MIHOMO_SECRET=/ { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE")"
 if [[ ! -s "$DB_DIR/config.yaml" ]]; then
-  install -d -o root -g root -m 0750 "$DB_DIR"
   cat > "$DB_DIR/config.yaml" <<MIHOMO_CONFIG_EOF
 mode: rule
 mixed-port: 8080
 log-level: info
-external-controller: 127.0.0.1:${MIHOMO_PORT}
-secret: "${MIHOMO_SECRET_VALUE}"
 allow-lan: true
 find-process-mode: "off"
 proxies: []
 rules:
   - MATCH,DIRECT
 MIHOMO_CONFIG_EOF
-  chmod 0600 "$DB_DIR/config.yaml"
 fi
-# The S5M service runs as s5m-server and must read/replace the active config
-# during publish/rollback. Keep it private while granting ownership to that service.
+
+# Existing user configs must also receive the controller endpoint and API secret.
+# Without these keys Mihomo starts successfully, but S5M cannot query /version,
+# monitor traffic, or publish/reload configs. Bind the API to loopback only.
+if ! grep -qE '^[[:space:]]*external-controller[[:space:]]*:' "$DB_DIR/config.yaml"; then
+  printf '\nexternal-controller: "127.0.0.1:%s"\n' "$MIHOMO_PORT" >> "$DB_DIR/config.yaml"
+fi
+if ! grep -qE '^[[:space:]]*secret[[:space:]]*:' "$DB_DIR/config.yaml"; then
+  printf 'secret: "%s"\n' "$MIHOMO_SECRET_VALUE" >> "$DB_DIR/config.yaml"
+fi
+
+# Keep the config private and readable by both services. S5M owns it so config
+# publish/rollback can replace it; Mihomo runs as root under a restricted
+# capability set and needs CAP_DAC_OVERRIDE to traverse the private state dir.
 chown s5m-server:s5m-server "$DB_DIR/config.yaml"
 chmod 0600 "$DB_DIR/config.yaml"
 
@@ -279,8 +287,8 @@ PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
 ReadWritePaths=$DB_DIR
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_DAC_OVERRIDE
 LockPersonality=true
 RestrictSUIDSGID=true
 
