@@ -104,6 +104,7 @@ Wants=network-online.target
 Type=simple
 User=s5m-server
 Group=s5m-server
+SupplementaryGroups=systemd-journal
 EnvironmentFile=$ENV_FILE
 ExecStart=$BIN
 Restart=on-failure
