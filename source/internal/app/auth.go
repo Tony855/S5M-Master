@@ -63,6 +63,23 @@ func (a *App) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// requireAdmin must wrap a handler already protected by auth. It checks the
+// current database role instead of trusting the role claim in a JWT.
+func (a *App) requireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := currentUser(r)
+		if u == nil {
+			writeErr(w, http.StatusUnauthorized, "未登录")
+			return
+		}
+		if u.Role != "admin" {
+			writeErr(w, http.StatusForbidden, "需要管理员权限")
+			return
+		}
+		next(w, r)
+	}
+}
+
 func currentUser(r *http.Request) *User {
 	if u, ok := r.Context().Value(userKey).(*User); ok {
 		return u
