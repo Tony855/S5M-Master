@@ -327,3 +327,28 @@ func TestCreateSettingIfAbsentDoesNotOverwritePendingCommand(t *testing.T) {
 		t.Fatalf("pending command = %q, want the original command", value)
 	}
 }
+
+func TestGetSettingsReturnsAllStoredValues(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "get-settings-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	want := map[string]string{
+		"agent_token": "token-value",
+		"mihomo_api":  "http://127.0.0.1:9090",
+	}
+	if err := store.UpdateSettings(want); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	got, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("GetSettings()[%q] = %q, want %q", key, got[key], value)
+		}
+	}
+}
