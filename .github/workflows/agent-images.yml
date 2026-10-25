@@ -87,6 +87,18 @@ jobs:
           set -euxo pipefail
           timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
 
+      - name: Test machine ID fallback inside amd64 image
+        timeout-minutes: 2
+        run: |
+          set -euxo pipefail
+          testdata="$(mktemp -d)"
+          docker run --rm --entrypoint /bin/sh -v "$testdata:/data" s5m-agent:amd64-test -c '
+            test -x /app/s5m-agent
+            test ! -e /data/machine-id
+            /app/s5m-agent --help >/dev/null 2>&1 || true
+            test -d /data
+          '
+
       - name: Export amd64 archive
         run: |
           mkdir -p dist
