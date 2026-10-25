@@ -55,8 +55,9 @@
     try {
       const idRes = await fetchWithTimeout('/api/machine-id');
       const idData = await idRes.json();
-      currentMachineID = idData.machine_id || '';
-      document.getElementById('machineId').innerText = currentMachineID || '获取失败';
+      if (!idRes.ok || !idData.machine_id) throw new Error(idData.error || '机器标识不可用');
+      currentMachineID = idData.machine_id;
+      document.getElementById('machineId').innerText = currentMachineID;
       
       const res = await fetchWithTimeout('/api/config');
       const data = await res.json();
