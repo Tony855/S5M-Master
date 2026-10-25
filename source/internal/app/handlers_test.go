@@ -1,9 +1,9 @@
 package app
 
 import (
-	"errors"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -31,7 +31,6 @@ func TestDecodeErrorStatus(t *testing.T) {
 		})
 	}
 }
-
 
 func TestIsInternalSettingKey(t *testing.T) {
 	internal := []string{
