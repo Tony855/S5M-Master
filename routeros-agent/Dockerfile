@@ -7,7 +7,7 @@ COPY routeros-agent/*.go ./
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/s5m-routeros-agent .
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata && addgroup -S s5m && adduser -S -D -H -G s5m s5m
+RUN apk add --no-cache ca-certificates tzdata && mkdir -p /etc/s5m && addgroup -S s5m && adduser -S -D -H -G s5m s5m
 COPY --from=build /out/s5m-routeros-agent /usr/local/bin/s5m-routeros-agent
 USER s5m
 ENTRYPOINT ["/usr/local/bin/s5m-routeros-agent"]
