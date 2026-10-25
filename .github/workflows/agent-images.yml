@@ -81,12 +81,110 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test amd64 image
+      - name: Smoke test amd64 image contents
         timeout-minutes: 2
         run: |
           set -euxo pipefail
-          timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
+          timeout 30s docker run --rm --entrypoint /bin/sh s5m-agent:amd64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /init && test -x /etc/cont-init.d/10-mihomo-config && test -x /etc/s6-overlay/s6-rc.d/mihomo/run && test -x /etc/s6-overlay/s6-rc.d/agent/run && /usr/local/bin/mihomo -v'
 
+      - name: Test real container startup, health and published ports
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          data_dir="$(mktemp -d)"
+          fake_id_file="$(mktemp)"
+          container="s5m-agent-runtime-test"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -rf "$data_dir"
+            rm -f "$fake_id_file"
+          }
+          trap cleanup EXIT
+
+          # Use a deterministic test-only system machine-id; never print it.
+          printf '%s\n' '0123456789abcdef0123456789abcdef' > "$fake_id_file"
+          chmod 0444 "$fake_id_file"
+
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -p 127.0.0.1::7890/tcp \
+            -v "$data_dir:/data" \
+            -v "$fake_id_file:/etc/machine-id:ro" \
+            s5m-agent:amd64-test >/dev/null
+
+          for attempt in $(seq 1 60); do
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            if [[ "$state" == "running" && "$health" == "healthy" ]]; then
+              break
+            fi
+            if [[ "$state" != "running" ]]; then
+              echo "Agent 容器未能保持 running 状态" >&2
+              docker logs "$container" >&2
+              exit 1
+            fi
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]] || {
+            echo "Agent Docker healthcheck 未通过" >&2
+            docker logs "$container" >&2
+            docker inspect --format '{{json .State.Health}}' "$container" >&2
+            exit 1
+          }
+
+          agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          proxy_port="$(docker port "$container" 7890/tcp | awk -F: 'NR==1 {print $NF}')"
+          [[ -n "$agent_port" && -n "$proxy_port" ]]
+          curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/config" >/dev/null
+
+          machine_id="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/machine-id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["machine_id"])')"
+          [[ "$machine_id" == "0123456789a" ]] || {
+            echo "Agent API machine-id 与挂载的系统 machine-id 前 11 位不匹配" >&2
+            exit 1
+          }
+
+          # Check actual reachability through the mapped mixed port, not only EXPOSE.
+          for attempt in $(seq 1 15); do
+            if nc -z -w 2 127.0.0.1 "$proxy_port"; then break; fi
+            sleep 1
+          done
+          nc -z -w 2 127.0.0.1 "$proxy_port" || {
+            echo "容器已健康但 mixed-port 7890 未通过宿主机映射访问" >&2
+            docker logs "$container" >&2
+            exit 1
+          }
+
+          # Do not publish the private controller API.
+          if docker port "$container" 8088/tcp 2>/dev/null | grep -q .; then
+            echo "Mihomo control API 8088 意外映射到宿主机" >&2
+            exit 1
+          fi
+
+          # Recreate with the same /data and machine-id bind mount.
+          docker rm -f "$container" >/dev/null
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -p 127.0.0.1::7890/tcp \
+            -v "$data_dir:/data" \
+            -v "$fake_id_file:/etc/machine-id:ro" \
+            s5m-agent:amd64-test >/dev/null
+          for attempt in $(seq 1 60); do
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            [[ "$health" == "healthy" ]] && break
+            [[ "$(docker inspect --format '{{.State.Status}}' "$container")" == "running" ]] || {
+              docker logs "$container" >&2
+              exit 1
+            }
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          second_machine_id="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/machine-id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["machine_id"])')"
+          [[ "$second_machine_id" == "$machine_id" ]] || {
+            echo "容器重建后机器标识发生变化" >&2
+            exit 1
+          }
       - name: Export amd64 archive
         run: |
           mkdir -p dist
@@ -129,7 +227,7 @@ jobs:
 
       - name: Validate ARM64 image contents
         run: |
-          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /init && test -x /etc/cont-init.d/10-mihomo-config && test -x /etc/s6-overlay/s6-rc.d/mihomo/run && test -x /etc/s6-overlay/s6-rc.d/agent/run && /usr/local/bin/mihomo -v'
 
       - name: Export ARM64 archive
         run: |

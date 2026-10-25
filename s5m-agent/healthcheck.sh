@@ -1,14 +1,11 @@
 #!/bin/sh
 set -eu
 
-MIHOMO_HOME="${MIHOMO_HOME:-/data}"
-CONFIG_PATH="${MIHOMO_HOME}/config.yaml"
+# Verify the Agent HTTP API responds. Credential mismatches must not make
+# the container unhealthy or trigger unnecessary restarts.
+wget -q -T 3 -O /dev/null http://127.0.0.1:80/api/config
 
-# Check the Agent HTTP API first.
-wget -q -T 3 -O /dev/null http://127.0.0.1:81/api/config
-
-# Check Mihomo's authenticated controller API using the secret in its active config.
-[ -r "$CONFIG_PATH" ]
-secret="$(awk -F: '$1 == "secret" { sub(/^[^:]*:[[:space:]]*/, ""); gsub(/["\047]/, ""); print; exit }' "$CONFIG_PATH")"
-[ -n "$secret" ]
-wget -q -T 3 -O /dev/null --header="Authorization: Bearer ${secret}" http://127.0.0.1:8088/version
+# s6-overlay v3 does not ship the legacy s6-svstat command. Alpine BusyBox
+# provides pidof; use it to verify the Mihomo dataplane process is present.
+# The service supervisor remains responsible for restarting a crashed process.
+pidof mihomo >/dev/null 2>&1

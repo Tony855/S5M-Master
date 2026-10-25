@@ -9,11 +9,11 @@
 | 组件 | 端口 | 用途 |
 | --- | ---: | --- |
 | S5M 主控 Web/API | 80/TCP（默认） | 管理界面、节点注册、配置下发 |
-| Agent 绑定页面/API | 81/TCP | 初次绑定和 Agent 管理 |
+| Agent 绑定页面/API | 80/TCP | 初次绑定和 Agent 管理 |
 | Mihomo 代理 | 7890/TCP | 节点代理入口；按实际用途决定是否开放 |
 | Mihomo 控制 API | 8088/TCP | 仅供容器内部 Agent 使用，**不要映射到公网** |
 
-建议拓扑：主控部署在 Debian/Ubuntu；每台代理节点运行一个 Agent 容器；Agent 主动连接主控地址。跨公网时优先使用 HTTPS 或 VPN/管理网。端口 81 应限制为管理员或主控管理网来源。
+建议拓扑：主控部署在 Debian/Ubuntu；每台代理节点运行一个 Agent 容器；Agent 主动连接主控地址。跨公网时优先使用 HTTPS 或 VPN/管理网。端口 80 应限制为管理员或主控管理网来源。
 
 ## 2. 部署前准备
 
@@ -127,7 +127,7 @@ sudo docker run -d \
   --name s5m-agent \
   --restart unless-stopped \
   --init \
-  -p 81:81 \
+  -p 80:80 \
   -p 7890:7890 \
   -v /opt/s5m-agent/data:/data \
   s5m-agent:local
@@ -138,7 +138,7 @@ sudo docker run -d \
 - `/data` 是持久化目录，保存 `config.yaml`、绑定凭据等；不要在普通升级时删除。
 - 不要添加 `-p 8088:8088`。Mihomo 控制 API 不应暴露到宿主机公网。
 - 如果该节点不需要给其他设备提供代理服务，可删掉 `-p 7890:7890`。
-- 若端口 81 已被占用，可改成 `-p 18081:81`，随后通过 `http://节点IP:18081/` 访问。
+- 若端口 80 已被占用，可改成 `-p 18080:80`，随后通过 `http://节点IP:18080/` 访问。
 - 若 Docker 守护进程以 root 运行，宿主机目录权限应允许容器运行用户写入。若日志报 `permission denied`，先检查目录权限和容器日志，不要直接将目录权限改为全局可写。
 
 ### 5.4 验证 Agent 容器
@@ -148,18 +148,18 @@ sudo docker ps --filter name=s5m-agent
 sudo docker logs --tail 200 s5m-agent
 sudo docker inspect s5m-agent --format '{{json .State.Health}}'
 sudo docker exec s5m-agent /usr/local/bin/mihomo -v
-curl -fsS http://127.0.0.1:81/api/machine-id
-curl -fsS http://127.0.0.1:81/api/config
+curl -fsS http://127.0.0.1:80/api/machine-id
+curl -fsS http://127.0.0.1:80/api/config
 ```
 
 确认容器处于运行状态、日志中没有持续重启或配置解析错误，并且 Mihomo 能输出版本信息。健康检查状态可能需要等待启动周期后才显示。若 `curl` 失败，先检查 `docker ps`、端口映射和日志。
 
 ### 5.5 防火墙
 
-只向管理网或可信管理员 IP 开放 81/TCP；7890/TCP 是否开放取决于代理用途。示例（UFW，先确认 SSH 管理端口已放行，避免锁死远程连接）：
+只向管理网或可信管理员 IP 开放 80/TCP；7890/TCP 是否开放取决于代理用途。示例（UFW，先确认 SSH 管理端口已放行，避免锁死远程连接）：
 
 ```bash
-sudo ufw allow from ADMIN_PUBLIC_IP to any port 81 proto tcp
+sudo ufw allow from ADMIN_PUBLIC_IP to any port 80 proto tcp
 # 只有确实需要对外提供代理时才开放：
 sudo ufw allow 7890/tcp
 sudo ufw status numbered
@@ -194,10 +194,10 @@ sudo ufw status numbered
 
 ### 6.3 端口与管理
 
-- 在 VETH/LAN 防火墙中仅允许管理网访问 Agent 的 81/TCP。
+- 在 VETH/LAN 防火墙中仅允许管理网访问 Agent 的 80/TCP。
 - 7890/TCP 仅在需要向其他设备提供代理服务时开放。
 - 不要把 8088/TCP 转发到公网或不可信 LAN。
-- 从管理电脑访问 `http://ROUTEROS_AGENT_IP:81/`，确认页面可打开。
+- 从管理电脑访问 `http://ROUTEROS_AGENT_IP:80/`，确认页面可打开。
 - 检查 RouterOS 容器状态与日志；如果容器立即退出，优先检查镜像架构、容器支持状态、root directory 可写性、`/data` 挂载以及启动日志。
 
 RouterOS 设备 CPU/内存和闪存资源差异很大。Mihomo 规则集和配置可能明显增加内存/存储消耗；部署前应先在目标设备上验证启动、流量和重启恢复行为，再投入生产。
@@ -205,7 +205,7 @@ RouterOS 设备 CPU/内存和闪存资源差异很大。Mihomo 规则集和配�
 ## 7. Agent 与主控绑定
 
 1. 登录 S5M 主控管理界面，进入 Agent/节点管理，创建或查看该节点的注册授权密钥。
-2. 在浏览器打开 Agent 地址：`http://节点IP:81/`（若自定义宿主端口，请使用对应端口）。
+2. 在浏览器打开 Agent 地址：`http://节点IP:80/`（若自定义宿主端口，请使用对应端口）。
 3. 在绑定页面填写主控完整地址，例如 `http://主控IP` 或配置 TLS 后的 `https://主控域名`，以及节点注册授权密钥，然后提交。
 4. 回到主控节点列表，确认该节点已出现。
 5. 等待至少一个心跳周期（约 30 秒），查看主控在线状态与 Agent 日志，确认心跳和状态上报持续正常。
@@ -233,7 +233,7 @@ sudo docker run -d \
   --name s5m-agent \
   --restart unless-stopped \
   --init \
-  -p 81:81 \
+  -p 80:80 \
   -p 7890:7890 \
   -v /opt/s5m-agent/data:/data \
   s5m-agent:local
@@ -249,7 +249,7 @@ sudo docker run -d \
 | SHA256 校验失败 | 重新下载 ZIP 和 tar；不要导入校验失败的文件 |
 | `docker load` 失败 | 检查 tar 是否完整、是否误把 ZIP 当成 tar、磁盘空间是否充足 |
 | 容器立即退出 | `docker logs --tail 200 s5m-agent`；检查 Mihomo 配置语法、目录权限和 CPU 架构 |
-| 81 页面无法打开 | 检查容器状态、端口映射、主机防火墙/云安全组及 RouterOS VETH/bridge |
+| 80 页面无法打开 | 检查容器状态、端口映射、主机防火墙/云安全组及 RouterOS VETH/bridge |
 | Agent 页面打开但主控离线 | 检查主控健康接口、Agent 日志、主控地址、路由/DNS/时间、注册授权密钥 |
 | Mihomo 无法启动 | 查看容器日志和 `/data/config.yaml`；确认配置可被当前 Mihomo 版本接受 |
 | RouterOS 无法导入/启动 | 确认设备支持容器、架构匹配、空间足够，并以当前 RouterOS 版本的官方文档核对本地导入流程 |
@@ -262,5 +262,5 @@ sudo docker run -d \
 - [ ] Agent 容器运行稳定，Mihomo 版本可显示。
 - [ ] `/data` 使用持久化存储，重启容器后配置仍在。
 - [ ] Agent 绑定主控，持续心跳并显示在线。
-- [ ] 81/TCP 仅对管理网开放；8088/TCP 没有映射或公网暴露。
+- [ ] 80/TCP 仅对管理网开放；8088/TCP 没有映射或公网暴露。
 - [ ] 已验证重启恢复、升级和回滚流程。
