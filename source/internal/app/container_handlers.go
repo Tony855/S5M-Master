@@ -157,10 +157,24 @@ func validContainerID(s string) bool {
 	return true
 }
 
+func validRouterOSContainerID(s string) bool {
+	if len(s) < 2 || len(s) > 32 || s[0] != '*' {
+		return false
+	}
+	for _, r := range s[1:] {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func validContainerAction(s string) bool {
 	switch strings.TrimSpace(s) {
 	case "docker.list", "docker.inspect", "docker.logs", "docker.start", "docker.stop", "docker.restart",
-		"mihomo.status", "mihomo.restart":
+		"mihomo.status", "mihomo.restart",
+		"routeros.container.list", "routeros.container.start", "routeros.container.stop", "routeros.container.restart":
 		return true
 	}
 	return false
@@ -263,7 +277,11 @@ func (a *App) handleCreateContainerTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if v, ok := obj["container_id"]; ok {
 		var id string
-		if json.Unmarshal(v, &id) != nil || !validContainerID(strings.TrimSpace(id)) {
+		validID := validContainerID(strings.TrimSpace(id))
+		if strings.HasPrefix(in.Action, "routeros.container.") {
+			validID = validRouterOSContainerID(strings.TrimSpace(id))
+		}
+		if json.Unmarshal(v, &id) != nil || !validID {
 			writeErr(w, 400, "container_id 无效")
 			return
 		}
@@ -276,7 +294,8 @@ func (a *App) handleCreateContainerTask(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if (in.Action == "docker.inspect" || in.Action == "docker.logs" ||
-		in.Action == "docker.start" || in.Action == "docker.stop" || in.Action == "docker.restart") &&
+		in.Action == "docker.start" || in.Action == "docker.stop" || in.Action == "docker.restart" ||
+		in.Action == "routeros.container.start" || in.Action == "routeros.container.stop" || in.Action == "routeros.container.restart") &&
 		len(obj["container_id"]) == 0 {
 		writeErr(w, 400, "该动作必须提供 container_id")
 		return
