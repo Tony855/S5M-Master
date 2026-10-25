@@ -7,6 +7,7 @@ app_js = Path("source/web/app.js").read_text(encoding="utf-8")
 configgen = Path("source/internal/app/configgen.go").read_text(encoding="utf-8")
 handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
 import_handler = handlers[handlers.index("func (a *App) handleImportProxies"):handlers.index("func (a *App) handleAgentRegister")]
+rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.index("func (a *App) Rollback")+5000]
 ui = html + "\n" + app_js
 
 checks = {
@@ -24,6 +25,7 @@ checks = {
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in ui and "/api/v1/config/save" in ui and "/api/v1/config/publish" in ui and "selectedConfigNode" in ui,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in ui and "/api/v1/config/rollback" in ui and "确认回滚配置" in ui,
     "successful rollback syncs the editable global config draft": 'UpdateSettings(map[string]string{"config_yaml": yml})' in configgen and "回滚已完成，但全局配置草稿同步失败" in configgen and "回滚已完成，但全局配置草稿同步失败" in app_js,
+    "rollback keeps current database-managed proxy/rule sections": "BuildConfigForMachine(\"\")" in rollback_impl and "mergeManagedProxySections(yml, managedYAML)" in rollback_impl and "代理列表和路由规则仍以当前代理数据库为准" in html,
     "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in ui and "retryNodeConfigSync" in ui and "立即重试同步所有节点" in ui,
     "primary UI loads the extracted application bundle": 'src="/app.js"' in html and Path("source/web/app.js").is_file() and Path("source/web/app.js").stat().st_size > 10000,
     "main UI stylesheet is external and present": '<link rel="stylesheet" href="/app.css">' in html and "<style>" not in html and Path("source/web/app.css").is_file() and Path("source/web/app.css").stat().st_size > 1000,
