@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsInternalSettingKey(t *testing.T) {
 	internal := []string{
