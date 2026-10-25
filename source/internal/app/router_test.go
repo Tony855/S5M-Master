@@ -73,7 +73,7 @@ func TestRetryNodeConfigSyncReturnsSuccessWhenNoAuthorizedNodes(t *testing.T) {
 	if response.Code != 200 {
 		t.Fatalf("sync with no authorized nodes returned HTTP %d: %s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), "`"ok":true`") {
+	if !strings.Contains(response.Body.String(), `"ok":true`) {
 		t.Fatalf("expected success response, got %s", response.Body.String())
 	}
 }
