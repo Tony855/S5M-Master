@@ -249,7 +249,7 @@ createApp({
       loggingIn.value = false;
     };
 
-    const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config'];
+    const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config','system'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
       page.value = v;
