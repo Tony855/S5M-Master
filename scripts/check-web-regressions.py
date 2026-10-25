@@ -16,6 +16,7 @@ checks = {
     "bulk proxy import bounds request body and validates parsed proxy ports": "http.MaxBytesReader(w, r.Body, 1<<20)" in handlers and "port < 1 || port > 65535" in handlers and "a.validateProxy(p)" in import_handler,
     "proxy validation rejects unsupported protocols and normalizes supported protocol": "代理类型无效" in handlers and '"socks5", "http", "ss", "vmess", "vless", "trojan"' in handlers and "TestValidateProxyRejectsUnsupportedProtocol" in handlers_test,
     "instance creation trims and validates name, machine code, and HTTP API URL": "func validateInstance(in *Instance) string" in handlers and "url.ParseRequestURI(in.APIURL)" in handlers and "TestValidateInstance" in handlers_test,
+    "Agent registration trims and bounds machine code and secret": "func validateAgentRegistrationInput(machineCode, secret string)" in handlers and "TestValidateAgentRegistrationInput" in handlers_test,
     "proxy validation rejects unknown modes and out-of-range ports": '"运行模式无效' in handlers and '"代理端口必须在 1-65535 之间"' in handlers and 'case "proxy", "china", "game":' in handlers,
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "mode: row.mode || 'proxy'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
