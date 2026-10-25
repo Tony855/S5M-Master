@@ -474,14 +474,14 @@ var lastTime time.Time
 func (a *App) handleMihomoStatus(w http.ResponseWriter, _ *http.Request) {
 	const binaryPath = "/opt/mihomo/mihomo"
 	out := map[string]any{
-		"binary_path":    binaryPath,
-		"version":        "未知",
-		"service":        "unknown",
-		"online":         false,
-		"binary_ok":      false,
-		"api_online":     false,
-		"api_version":    "未知",
-		"checked_at":     time.Now().Unix(),
+		"binary_path": binaryPath,
+		"version":     "未知",
+		"service":     "unknown",
+		"online":      false,
+		"binary_ok":   false,
+		"api_online":  false,
+		"api_version": "未知",
+		"checked_at":  time.Now().Unix(),
 	}
 	if info, err := os.Stat(binaryPath); err != nil {
 		out["binary_error"] = err.Error()
