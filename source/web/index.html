@@ -1182,11 +1182,7 @@ createApp({
           || (agentStatusFilter.value === 'online' && item.online)
           || (agentStatusFilter.value === 'offline' && !item.online)
           || (agentStatusFilter.value === 'docker' && item.runtimeReported && item.dockerAvailable);
-        const matchesMachine = !containerTaskMachineFilter.value || task.machine_code === containerTaskMachineFilter.value;
-        const createdDate = String(task.created_at || '').slice(0, 10);
-        const matchesStartDate = !containerTaskStartDate.value || (createdDate && createdDate >= containerTaskStartDate.value);
-        const matchesEndDate = !containerTaskEndDate.value || (createdDate && createdDate <= containerTaskEndDate.value);
-        return matchesQuery && matchesStatus && matchesMachine && matchesStartDate && matchesEndDate;
+        return matchesQuery && matchesStatus;
       });
     });
     const routerOSAgentEntries = computed(() => agentEntries.value.filter(item => item.os === 'routeros'));
@@ -1276,10 +1272,9 @@ createApp({
       return (item.online ? '在线' : '离线') + (item.hostname ? ' · ' + item.hostname : '');
     };
     const proxyCountForMachine = (code) => proxies.value.filter(p => p.machine_code === code).length;
-    const nodeConfigState = (code) => {
-      const count = proxyCountForMachine(code);
-      return count > 0 ? '已关联 ' + count + ' 个代理' : '暂无专属代理';
-    };
+    // Do not infer whether a dedicated YAML exists from the proxy count.
+    // The node-config GET endpoint may initialize a default YAML on first access.
+    const nodeConfigState = () => '可在配置管理中查看/编辑';
     const openProxiesForMachine = (code) => {
       activeGroup.value = code;
       switchPage('proxies');
