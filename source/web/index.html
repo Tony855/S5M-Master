@@ -72,6 +72,8 @@
   .proxy-mobile-row{display:flex;gap:10px;margin-bottom:9px;font-size:13px}.proxy-mobile-label{color:var(--sub);width:78px;flex-shrink:0}.proxy-mobile-value{color:var(--text);overflow-wrap:anywhere;flex:1}.proxy-mobile-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
   .el-empty{padding:26px 0}
   .import-note{margin:0 0 16px;padding:11px 13px;background:#eff6ff;border:1px solid #dbeafe;border-radius:9px;color:#1e40af;font-size:12px;line-height:1.6}
+  .instance-link-summary{display:flex;gap:16px;flex-wrap:wrap;margin:9px 0;padding:9px 11px;background:var(--surface-soft,var(--surface));border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--sub)}
+  .instance-link-summary strong{color:var(--text)}
   @media(max-width:1100px){.grid-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.aside{width:218px!important;flex-basis:218px}}
   @media(max-width:760px){
     .layout{min-height:100dvh;min-height:100svh;flex-direction:column;overflow:visible}.aside{width:100%!important;flex:0 0 auto;position:relative;top:auto;z-index:2;flex-direction:column;border-right:0;border-bottom:1px solid #273449}
@@ -693,7 +695,7 @@ html, body, #app {
       <el-menu :default-active="page" @select="switchPage">
         <el-menu-item index="dashboard">系统概览</el-menu-item>
         <el-menu-item index="proxies">代理管理</el-menu-item>
-        <el-menu-item index="instances">实例管理</el-menu-item>
+        <el-menu-item index="instances">节点实例管理</el-menu-item>
         <el-menu-item index="docker">Docker 容器</el-menu-item>
         <el-menu-item index="routeros-containers">RouterOS 容器</el-menu-item>
         <el-menu-item index="config">配置管理</el-menu-item>
@@ -804,10 +806,13 @@ html, body, #app {
             <el-table-column prop="name" label="名称" min-width="140"></el-table-column>
             <el-table-column prop="type" label="类型" width="90"></el-table-column>
             <el-table-column label="服务器" min-width="180"><template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template></el-table-column>
-            <el-table-column label="绑定机器码" width="160">
+            <el-table-column label="关联节点实例" min-width="190">
               <template #default="scope">
-                <span v-if="scope.row.machine_code" class="machine-tag">{{ scope.row.machine_code }}</span>
-                <span v-else style="color:#cbd5e1;">-</span>
+                <div v-if="scope.row.machine_code">
+                  <span class="machine-tag">{{ scope.row.machine_code }}</span>
+                  <div class="section-hint" style="margin-top:4px;">{{ machineCodeStatus(scope.row.machine_code) }}</div>
+                </div>
+                <span v-else style="color:var(--sub);">全局节点</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="160">
@@ -824,8 +829,8 @@ html, body, #app {
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">名称</div><div class="proxy-mobile-value"><strong>{{ item.name }}</strong></div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">类型/模式</div><div class="proxy-mobile-value">{{ item.type }} / {{ item.mode }}</div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">服务器</div><div class="proxy-mobile-value">{{ item.server }}:{{ item.port }}</div></div>
-              <div class="proxy-mobile-row" v-if="item.machine_code">
-                <div class="proxy-mobile-label">绑定机器</div><div class="proxy-mobile-value"><span class="machine-tag">{{ item.machine_code }}</span></div>
+              <div class="proxy-mobile-row">
+                <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else>全局节点</span><div class="section-hint">{{ item.machine_code ? machineCodeStatus(item.machine_code) : '同步至所有节点生成配置' }}</div></div>
               </div>
               <div class="proxy-mobile-actions">
                 <el-button size="small" class="btn-action-edit" @click="openEditProxy(item)">编辑</el-button>
@@ -839,10 +844,11 @@ html, body, #app {
         <!-- 新增/编辑弹窗 -->
         <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 520px;">
           <el-form :model="proxyForm" label-width="90px">
-            <el-form-item label="分配机器码">
-              <el-select v-model="proxyForm.machine_code" placeholder="不绑定(全局)" clearable style="width:100%">
-                <el-option v-for="code in availableMachineCodes" :key="code" :label="code" :value="code"></el-option>
+            <el-form-item label="关联节点实例">
+              <el-select v-model="proxyForm.machine_code" placeholder="不绑定（全局节点）" clearable filterable style="width:100%">
+                <el-option v-for="code in availableMachineCodes" :key="code" :label="machineCodeOptionLabel(code)" :value="code"></el-option>
               </el-select>
+              <div class="section-hint" style="line-height:1.6;margin-top:5px;">绑定后此代理只进入所选机器码对应的独立配置；全局节点会进入所有已授权节点的生成配置。保存后主控端自动同步 proxies/rules，不覆盖该节点其他自定义设置。</div>
             </el-form-item>
             <el-form-item label="启用代理">
               <el-switch v-model="proxyForm.enabled" active-text="启用" inactive-text="禁用"></el-switch>
@@ -908,8 +914,8 @@ html, body, #app {
 
         <!-- One unified instance area: registration, status and Docker management. -->
         <div class="card-panel instance-panel">
-          <div class="card-title"><span>实例节点管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新实例</el-button></div>
-          <p class="import-note">在这里统一管理已注册实例、在线状态和 Docker 容器。容器操作由对应实例上的 S5M Agent 执行；目标实例必须在线并已安装 Docker。</p>
+          <div class="card-title"><span>节点实例管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新节点实例</el-button></div>
+          <p class="import-note">在这里统一管理已注册节点实例，并直接查看该实例关联的代理节点和独立 Mihomo 配置。代理管理中的机器码绑定会自动同步到对应节点配置的 proxies/rules；自定义 YAML 的 DNS、TUN、端口等其他设置会保留。</p>
 
           <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">共 {{ agentEntries.length }} 个，当前显示 {{ filteredAgentEntries.length }} 个</span></div>
           <div class="docker-controls" style="margin:10px 0 14px">
@@ -937,8 +943,14 @@ html, body, #app {
                 主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '不可用' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
               <div v-else class="instance-token">运行状态：尚未上报（请检查 Agent 版本、网络连接和主控地址）</div>
+              <div class="instance-link-summary">
+                <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
+                <span>独立配置：<strong>{{ nodeConfigState(item.code) }}</strong></span>
+              </div>
               <div class="instance-actions">
-                <el-button size="small" @click="dockerMachineCode = item.code">管理此实例</el-button>
+                <el-button size="small" @click="dockerMachineCode = item.code; switchPage('docker')">管理容器</el-button>
+                <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
+                <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
               </div>
             </div>
@@ -1111,6 +1123,7 @@ html, body, #app {
           <div class="card-title">客户端订阅链接</div>
           <el-input v-model="subUrl" readonly style="margin-bottom: 20px;"><template #prepend>订阅地址</template></el-input>
           <div class="card-title" style="margin-top: 30px;">节点独立配置 (YAML)</div>
+          <p class="import-note">每个机器码保存一份独立配置。代理管理中新增、编辑、删除或重新绑定代理时，主控端会自动同步该节点 YAML 的 proxies/rules；其他自定义设置保持不变。保存 YAML 后，Agent 会在下一次拉取时应用。</p>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
             <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig">
               <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
@@ -1247,6 +1260,35 @@ createApp({
     const proxyGroupCodes = computed(() => Array.from(new Set(
       proxies.value.map(p => p.machine_code).filter(Boolean)
     )).sort());
+    const agentEntryByCode = computed(() => {
+      const map = {};
+      agentEntries.value.forEach(item => { if (item && item.code) map[item.code] = item; });
+      return map;
+    });
+    const machineCodeOptionLabel = (code) => {
+      const item = agentEntryByCode.value[code];
+      if (!item) return code + '（未注册/待核对）';
+      return code + (item.hostname ? ' · ' + item.hostname : '') + (item.online ? '（在线）' : '（离线）');
+    };
+    const machineCodeStatus = (code) => {
+      const item = agentEntryByCode.value[code];
+      if (!item) return '未找到已授权的节点实例';
+      return (item.online ? '在线' : '离线') + (item.hostname ? ' · ' + item.hostname : '');
+    };
+    const proxyCountForMachine = (code) => proxies.value.filter(p => p.machine_code === code).length;
+    const nodeConfigState = (code) => {
+      const count = proxyCountForMachine(code);
+      return count > 0 ? '已关联 ' + count + ' 个代理' : '暂无专属代理';
+    };
+    const openProxiesForMachine = (code) => {
+      activeGroup.value = code;
+      switchPage('proxies');
+    };
+    const openNodeConfigForMachine = async (code) => {
+      selectedConfigNode.value = code;
+      switchPage('config');
+      await loadNodeConfig();
+    };
 
     const filteredProxies = computed(() => {
       if (activeGroup.value === 'ALL') return proxies.value;
@@ -1349,7 +1391,7 @@ createApp({
       if (!PAGES.includes(v)) v = 'dashboard';
       page.value = v;
       if (v === 'dashboard') loadOverview();
-      if (v === 'proxies') loadProxies();
+      if (v === 'proxies') { loadProxies(); loadAgentsData(); }
       if (v === 'instances') loadAgentsData();
       if (v === 'docker') { loadAgentsData(); loadContainerTasks(); }
       if (v === 'routeros-containers') { loadAgentsData(); routerosContainers.value = []; routerosStatus.value = ''; }
