@@ -84,6 +84,15 @@ jobs:
         run: go vet ./...
       - name: Build agent
         run: go build -trimpath -o /tmp/s5m-agent .
+      - name: Cross-compile Agent for supported Linux architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            echo "Building s5m-agent for linux/${arch}"
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath -ldflags='-s -w' -o "/tmp/s5m-agent-linux-${arch}" .
+            file "/tmp/s5m-agent-linux-${arch}"
+          done
 
   routeros-agent:
     name: RouterOS Agent tests, vet and build
