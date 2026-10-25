@@ -400,7 +400,9 @@ func TestLoadOrCreateMachineIDFallbackIsStableAcrossRestart(t *testing.T) {
 	}
 	// A second invocation simulates restart while /data stays mounted.
 	second, err := loadOrCreateMachineID(systemPath, storagePath)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if first != second {
 		t.Fatalf("machine ID changed after restart: %q != %q", first, second)
 	}
