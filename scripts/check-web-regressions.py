@@ -50,6 +50,57 @@ checks["simple template event handlers are exposed by Vue setup"] = not missing_
 if missing_handlers:
     print("Missing setup return handlers: " + ", ".join(missing_handlers))
 
+
+# Keep frontend API calls and backend route declarations in sync. This catches
+# accidental path/method drift when either the Vue UI or Go router is refactored.
+router_source = Path("source/internal/app/router.go").read_text(encoding="utf-8")
+route_patterns = set(
+    (method, path)
+    for method, path in __import__("re").findall(
+        r'"(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\s*:', router_source
+    )
+)
+route_patterns.update(
+    __import__("re").findall(
+        r'mux\.HandleFunc\("(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\s*,',
+        router_source,
+    )
+)
+
+def normalize_route(path):
+    path = path.split("?", 1)[0].rstrip("/")
+    return __import__("re").sub(r"\{[^/]+\}", "{param}", path)
+
+ui_api_calls = []
+for match in __import__("re").finditer(
+    r"""\bapi\(\s*(['"])(/api/v1/[^'"]+)\1\s*(?:,\s*\{\s*method:\s*(['"])(GET|POST|PUT|DELETE|PATCH)\3)?""",
+    app_js,
+):
+    method = match.group(4) or "GET"
+    path = match.group(2).split("?", 1)[0]
+    ui_api_calls.append((method, path))
+
+missing_api_routes = []
+for method, path in sorted(set(ui_api_calls)):
+    normalized = normalize_route(path)
+    exact_match = any(
+        route_method == method and normalize_route(route_path) == normalized
+        for route_method, route_path in route_patterns
+    )
+    # A trailing slash literal indicates that the UI appends a path parameter
+    # using string concatenation (for example, /proxies/ + id).
+    prefix_match = path.endswith("/") and any(
+        route_method == method and normalize_route(route_path).startswith(normalized + "/")
+        for route_method, route_path in route_patterns
+    )
+    if not exact_match and not prefix_match:
+        missing_api_routes.append(f"{method} {path}")
+
+checks["frontend API calls resolve to backend routes"] = not missing_api_routes
+if missing_api_routes:
+    print("Frontend API routes without backend declarations: " + ", ".join(missing_api_routes))
+
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
