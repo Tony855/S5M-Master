@@ -211,7 +211,6 @@ func (a *App) validateProxy(p *Proxy) string {
 		p.Mode = "proxy"
 	}
 	switch p.Mode {
-	switch p.Mode {
 	case "proxy", "china", "game":
 		p.Type = strings.TrimSpace(p.Type)
 		p.Server = strings.TrimSpace(p.Server)
