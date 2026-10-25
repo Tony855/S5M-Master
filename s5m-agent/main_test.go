@@ -359,13 +359,25 @@ func TestNormalizeMachineID(t *testing.T) {
 
 func TestReadSystemMachineID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "machine-id")
-	if _, err := readSystemMachineID(path); err == nil { t.Fatal("missing file should fail") }
-	if err := os.WriteFile(path, nil, 0600); err != nil { t.Fatal(err) }
-	if _, err := readSystemMachineID(path); err == nil { t.Fatal("empty file should fail") }
-	if err := os.WriteFile(path, []byte("fedcba9876543210fedcba9876543210\n"), 0600); err != nil { t.Fatal(err) }
+	if _, err := readSystemMachineID(path); err == nil {
+		t.Fatal("missing file should fail")
+	}
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readSystemMachineID(path); err == nil {
+		t.Fatal("empty file should fail")
+	}
+	if err := os.WriteFile(path, []byte("fedcba9876543210fedcba9876543210\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	got, err := readSystemMachineID(path)
-	if err != nil { t.Fatal(err) }
-	if got != "fedcba98765" { t.Fatalf("readSystemMachineID() = %q", got) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "fedcba98765" {
+		t.Fatalf("readSystemMachineID() = %q", got)
+	}
 }
 
 func TestLoadOrCreateMachineIDFallbackIsStableAcrossRestart(t *testing.T) {
