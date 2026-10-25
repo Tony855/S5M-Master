@@ -765,8 +765,16 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
-	cmd := exec.Command("journalctl", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso")
-	output, _ := cmd.CombinedOutput()
+	// Support both the legacy s5m-next unit and the current s5m-server unit.
+	cmd := exec.Command("journalctl", "-u", "s5m-server", "-u", "s5m-next", "-n", "100", "--no-pager", "-o", "short-iso", "--quiet")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Warn("读取 S5M systemd 日志失败", "error", err, "output", strings.TrimSpace(string(output)))
+		writeJSON(w, http.StatusOK, map[string]string{
+			"logs": "无法读取 S5M 服务日志。请确认服务账号具有 systemd-journal 组权限，并检查 s5m-server / s5m-next 服务是否存在。\n" + strings.TrimSpace(string(output)),
+		})
+		return
+	}
 	lines := strings.Split(string(output), "\n")
 	var result []string
 	for _, line := range lines {
