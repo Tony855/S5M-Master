@@ -187,12 +187,17 @@ func (s *Store) GetSettings() (map[string]string, error) {
 		return nil, err
 	}
 	defer rows.Close()
+
 	res := make(map[string]string)
 	for rows.Next() {
 		var k, v string
-		if err := rows.Scan(&k, &v); err == nil {
-			res[k] = v
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, fmt.Errorf("读取设置行失败: %w", err)
 		}
+		res[k] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历设置记录失败: %w", err)
 	}
 	return res, nil
 }
