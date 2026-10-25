@@ -302,8 +302,17 @@ createApp({
       try {
         const res = await api('/api/v1/mihomo/update', { method: 'POST' });
         const d = await res.json().catch(() => ({}));
-        if (res.ok) showMsg(d.message || '操作成功', d.status === 'latest' ? 'info' : 'success');
-        else showMsg(d.error || '更新失败', 'error');
+        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
+        await loadMainMihomoStatus();
+        const expectedVersion = String(d.version || '').trim();
+        const actualVersion = String(mainMihomoStatus.value.version || '').trim();
+        if (!mainMihomoStatus.value.online) {
+          throw new Error('更新请求已返回，但刷新状态显示主控 Mihomo 未正常运行；请查看状态诊断和服务日志。');
+        }
+        if (expectedVersion && actualVersion !== expectedVersion) {
+          throw new Error('版本确认不一致：更新接口返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
+        }
+        showMsg(d.message || 'Mihomo 运行版本已确认', d.status === 'latest' ? 'info' : 'success');
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
