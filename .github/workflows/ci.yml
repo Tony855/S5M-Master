@@ -76,8 +76,6 @@ jobs:
             gofmt -d $files
             exit 1
           fi
-      - name: Download dependencies
-        run: go mod download
       - name: Run unit tests with race detector
         run: go test -race -count=1 ./...
       - name: Static analysis
