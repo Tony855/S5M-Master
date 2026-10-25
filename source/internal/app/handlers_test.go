@@ -104,7 +104,6 @@ func TestParseProxyLineAcceptsValidPort(t *testing.T) {
 	}
 }
 
-
 func TestValidateProxyRejectsUnsupportedProtocol(t *testing.T) {
 	for _, protocol := range []string{"", "unknown", "socks", "vmess+ws"} {
 		proxy := Proxy{Name: "proxy-a", Mode: "proxy", Type: protocol, Server: "example.com", Port: 1080}
