@@ -857,6 +857,13 @@ html, body, #app {
               <el-input v-model="proxyForm.source_cidr" placeholder="例如 192.168.1.0/24，0.0.0.0/0 表示全部"></el-input>
             </el-form-item>
             <el-form-item label="名称"><el-input v-model="proxyForm.name"></el-input></el-form-item>
+            <el-form-item label="运行模式">
+              <el-select v-model="proxyForm.mode" style="width:100%">
+                <el-option label="代理节点 (proxy)" value="proxy"></el-option>
+                <el-option label="中国直连规则 (china)" value="china"></el-option>
+                <el-option label="游戏规则 (game)" value="game"></el-option>
+              </el-select>
+            </el-form-item>
             <el-form-item label="类型">
               <el-select v-model="proxyForm.type" style="width:100%">
                 <el-option label="socks5" value="socks5"></el-option><el-option label="http" value="http"></el-option>
@@ -866,7 +873,11 @@ html, body, #app {
             <el-form-item label="服务器"><el-input v-model="proxyForm.server"></el-input></el-form-item>
             <el-form-item label="端口"><el-input-number v-model="proxyForm.port" :min="1" :max="65535" style="width:100%"></el-input-number></el-form-item>
             <el-form-item label="账号"><el-input v-model="proxyForm.username" placeholder="可选"></el-input></el-form-item>
-            <el-form-item label="密码"><el-input v-model="proxyForm.password" placeholder="可选"></el-input></el-form-item>
+            <el-form-item label="密码"><el-input v-model="proxyForm.password" placeholder="留空则保留现有密码；清除请编辑高级参数 JSON"></el-input></el-form-item>
+            <el-form-item label="高级参数 JSON">
+              <el-input v-model="proxyForm.extra_json" type="textarea" :rows="5" placeholder='{"uuid":"...","tls":true,"servername":"...","network":"ws"}'></el-input>
+              <div class="section-hint" style="line-height:1.6;margin-top:5px;">保存时会保留此 JSON 中的 UUID、TLS/SNI、WebSocket 等参数。必须是合法 JSON 对象；仅修改名称或地址时不要清空这些字段。</div>
+            </el-form-item>
           </el-form>
           <template #footer>
             <el-button @click="proxyDialog = false">取消</el-button>
@@ -964,7 +975,7 @@ html, body, #app {
           <div class="card-title"><span>Docker 容器管理</span><span class="section-hint">选择实例后查询与操作</span></div>
           <div class="docker-controls">
             <el-select v-model="dockerMachineCode" placeholder="选择实例节点" filterable>
-              <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
+              <el-option v-for="item in dockerAgentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
             </el-select>
             <el-button type="primary" :disabled="!dockerMachineCode" :loading="dockerLoading" @click="refreshDocker">查询容器</el-button>
           </div>
@@ -1186,6 +1197,7 @@ createApp({
       });
     });
     const routerOSAgentEntries = computed(() => agentEntries.value.filter(item => item.os === 'routeros'));
+    const dockerAgentEntries = computed(() => agentEntries.value.filter(item => item.os !== 'routeros' && item.dockerAvailable));
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const routerosLoading = ref(false);
@@ -1233,7 +1245,7 @@ createApp({
     const updatingKernel = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '' });
+    const proxyForm = reactive({ id: 0, name: '', mode: 'proxy', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -1388,8 +1400,14 @@ createApp({
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') { loadProxies(); loadAgentsData(); }
       if (v === 'instances') loadAgentsData();
-      if (v === 'docker') { loadAgentsData(); loadContainerTasks(); }
-      if (v === 'routeros-containers') { loadAgentsData(); routerosContainers.value = []; routerosStatus.value = ''; }
+      if (v === 'docker') {
+        if (!dockerAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
+        loadAgentsData(); loadContainerTasks();
+      }
+      if (v === 'routeros-containers') {
+        if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
+        loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
+      }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
@@ -1441,7 +1459,7 @@ createApp({
     };
 
     const openCreateProxy = () => {
-      Object.assign(proxyForm, { id: 0, name: '', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '' });
+      Object.assign(proxyForm, { id: 0, name: '', mode: 'proxy', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
       // 如果当前正在看某个机器的分组，默认绑定该机器
       if (activeGroup.value !== 'ALL' && activeGroup.value !== 'UNBOUND') {
         proxyForm.machine_code = activeGroup.value;
@@ -1450,13 +1468,15 @@ createApp({
     };
 
     const openEditProxy = (row) => {
+      const extra = row.extra && typeof row.extra === 'object' && !Array.isArray(row.extra) ? row.extra : {};
       Object.assign(proxyForm, {
-        id: row.id || 0, name: row.name || row.proxy_name || '', type: row.type || row.proxy_type || 'socks5',
+        id: row.id || 0, name: row.name || row.proxy_name || '', mode: row.mode || 'proxy',
+        type: row.type || row.proxy_type || 'socks5',
         server: row.server || '', port: row.port || 1080, machine_code: row.machine_code || '',
         source_cidr: row.source_cidr || '0.0.0.0/0',
         enabled: row.enabled === true || row.enabled === 1,
-        username: (row.extra && row.extra.username) ? row.extra.username : '',
-        password: (row.extra && row.extra.password) ? row.extra.password : ''
+        username: extra.username || '', password: extra.password || '',
+        extra_json: JSON.stringify(extra, null, 2)
       });
       proxyDialog.value = true;
     };
@@ -1467,7 +1487,19 @@ createApp({
       try {
         const isEdit = proxyForm.id > 0;
         const url = isEdit ? ('/api/v1/proxies/' + proxyForm.id) : '/api/v1/proxies';
-        const extra = {};
+        let extra;
+        try {
+          extra = JSON.parse(proxyForm.extra_json || '{}');
+        } catch (_) {
+          showMsg('高级参数 JSON 格式无效，请检查后再保存', 'warning');
+          return;
+        }
+        if (!extra || typeof extra !== 'object' || Array.isArray(extra)) {
+          showMsg('高级参数必须是 JSON 对象，例如 {"uuid":"..."}', 'warning');
+          return;
+        }
+        // Non-empty credential fields override JSON; empty inputs never silently erase
+        // existing credentials while editing unrelated properties.
         if (proxyForm.username) extra.username = proxyForm.username;
         if (proxyForm.password) extra.password = proxyForm.password;
 
@@ -1475,14 +1507,23 @@ createApp({
           method: isEdit ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: proxyForm.name, type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
+            name: proxyForm.name, mode: proxyForm.mode || 'proxy', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
           })
         });
         if (res.ok) {
           proxyDialog.value = false; loadProxies(); showMsg('保存成功', 'success');
-        } else { showMsg(await parseErr(res), 'error'); }
+        } else {
+          const message = await parseErr(res);
+          if (String(message).includes('同步失败') || String(message).includes('已保存') || String(message).includes('已更新')) {
+            proxyDialog.value = false;
+            await loadProxies();
+            showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
+          } else {
+            showMsg(message, 'error');
+          }
+        }
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       savingProxy.value = false;
     };
@@ -1678,6 +1719,10 @@ createApp({
 
     const dockerTask = async (action, params = {}) => {
       if (!dockerMachineCode.value) throw new Error('请先选择实例');
+      if (!dockerAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
+        dockerMachineCode.value = '';
+        throw new Error('所选机器码不是可用的 Docker Agent，请重新选择实例');
+      }
       const create = await api('/api/v1/container/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: dockerMachineCode.value, action, params }) });
       const created = await create.json().catch(() => ({}));
       if (!create.ok || !created.id) throw new Error(created.error || '创建 Docker 任务失败');
@@ -1969,6 +2014,10 @@ createApp({
 
     const refreshRouterOS = async () => {
       if (!dockerMachineCode.value) return showMsg('请先选择 RouterOS Agent 机器码', 'warning');
+      if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
+        dockerMachineCode.value = '';
+        return showMsg('所选机器码不是 RouterOS Agent，请重新选择', 'warning');
+      }
       routerosLoading.value = true;
       routerosStatus.value = '正在读取 RouterOS 原生 /container/print…';
       try {
@@ -1982,6 +2031,10 @@ createApp({
       } finally { routerosLoading.value = false; }
     };
     const routerOSAction = async (action, row) => {
+      if (!dockerMachineCode.value || !routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
+        dockerMachineCode.value = '';
+        return showMsg('当前选择不是 RouterOS Agent，请重新选择后操作', 'warning');
+      }
       const id = String(row && row['.id'] || '');
       if (!/^\*[0-9a-fA-F]{1,31}$/.test(id)) return showMsg('RouterOS 容器内部 ID 无效', 'error');
       const labels = { 'routeros.container.start': '启动', 'routeros.container.stop': '停止', 'routeros.container.restart': '重启' };
