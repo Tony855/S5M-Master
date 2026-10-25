@@ -3,23 +3,25 @@
 from pathlib import Path
 
 html = Path("source/web/index.html").read_text(encoding="utf-8")
+app_js = Path("source/web/app.js").read_text(encoding="utf-8")
+ui = html + "\\n" + app_js
 
 checks = {
-    "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in html and "mode: row.mode || 'proxy'" in html and "extra_json: JSON.stringify(extra, null, 2)" in html,
-    "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in html and "extra: extra" in html and "extra = JSON.parse(proxyForm.extra_json || '{}')" in html,
-    "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in html and "高级参数必须是 JSON 对象" in html,
-    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in html and "同步失败" in html,
-    "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in html and "所选机器码不是可用的 Docker Agent" in html,
-    "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in html and "当前选择不是 RouterOS Agent" in html,
-    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in html and "loadSystemLogs" in html and "/api/v1/logs" in html and "/api/v1/mihomo/update" in html,
-    "backup download uses Authorization header and restore has destructive confirmation": "fetch('/api/v1/backup', { headers: authHeaders() })" in html and "/api/v1/backup?token=" not in html and "/api/v1/restore" in html and "128 MiB" in html and "确认恢复数据库" in html,
-    "global config draft save and publish are separate from node YAML": "globalConfigYaml" in html and "/api/v1/config/save" in html and "/api/v1/config/publish" in html and "selectedConfigNode" in html,
-    "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
-    "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in html and "retryNodeConfigSync" in html and "立即重试同步所有节点" in html,
-    "primary UI does not load the legacy standalone app.js": 'src="/app.js"' not in html and 'src="./app.js"' not in html,
+    "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "mode: row.mode || 'proxy'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
+    "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
+    "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
+    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in ui and "同步失败" in ui,
+    "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in ui and "所选机器码不是可用的 Docker Agent" in ui,
+    "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in ui and "当前选择不是 RouterOS Agent" in ui,
+    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "/api/v1/logs" in ui and "/api/v1/mihomo/update" in ui,
+    "backup download uses Authorization header and restore has destructive confirmation": "fetch('/api/v1/backup', { headers: authHeaders() })" in ui and "/api/v1/backup?token=" not in ui and "/api/v1/restore" in ui and "128 MiB" in ui and "确认恢复数据库" in ui,
+    "global config draft save and publish are separate from node YAML": "globalConfigYaml" in ui and "/api/v1/config/save" in ui and "/api/v1/config/publish" in ui and "selectedConfigNode" in ui,
+    "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in ui and "/api/v1/config/rollback" in ui and "确认回滚配置" in ui,
+    "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in ui and "retryNodeConfigSync" in ui and "立即重试同步所有节点" in ui,
+    "primary UI loads the extracted application bundle": 'src="/app.js"' in html and Path("source/web/app.js").is_file() and Path("source/web/app.js").stat().st_size > 10000,
     "main UI stylesheet is external and present": '<link rel="stylesheet" href="/app.css">' in html and "<style>" not in html and Path("source/web/app.css").is_file() and Path("source/web/app.css").stat().st_size > 1000,
-    "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in html and "default-openeds=\"['containers']\"" in html and 'index="docker">Docker 容器' in html and 'index="routeros-containers">RouterOS 容器' in html,
-    "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in html and "/api/v1/agents/kernel-update" in html and r"/^v\d+\.\d+\.\d+$/" in html and r"/^[a-f0-9]{64}$/" in html,
+    "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in ui and "default-openeds=\"['containers']\"" in ui and 'index="docker">Docker 容器' in ui and 'index="routeros-containers">RouterOS 容器' in ui,
+    "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in ui and "/api/v1/agents/kernel-update" in ui and r"/^v\d+\.\d+\.\d+$/" in ui and r"/^[a-f0-9]{64}$/" in ui,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
