@@ -3,7 +3,6 @@ package app
 import (
 	"database/sql"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
