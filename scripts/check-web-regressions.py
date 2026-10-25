@@ -11,6 +11,7 @@ checks = {
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
     "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in ui and "同步失败" in ui,
+    "proxy deletion sync failure refreshes list and offers retry": "if (message.includes('代理已删除'))" in app_js and "await loadProxies();" in app_js and "立即重试同步所有节点" in app_js,
     "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in ui and "所选机器码不是可用的 Docker Agent" in ui,
     "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in ui and "当前选择不是 RouterOS Agent" in ui,
     "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "/api/v1/logs" in ui and "/api/v1/mihomo/update" in ui,
