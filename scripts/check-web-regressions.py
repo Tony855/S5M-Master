@@ -11,6 +11,7 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "proxy validation rejects unknown modes and out-of-range ports": '"运行模式无效' in handlers and '"代理端口必须在 1-65535 之间"' in handlers and 'case "proxy", "china", "game":' in handlers,
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "mode: row.mode || 'proxy'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,

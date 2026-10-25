@@ -202,17 +202,28 @@ func (a *App) handleListProxies(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) validateProxy(p *Proxy) string {
+	p.Name = strings.TrimSpace(p.Name)
 	if p.Name == "" {
 		return "名称不能为空"
 	}
+	p.Mode = strings.TrimSpace(p.Mode)
 	if p.Mode == "" {
 		p.Mode = "proxy"
 	}
-	if p.Mode == "proxy" || p.Mode == "china" || p.Mode == "game" {
-		if p.Type == "" || p.Server == "" || p.Port <= 0 {
+	switch p.Mode {
+	case "proxy", "china", "game":
+		p.Type = strings.TrimSpace(p.Type)
+		p.Server = strings.TrimSpace(p.Server)
+		if p.Type == "" || p.Server == "" {
 			return "代理必须填写类型、服务器和端口"
 		}
+		if p.Port < 1 || p.Port > 65535 {
+			return "代理端口必须在 1-65535 之间"
+		}
+	default:
+		return "运行模式无效，必须是 proxy、china 或 game"
 	}
+	p.SourceCIDR = strings.TrimSpace(p.SourceCIDR)
 	if p.SourceCIDR == "" {
 		p.SourceCIDR = "0.0.0.0/0"
 	}
