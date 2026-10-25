@@ -12,6 +12,7 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "system logs query current and legacy service units and report journal read errors": 'exec.Command("journalctl", "-u", "s5m-server", "-u", "s5m-next"' in handlers and "读取 S5M systemd 日志失败" in handlers and "SupplementaryGroups=systemd-journal" in Path("scripts/install.sh").read_text(encoding="utf-8"),
     "shared JSON decoder bounds request bodies and rejects trailing JSON values": "const maxJSONRequestBody = 2 << 20" in handlers and "func decodeLimited(r *http.Request, maxBytes int64, sizeLabel string, v any) error" in handlers and "io.LimitReader(r.Body, maxBytes+1)" in handlers and "decodeLimited(r, maxJSONRequestBody, \"2 MiB\", v)" in handlers and "TestDecodeBoundsJSONRequestBody" in handlers_test,
     "bulk proxy import bounds request body and validates parsed proxy ports": "http.MaxBytesReader(w, r.Body, 1<<20)" in handlers and "port < 1 || port > 65535" in handlers and "a.validateProxy(p)" in import_handler,
     "proxy validation rejects unsupported protocols and normalizes supported protocol": "代理类型无效" in handlers and '"socks5", "http", "ss", "vmess", "vless", "trojan"' in handlers and "TestValidateProxyRejectsUnsupportedProtocol" in handlers_test,
