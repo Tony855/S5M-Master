@@ -377,6 +377,20 @@ func TestLoadOrCreateMachineIDFallbackIsStableAcrossRestart(t *testing.T) {
 	if first != second { t.Fatalf("machine ID changed after restart: %q != %q", first, second) }
 }
 
+func TestLoadOrCreateMachineIDReplacesEmptyPersistedFallback(t *testing.T) {
+	dir := t.TempDir()
+	systemPath := filepath.Join(dir, "missing-machine-id")
+	storagePath := filepath.Join(dir, "data", "machine-id")
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(storagePath, nil, 0600); err != nil { t.Fatal(err) }
+	id, err := loadOrCreateMachineID(systemPath, storagePath)
+	if err != nil { t.Fatal(err) }
+	data, err := os.ReadFile(storagePath)
+	if err != nil { t.Fatal(err) }
+	if validStoredFallbackMachineID(data) == "" { t.Fatal("empty persisted fallback was not replaced by a valid ID") }
+	if id != string(data[:11]) { t.Fatalf("returned machine ID %q does not match persisted ID", id) }
+}
+
 func TestLoadOrCreateMachineIDRejectsUnwritableStorage(t *testing.T) {
 	dir := t.TempDir()
 	blocker := filepath.Join(dir, "not-a-directory")
