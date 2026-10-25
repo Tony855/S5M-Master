@@ -34,31 +34,31 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 		want  string
 	}{
 		{
-			name:  unknown mode",
+			name:  "unknown mode",
 			proxy: Proxy{Name: "proxy-a", Mode: "proxxy", Type: "socks5", Server: "example.com", Port: 1080},
-			want:  运行模式无效",
+			want:  "运行模式无效",
 		},
 		{
-			name:  unsupported direct mode",
+			name:  "unsupported direct mode",
 			proxy: Proxy{Name: "proxy-a", Mode: "direct"},
-			want:  运行模式无效",
+			want:  "运行模式无效",
 		},
 		{
-			name:  zero port",
+			name:  "zero port",
 			proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "example.com", Port: 0},
-			want:  代理端口必须在 1–65535 之间",
+			want:  "代理端口必须在 1-65535 之间",
 		},
 		{
-			name:  port above maximum",
+			name:  "port above maximum",
 			proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "example.com", Port: 65536},
-			want:  代理端口必须在 1–65535 之间",
+			want:  "代理端口必须在 1-65535 之间",
 		},
 		{
-			name:  valid upper-bound port",
+			name:  "valid upper-bound port",
 			proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "example.com", Port: 65535},
 		},
 		{
-			name:  empty mode defaults to proxy",
+			name:  "empty mode defaults to proxy",
 			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080},
 		},
 	}
