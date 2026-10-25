@@ -78,3 +78,28 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 		})
 	}
 }
+
+func TestParseProxyLineRejectsInvalidPort(t *testing.T) {
+	for _, line := range []string{
+		"socks5://user:pass@example.com:not-a-port",
+		"socks5://user:pass@example.com:0",
+		"socks5://user:pass@example.com:65536",
+	} {
+		if _, err := parseProxyLine(line); err == nil {
+			t.Errorf("parseProxyLine(%q) should reject invalid port", line)
+		}
+	}
+}
+
+func TestParseProxyLineAcceptsValidPort(t *testing.T) {
+	proxy, err := parseProxyLine("socks5://user:pass@example.com:65535#valid")
+	if err != nil {
+		t.Fatalf("parseProxyLine() error = %v", err)
+	}
+	if proxy.Port != 65535 {
+		t.Fatalf("port = %d, want 65535", proxy.Port)
+	}
+	if msg := (&App{}).validateProxy(proxy); msg != "" {
+		t.Fatalf("validateProxy() = %q, want success", msg)
+	}
+}
