@@ -158,7 +158,6 @@ func TestMergeManagedProxySectionsRejectsInvalidOrEmptyYAML(t *testing.T) {
 	}
 }
 
-
 func TestGetOrCreateMihomoSecretReusesConfiguredSecret(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "mihomo-secret-test.db"))
 	if err != nil {
