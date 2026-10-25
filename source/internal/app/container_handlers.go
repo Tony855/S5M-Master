@@ -277,11 +277,16 @@ func (a *App) handleCreateContainerTask(w http.ResponseWriter, r *http.Request) 
 	}
 	if v, ok := obj["container_id"]; ok {
 		var id string
-		validID := validContainerID(strings.TrimSpace(id))
-		if strings.HasPrefix(in.Action, "routeros.container.") {
-			validID = validRouterOSContainerID(strings.TrimSpace(id))
+		if json.Unmarshal(v, &id) != nil {
+			writeErr(w, 400, "container_id 无效")
+			return
 		}
-		if json.Unmarshal(v, &id) != nil || !validID {
+		id = strings.TrimSpace(id)
+		validID := validContainerID(id)
+		if strings.HasPrefix(in.Action, "routeros.container.") {
+			validID = validRouterOSContainerID(id)
+		}
+		if !validID {
 			writeErr(w, 400, "container_id 无效")
 			return
 		}
