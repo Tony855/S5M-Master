@@ -1666,7 +1666,11 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		YAML string `json:"config_yaml"`
 	}
 	if err := decodeLimited(r, 2<<20, "2 MiB", &in); err != nil {
-		writeErr(w, 400, "请求 JSON 无效")
+		if strings.Contains(err.Error(), "2 MiB") {
+			writeErr(w, http.StatusRequestEntityTooLarge, "节点配置请求超过 2 MiB 限制")
+		} else {
+			writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
+		}
 		return
 	}
 	if strings.TrimSpace(in.YAML) == "" {
