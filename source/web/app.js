@@ -93,8 +93,10 @@ createApp({
     const updatingKernel = ref(false);
     const kernelUpdateDialog = ref(false);
     const kernelUpdateMachineCode = ref('');
-    const kernelUpdateVersion = ref('v1.19.31');
+    const kernelUpdateVersion = ref('');
     const kernelUpdateSHA256 = ref('');
+    const kernelUpdateInfo = ref(null);
+    const kernelUpdateInfoLoading = ref(false);
     const queueingKernelUpdate = ref(false);
     const systemLogs = ref('');
     const mainMihomoStatus = ref({ loading: false, version: '未知', service: 'unknown', online: false, binary_path: '/opt/mihomo/mihomo' });
@@ -667,11 +669,34 @@ createApp({
       generating.value = false;
     };
 
+    const loadAgentKernelUpdateInfo = async () => {
+      const machineCode = String(kernelUpdateMachineCode.value || '').trim();
+      if (!machineCode) return;
+      kernelUpdateInfoLoading.value = true;
+      kernelUpdateInfo.value = null;
+      kernelUpdateVersion.value = '';
+      kernelUpdateSHA256.value = '';
+      try {
+        const res = await api('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(machineCode) + '&t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        kernelUpdateInfo.value = data;
+        kernelUpdateVersion.value = String(data.latest_version || '');
+        kernelUpdateSHA256.value = String(data.sha256 || '').toLowerCase();
+      } catch (e) {
+        kernelUpdateInfo.value = { error: e.message || '查询官方版本失败' };
+      } finally {
+        kernelUpdateInfoLoading.value = false;
+      }
+    };
+
     const openAgentKernelUpdate = (code) => {
       kernelUpdateMachineCode.value = String(code || '').trim();
       kernelUpdateVersion.value = '';
       kernelUpdateSHA256.value = '';
+      kernelUpdateInfo.value = null;
       kernelUpdateDialog.value = Boolean(kernelUpdateMachineCode.value);
+      if (kernelUpdateDialog.value) loadAgentKernelUpdateInfo();
     };
 
     const queueAgentKernelUpdate = async () => {
@@ -679,18 +704,18 @@ createApp({
       const version = String(kernelUpdateVersion.value || '').trim();
       const sha256 = String(kernelUpdateSHA256.value || '').trim().toLowerCase();
       if (!machineCode) return showMsg('请先选择目标 Agent', 'warning');
-      if (!/^v\d+\.\d+\.\d+$/.test(version)) return showMsg('版本号格式无效，应为 v主版本.次版本.修订版本', 'warning');
-      if (!/^[a-f0-9]{64}$/.test(sha256)) return showMsg('SHA-256 必须是 64 位十六进制字符串', 'warning');
+      if (kernelUpdateInfoLoading.value) return showMsg('正在查询官方版本和校验值，请稍候', 'warning');
+      if (kernelUpdateInfo.value && kernelUpdateInfo.value.error) return showMsg('请先成功获取官方更新信息', 'warning');
+      if (!/^v\\d+\\.\\d+\\.\\d+$/.test(version)) return showMsg('官方版本信息无效，请重新查询', 'warning');
+      if (!/^[a-f0-9]{64}$/.test(sha256)) return showMsg('官方 SHA-256 信息无效，请重新查询', 'warning');
       if (queueingKernelUpdate.value) return;
       try {
         await ElementPlus.ElMessageBox.confirm(
-          '确认向 Agent ' + machineCode + ' 排队更新 Mihomo 到 ' + version + '？请确保版本与节点架构匹配，并已从官方 Release 核实 SHA-256。',
+          '确认将 Agent ' + machineCode + '（' + (kernelUpdateInfo.value?.arch || '未知架构') + '）从 ' + (kernelUpdateInfo.value?.current_version || '未知版本') + ' 更新到官方稳定版 ' + version + '？Agent 在线时会下载、校验并测试新内核后应用。',
           '确认更新 Mihomo 内核',
-          { type: 'warning', confirmButtonText: '确认排队', cancelButtonText: '取消' }
+          { type: 'warning', confirmButtonText: '一键更新', cancelButtonText: '取消' }
         );
-      } catch (_) {
-        return;
-      }
+      } catch (_) { return; }
       queueingKernelUpdate.value = true;
       try {
         const res = await api('/api/v1/agents/kernel-update', {
@@ -702,7 +727,7 @@ createApp({
         if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
         kernelUpdateDialog.value = false;
         await loadAgentsData();
-        showMsg(data.message || '更新命令已排队；Agent 在线时将执行', 'success');
+        showMsg(data.message || '更新任务已排队；Agent 在线时将执行', 'success');
       } catch (e) {
         showMsg(e.message || '排队更新失败', 'error');
       } finally {
@@ -1328,8 +1353,8 @@ const safeCopy = async (text) => {
       retryingNodeConfigSync, retryNodeConfigSync,
       saveGlobalConfig, publishGlobalConfig, loadGlobalConfig, loadConfigVersions, rollbackGlobalConfig,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
-      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate,
-      openAgentKernelUpdate, queueAgentKernelUpdate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
       mainMihomoStatus, loadMainMihomoStatus,
       proxyDialog, proxyForm, savingProxy,
