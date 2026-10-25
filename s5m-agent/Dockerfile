@@ -47,13 +47,13 @@ RUN set -eux; \
     esac; \
     mkdir -p /out; \
     base="https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}"; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz" -o /tmp/s6-noarch.tar.xz; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz.sha256" -o /tmp/s6-noarch.tar.xz.sha256; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz" -o /tmp/s6-arch.tar.xz; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz.sha256" -o /tmp/s6-arch.tar.xz.sha256; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz" -o /tmp/s6-overlay-noarch.tar.xz; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz.sha256" -o /tmp/s6-overlay-noarch.tar.xz.sha256; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz" -o /tmp/s6-overlay-${s6_arch}.tar.xz; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz.sha256" -o /tmp/s6-overlay-${s6_arch}.tar.xz.sha256; \
     (cd /tmp && sha256sum -c s6-noarch.tar.xz.sha256 && sha256sum -c s6-arch.tar.xz.sha256); \
-    tar -Jxpf /tmp/s6-noarch.tar.xz -C /out; \
-    tar -Jxpf /tmp/s6-arch.tar.xz -C /out
+    tar -Jxpf /tmp/s6-overlay-noarch.tar.xz -C /out; \
+    tar -Jxpf /tmp/s6-overlay-${s6_arch}.tar.xz -C /out
 
 FROM alpine:${ALPINE_VERSION} AS runtime
 RUN apk add --no-cache ca-certificates tzdata \
