@@ -768,12 +768,12 @@ func processContainerTask(cfg Config) error {
 				leaseResp, leaseErr := containerRequest(cfg, http.MethodPost,
 					fmt.Sprintf("/api/v1/agent/container/tasks/%d/heartbeat", task.ID), nil)
 				if leaseErr != nil {
-					fmt.Printf("容器任务 %d 续租失败: %v\\n", task.ID, leaseErr)
+					fmt.Printf("容器任务 %d 续租失败: %v\n", task.ID, leaseErr)
 					continue
 				}
 				if leaseResp.StatusCode < 200 || leaseResp.StatusCode >= 300 {
 					body, _ := io.ReadAll(io.LimitReader(leaseResp.Body, 2048))
-					fmt.Printf("容器任务 %d 续租返回 HTTP %d: %s\\n", task.ID, leaseResp.StatusCode, strings.TrimSpace(string(body)))
+					fmt.Printf("容器任务 %d 续租返回 HTTP %d: %s\n", task.ID, leaseResp.StatusCode, strings.TrimSpace(string(body)))
 				}
 				leaseResp.Body.Close()
 			}
