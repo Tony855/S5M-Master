@@ -332,7 +332,11 @@ func TestTrafficCounter(t *testing.T) {
 	}
 }
 func TestNormalizeMachineID(t *testing.T) {
-	tests := []struct { name string; data []byte; want string }{
+	tests := []struct {
+		name string
+		data []byte
+		want string
+	}{
 		{name: "valid id", data: []byte("0123456789abcdef0123456789abcdef\n"), want: "0123456789a"},
 		{name: "valid legacy id", data: []byte("abc123def456"), want: "abc123def45"},
 		{name: "empty", data: []byte(""), want: ""},
@@ -344,7 +348,9 @@ func TestNormalizeMachineID(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := normalizeMachineID(tt.data)
 			if len(got) > 11 { got = got[:11] }
-			if got != tt.want { t.Fatalf("normalizeMachineID() = %q, want %q", got, tt.want) }
+			if got != tt.want {
+				t.Fatalf("normalizeMachineID() = %q, want %q", got, tt.want)
+			}
 		})
 	}
 }
