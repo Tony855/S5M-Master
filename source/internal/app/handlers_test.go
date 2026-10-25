@@ -267,7 +267,6 @@ func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T)
 	}
 }
 
-
 func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-json.db"))
 	if err != nil {
@@ -277,7 +276,7 @@ func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
 
 	const code = "node_json"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token": "global-secret",
+		"agent_token":           "global-secret",
 		"agent_machine_" + code: "dedicated-secret",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
