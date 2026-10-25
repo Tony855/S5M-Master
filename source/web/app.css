@@ -669,7 +669,7 @@ html, body, #app {
 
 .docker-bulk-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px;border:1px solid #e4e9f2;border-radius:12px;background:#f8faff}.docker-bulk-copy{display:flex;flex-direction:column;gap:3px}.docker-bulk-copy span{font-size:12px;color:#667085}.docker-bulk-buttons{display:flex;flex-wrap:wrap;gap:7px}.docker-bulk-buttons .el-button+.el-button{margin-left:0}@media(max-width:760px){.docker-bulk-toolbar{align-items:stretch;flex-direction:column}.docker-bulk-buttons{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.docker-bulk-buttons .el-button{width:100%;margin:0}}
 
-/* Mobile navigation: keep container submenu inside a real dropdown. */
+/* Mobile navigation: keep top-level entries in a single horizontally scrollable row. */
 @media (max-width: 760px) {
   .aside {
     width: 100% !important;
@@ -695,109 +695,11 @@ html, body, #app {
   }
 
   .aside .el-menu > .el-menu-item,
-  .aside .el-menu > .el-sub-menu {
+  .aside .el-menu > .container-nav-dropdown {
     flex: 0 0 auto;
     white-space: nowrap;
   }
-
-  .aside .el-menu > .el-sub-menu > .el-sub-menu__title {
-    display: flex;
-    align-items: center;
-    height: 42px;
-    line-height: 42px;
-    padding: 0 13px !important;
-    border-radius: 8px;
-    color: #aab6c9;
-    white-space: nowrap;
-  }
-
-  .aside .el-menu > .el-sub-menu.is-active > .el-sub-menu__title,
-  .aside .el-menu > .el-sub-menu > .el-sub-menu__title:hover {
-    color: #fff;
-    background: #1d293b;
-  }
-
-  .aside .el-menu > .el-sub-menu .el-menu {
-    position: absolute;
-    top: calc(100% - 8px);
-    left: 0;
-    z-index: 30;
-    display: block;
-    width: max-content;
-    min-width: 190px;
-    max-width: calc(100vw - 24px);
-    padding: 8px;
-    overflow: visible;
-    border: 1px solid #29384d;
-    border-radius: 10px;
-    background: #101827;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, .28);
-  }
-
-  .aside .el-menu > .el-sub-menu .el-menu-item {
-    display: flex;
-    width: 100%;
-    min-width: 0;
-    height: 42px;
-    line-height: 42px;
-    margin: 2px 0;
-    padding: 0 12px !important;
-    white-space: nowrap;
-  }
-
-  .aside .el-menu > .el-sub-menu .el-menu-item.is-active {
-    background: #243b60;
-    box-shadow: inset 3px 0 #60a5fa;
-  }
 }
-
-
-/* Fix mobile container submenu: anchor the popup to its own trigger and
-   prevent Element Plus menu defaults from stretching it across the viewport. */
-@media (max-width: 760px) {
-  .aside .el-menu > .el-sub-menu {
-    position: relative;
-    overflow: visible;
-  }
-
-  .aside .el-menu > .el-sub-menu > .el-menu,
-  .aside .el-menu > .el-sub-menu .el-menu {
-    position: absolute !important;
-    inset: auto auto auto 0;
-    top: calc(100% - 2px) !important;
-    left: 0 !important;
-    right: auto !important;
-    bottom: auto !important;
-    display: block !important;
-    flex: none !important;
-    flex-direction: column !important;
-    align-items: stretch !important;
-    width: max-content !important;
-    min-width: 190px !important;
-    max-width: min(260px, calc(100vw - 24px)) !important;
-    height: auto !important;
-    max-height: none !important;
-    margin: 0 !important;
-    padding: 8px !important;
-    overflow: visible !important;
-    box-sizing: border-box;
-    z-index: 1000 !important;
-    background: #101827 !important;
-    border: 1px solid #29384d !important;
-    border-radius: 10px !important;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, .28) !important;
-  }
-
-  .aside .el-menu > .el-sub-menu .el-menu-item {
-    display: flex !important;
-    flex: 0 0 auto !important;
-    width: 100% !important;
-    min-width: 0 !important;
-    margin: 2px 0 !important;
-    box-sizing: border-box;
-  }
-}
-
 
 /* Container navigation uses Element Plus dropdown/teleport to avoid clipping
    by the horizontally scrollable mobile navigation strip. */
