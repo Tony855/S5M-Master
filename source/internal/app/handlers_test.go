@@ -3,6 +3,7 @@ package app
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,25 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 )
+
+func TestDecodeErrorStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "oversized body", err: errors.New("请求体超过 8 KiB 限制"), want: http.StatusRequestEntityTooLarge},
+		{name: "malformed JSON", err: errors.New("invalid character"), want: http.StatusBadRequest},
+		{name: "nil error", err: nil, want: http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := decodeErrorStatus(tt.err); got != tt.want {
+				t.Fatalf("decodeErrorStatus() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestIsInternalSettingKey(t *testing.T) {
 	internal := []string{

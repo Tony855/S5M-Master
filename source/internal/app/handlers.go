@@ -60,6 +60,13 @@ func decode(r *http.Request, v any) error {
 	return decodeLimited(r, maxJSONRequestBody, "2 MiB", v)
 }
 
+func decodeErrorStatus(err error) int {
+	if err != nil && strings.Contains(err.Error(), "请求体超过 ") {
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusBadRequest
+}
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
@@ -1247,7 +1254,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		SHA256      string `json:"sha256"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
-		writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
+		writeErr(w, decodeErrorStatus(err), "请求 JSON 无效")
 		return
 	}
 	in.MachineCode = strings.TrimSpace(in.MachineCode)
@@ -1326,7 +1333,7 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		Message string `json:"message"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
-		writeErr(w, http.StatusBadRequest, "命令结果 JSON 无效")
+		writeErr(w, decodeErrorStatus(err), "命令结果 JSON 无效")
 		return
 	}
 	if in.ID == "" || (in.Status != "success" && in.Status != "failed") {
@@ -1358,7 +1365,10 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 // handleAgentHeartbeat stores authenticated per-Agent runtime telemetry.
 func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in map[string]any
-	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil || in == nil {
+	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "心跳 JSON 格式错误")
+		return
+	} else if in == nil {
 		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
 		return
 	}
@@ -1487,7 +1497,7 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 
 	// 限制请求体大小，避免异常大请求占用资源。
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
-		writeErr(w, http.StatusBadRequest, "JSON 参数错误")
+		writeErr(w, decodeErrorStatus(err), "JSON 参数错误")
 		return
 	}
 
@@ -1579,7 +1589,7 @@ func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		ConfigYaml string `json:"config_yaml"`
 	}
 	if err := decodeLimited(r, 2<<20, "2 MiB", &in); err != nil {
-		if strings.Contains(err.Error(), "2 MiB") {
+		if decodeErrorStatus(err) == http.StatusRequestEntityTooLarge {
 			writeErr(w, http.StatusRequestEntityTooLarge, "全局配置请求超过 2 MiB 限制")
 		} else {
 			writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
