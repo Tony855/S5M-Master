@@ -1257,7 +1257,15 @@ const safeCopy = async (text) => {
           body: JSON.stringify({ version: Number(row.version) })
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) throw new Error(data.message || data.error || '回滚失败');
+        if (!res.ok || data.ok === false) {
+          const message = data.message || data.error || '回滚失败';
+          if (String(message).includes('回滚已完成，但全局配置草稿同步失败')) {
+            await loadConfigVersions();
+            showMsg(message, 'warning');
+            return;
+          }
+          throw new Error(message);
+        }
         showMsg(data.message || ('已回滚到 v' + row.version), 'success');
         await Promise.all([loadGlobalConfig(), loadConfigVersions()]);
       } catch (e) {
