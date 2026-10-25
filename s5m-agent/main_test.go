@@ -251,3 +251,35 @@ func TestValidDockerContainerID(t *testing.T) {
 		}
 	}
 }
+
+func TestCalculateMihomoSpeeds(t *testing.T) {
+	mihomoSpeedMu.Lock()
+	mihomoSpeedLastTime = time.Time{}
+	mihomoSpeedLastUpload = 0
+	mihomoSpeedLastDownload = 0
+	mihomoSpeedMu.Unlock()
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	up, down := calculateMihomoSpeeds(100, 200, start)
+	if up != 0 || down != 0 {
+		t.Fatalf("first sample should have zero speed, got up=%d down=%d", up, down)
+	}
+	up, down = calculateMihomoSpeeds(500, 800, start.Add(2*time.Second))
+	if up != 200 || down != 300 {
+		t.Fatalf("speed = up:%d down:%d, want up:200 down:300", up, down)
+	}
+	up, down = calculateMihomoSpeeds(10, 20, start.Add(4*time.Second))
+	if up != 0 || down != 0 {
+		t.Fatalf("counter reset should not report negative speed, got up=%d down=%d", up, down)
+	}
+}
+
+func TestTrafficCounter(t *testing.T) {
+	if got, ok := trafficCounter(float64(123)); !ok || got != 123 {
+		t.Fatalf("trafficCounter(float64(123)) = %d, %v", got, ok)
+	}
+	if _, ok := trafficCounter("123"); ok {
+		t.Fatal("trafficCounter should reject string counters")
+	}
+}
+
