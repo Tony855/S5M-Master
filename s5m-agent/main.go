@@ -752,7 +752,36 @@ func processContainerTask(cfg Config) error {
 	if task.ID <= 0 {
 		return fmt.Errorf("主控返回无效容器任务 ID")
 	}
+	// Keep the controller-side lease alive while a potentially long operation runs.
+	// Stop and join the heartbeat goroutine before reporting the final task result.
+	leaseCtx, cancelLease := context.WithCancel(context.Background())
+	leaseDone := make(chan struct{})
+	go func() {
+		defer close(leaseDone)
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-leaseCtx.Done():
+				return
+			case <-ticker.C:
+				leaseResp, leaseErr := containerRequest(cfg, http.MethodPost,
+					fmt.Sprintf("/api/v1/agent/container/tasks/%d/heartbeat", task.ID), nil)
+				if leaseErr != nil {
+					fmt.Printf("容器任务 %d 续租失败: %v\\n", task.ID, leaseErr)
+					continue
+				}
+				if leaseResp.StatusCode < 200 || leaseResp.StatusCode >= 300 {
+					body, _ := io.ReadAll(io.LimitReader(leaseResp.Body, 2048))
+					fmt.Printf("容器任务 %d 续租返回 HTTP %d: %s\\n", task.ID, leaseResp.StatusCode, strings.TrimSpace(string(body)))
+				}
+				leaseResp.Body.Close()
+			}
+		}
+	}()
 	result, runErr := executeContainerTask(task)
+	cancelLease()
+	<-leaseDone
 	status, errText := "succeeded", ""
 	if runErr != nil {
 		status, errText = "failed", runErr.Error()
