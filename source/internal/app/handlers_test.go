@@ -231,16 +231,16 @@ func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T)
 	const globalSecret = "global-secret"
 	app := &App{store: store, jwtKey: []byte("test-jwt-secret")}
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token":                 globalSecret,
+		"agent_token":                  globalSecret,
 		"agent_machine_" + machineCode: machineSecret,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 	version := sha256.Sum256([]byte(machineSecret))
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": machineCode,
+		"sub":  machineCode,
 		"role": "agent",
-		"ver": hex.EncodeToString(version[:]),
+		"ver":  hex.EncodeToString(version[:]),
 	}).SignedString(app.jwtKey)
 	if err != nil {
 		t.Fatalf("sign Agent token: %v", err)
