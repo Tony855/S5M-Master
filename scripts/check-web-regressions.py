@@ -13,6 +13,8 @@ checks = {
     "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in html and "当前选择不是 RouterOS Agent" in html,
     "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in html and "loadSystemLogs" in html and "/api/v1/logs" in html and "/api/v1/mihomo/update" in html,
     "backup restore has size checks and explicit destructive confirmation": "/api/v1/backup?token=" in html and "/api/v1/restore" in html and "128 MiB" in html and "确认恢复数据库" in html,
+    "global config draft save and publish are separate from node YAML": "globalConfigYaml" in html and "/api/v1/config/save" in html and "/api/v1/config/publish" in html and "selectedConfigNode" in html,
+    "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
