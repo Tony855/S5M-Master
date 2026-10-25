@@ -204,14 +204,33 @@ for entry in \
 done
 chmod 0600 "$ENV_FILE"
 
-# Keep the main Mihomo controller API and its systemd service aligned with the
-# environment used by S5M-Server. Preserve existing values, but backfill keys that
-# may be absent from older installations before reading them under `set -e`.
+# Keep the main Mihomo API settings aligned with an existing config when
+# upgrading older installations. Otherwise a newly generated env secret or a
+# hard-coded port can make a previously working API unreachable.
+EXISTING_MIHOMO_SECRET=""
+EXISTING_MIHOMO_CONTROLLER=""
+if [[ -s "$DB_DIR/config.yaml" ]]; then
+  EXISTING_MIHOMO_SECRET="$(sed -nE 's/^[[:space:]]*secret:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
+  EXISTING_MIHOMO_CONTROLLER="$(sed -nE 's/^[[:space:]]*external-controller:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
+fi
 if ! grep -qE '^MIHOMO_API=' "$ENV_FILE"; then
-  printf '\nMIHOMO_API=http://127.0.0.1:8088\n' >> "$ENV_FILE"
+  if [[ -n "$EXISTING_MIHOMO_CONTROLLER" ]]; then
+    case "$EXISTING_MIHOMO_CONTROLLER" in
+      http://*|https://*) API_DEFAULT="$EXISTING_MIHOMO_CONTROLLER" ;;
+      *) API_DEFAULT="http://$EXISTING_MIHOMO_CONTROLLER" ;;
+    esac
+  else
+    API_DEFAULT="http://127.0.0.1:8088"
+  fi
+  printf '\nMIHOMO_API=%s\n' "$API_DEFAULT" >> "$ENV_FILE"
 fi
 if ! grep -qE '^MIHOMO_SECRET=' "$ENV_FILE"; then
-  printf '\nMIHOMO_SECRET=%s\n' "$(openssl rand -hex 24)" >> "$ENV_FILE"
+  if [[ -n "$EXISTING_MIHOMO_SECRET" ]]; then
+    SECRET_DEFAULT="$EXISTING_MIHOMO_SECRET"
+  else
+    SECRET_DEFAULT="$(openssl rand -hex 24)"
+  fi
+  printf '\nMIHOMO_SECRET=%s\n' "$SECRET_DEFAULT" >> "$ENV_FILE"
 fi
 chmod 0600 "$ENV_FILE"
 MIHOMO_API_URL="$(awk -F= '/^MIHOMO_API=/ { sub(/^[^=]*=/, ""); value=$0 } END { print value }' "$ENV_FILE")"
