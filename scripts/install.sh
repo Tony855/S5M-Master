@@ -210,8 +210,8 @@ chmod 0600 "$ENV_FILE"
 EXISTING_MIHOMO_SECRET=""
 EXISTING_MIHOMO_CONTROLLER=""
 if [[ -s "$DB_DIR/config.yaml" ]]; then
-  EXISTING_MIHOMO_SECRET="$(sed -nE 's/^[[:space:]]*secret:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
-  EXISTING_MIHOMO_CONTROLLER="$(sed -nE 's/^[[:space:]]*external-controller:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
+  EXISTING_MIHOMO_SECRET="$(sed -nE 's/^secret:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
+  EXISTING_MIHOMO_CONTROLLER="$(sed -nE 's/^external-controller:[[:space:]]*["'\''"]?([^"'\''"[:space:]]+)["'\''"]?[[:space:]]*$/\1/p' "$DB_DIR/config.yaml" | head -n1)"
 fi
 if ! grep -qE '^MIHOMO_API=' "$ENV_FILE"; then
   if [[ -n "$EXISTING_MIHOMO_CONTROLLER" ]]; then
@@ -253,10 +253,10 @@ fi
 # Existing user configs must also receive the controller endpoint and API secret.
 # Without these keys Mihomo starts successfully, but S5M cannot query /version,
 # monitor traffic, or publish/reload configs. Bind the API to loopback only.
-if ! grep -qE '^[[:space:]]*external-controller[[:space:]]*:' "$DB_DIR/config.yaml"; then
+if ! grep -qE '^external-controller[[:space:]]*:' "$DB_DIR/config.yaml"; then
   printf '\nexternal-controller: "127.0.0.1:%s"\n' "$MIHOMO_PORT" >> "$DB_DIR/config.yaml"
 fi
-if ! grep -qE '^[[:space:]]*secret[[:space:]]*:' "$DB_DIR/config.yaml"; then
+if ! grep -qE '^secret[[:space:]]*:' "$DB_DIR/config.yaml"; then
   printf 'secret: "%s"\n' "$MIHOMO_SECRET_VALUE" >> "$DB_DIR/config.yaml"
 fi
 
