@@ -641,7 +641,9 @@ createApp({
             dockerAvailable: node.docker_available === true,
             mihomoRunning: node.mihomo_running === true,
             mihomoVersion: node.mihomo_version || '',
-            updated_at: node.updated_at || ''
+            updated_at: node.updated_at || '',
+            pendingCommand: item.pending_command && typeof item.pending_command === 'object' ? item.pending_command : null,
+            commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
           });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
@@ -667,7 +669,7 @@ createApp({
 
     const openAgentKernelUpdate = (code) => {
       kernelUpdateMachineCode.value = String(code || '').trim();
-      kernelUpdateVersion.value = 'v1.19.31';
+      kernelUpdateVersion.value = '';
       kernelUpdateSHA256.value = '';
       kernelUpdateDialog.value = Boolean(kernelUpdateMachineCode.value);
     };
@@ -699,6 +701,7 @@ createApp({
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
         kernelUpdateDialog.value = false;
+        await loadAgentsData();
         showMsg(data.message || '更新命令已排队；Agent 在线时将执行', 'success');
       } catch (e) {
         showMsg(e.message || '排队更新失败', 'error');
