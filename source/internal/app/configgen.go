@@ -132,11 +132,14 @@ func (a *App) getOrCreateMihomoSecret(key string) (string, error) {
 	if secret := strings.TrimSpace(settings[key]); secret != "" {
 		return secret, nil
 	}
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("生成 Mihomo 随机密钥失败: %w", err)
+	secret := strings.TrimSpace(a.cfg.MihomoSecret)
+	if secret == "" {
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			return "", fmt.Errorf("生成 Mihomo 随机密钥失败: %w", err)
+		}
+		secret = hex.EncodeToString(buf)
 	}
-	secret := hex.EncodeToString(buf)
 	created, err := a.store.CreateSettingIfAbsent(key, secret)
 	if err != nil {
 		return "", fmt.Errorf("保存 Mihomo 密钥失败: %w", err)
