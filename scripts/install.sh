@@ -85,22 +85,34 @@ ensure_mihomo() {
     }
 
   read -r release_tag asset_url < <(python3 -c '
-import json, sys
+import json, re, sys
 d=json.load(sys.stdin)
 tag=d.get("tag_name", "")
 assets=d.get("assets", [])
 arch=sys.argv[1]
+# Prefer the canonical release asset whose filename exactly matches the tag.
+expected=f"mihomo-linux-{arch}-{tag}.gz" if tag else ""
 matches=[a.get("browser_download_url", "") for a in assets
-         if a.get("name", "").startswith("mihomo-linux-"+arch+"-")
-         and a.get("name", "").endswith(".gz")]
-if not tag or len(matches) != 1:
+         if a.get("name", "") == expected and a.get("browser_download_url", "").startswith("https://github.com/")]
+if not tag or not re.fullmatch(r"v[0-9]+\\.[0-9]+\\.[0-9]+", tag) or len(matches) != 1:
     print("", "")
 else:
     print(tag, matches[0])
 ' "$arch" <<<"$release_json")
 
   if [[ -z "$release_tag" || -z "$asset_url" ]]; then
-    echo "❌ 最新稳定版中未找到唯一的 Linux $arch 二进制包。" >&2
+    echo "❌ 最新稳定版中未找到名称与发行标签严格匹配的 Linux $arch 二进制包。" >&2
+    echo "   请检查 GitHub Releases 资产命名；为避免下载错误架构或变体，安装器不会猜测资产。" >&2
+    python3 -c '
+import json, sys
+d=json.load(sys.stdin)
+print("   发行标签:", d.get("tag_name", "(缺失)"))
+print("   可用 Linux 资产:")
+for a in d.get("assets", []):
+    n=a.get("name", "")
+    if n.startswith("mihomo-linux-"):
+        print("    -", n)
+' <<<"$release_json" >&2
     return 1
   fi
 
