@@ -164,6 +164,8 @@ BACKUP="/var/backups/s5m-server-install-$STAMP"
 install -d -m 0700 "$BACKUP"
 [[ -f "$DB_DIR/s5m.db" ]] && sqlite3 "$DB_DIR/s5m.db" ".backup '$BACKUP/s5m.db'"
 [[ -f "$BIN" ]] && cp -a "$BIN" "$BACKUP/S5M-Server.bin"
+[[ -f /etc/systemd/system/s5m-server.service ]] && cp -a /etc/systemd/system/s5m-server.service "$BACKUP/s5m-server.service"
+[[ -f /etc/systemd/system/mihomo.service ]] && cp -a /etc/systemd/system/mihomo.service "$BACKUP/mihomo.service"
 
 if [[ -f "$OLD_ENV_FILE" && ! -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$ENV_FILE"
 elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_ENV_FILE.unused.$STAMP"; fi
@@ -338,7 +340,20 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
   if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
     install -o root -g root -m 0755 "$BACKUP/S5M-Server.bin" "$BIN"
     setcap cap_net_bind_service=+ep "$BIN" 2>/dev/null || true
-    systemctl start "$UNIT"
+  fi
+  # Restore prior unit definitions so rollback does not pair the old binary
+  # with a new service configuration.
+  if [[ -f "$BACKUP/s5m-server.service" ]]; then
+    cp -a "$BACKUP/s5m-server.service" /etc/systemd/system/s5m-server.service
+  fi
+  if [[ -f "$BACKUP/mihomo.service" ]]; then
+    cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service
+  fi
+  systemctl daemon-reload
+  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
+    systemctl start "$UNIT" || {
+      echo "❌ 旧版 S5M-Server 回滚启动失败，请检查：journalctl -u $UNIT -n 100 --no-pager" >&2
+    }
   fi
   exit 1
 fi
