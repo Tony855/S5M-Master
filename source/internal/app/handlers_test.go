@@ -401,4 +401,3 @@ func TestParseProxyImportContentRejectsMalformedJSON(t *testing.T) {
 		t.Fatalf("expected malformed JSON failure, got proxies=%v failures=%v", proxies, failures)
 	}
 }
-
