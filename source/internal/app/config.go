@@ -43,6 +43,6 @@ func LoadEnv() Config {
 		AdminPass:        env("S5M_ADMIN_PASSWORD", ""),
 		MihomoAPI:        env("MIHOMO_API", "http://127.0.0.1:8088"),
 		MihomoSecret:     env("MIHOMO_SECRET", ""),
-		MihomoConfigPath: env("MIHOMO_CONFIG_PATH", "/app/config.yaml"),
+		MihomoConfigPath: env("MIHOMO_CONFIG_PATH", "/var/lib/s5m-server/config.yaml"),
 	}
 }
