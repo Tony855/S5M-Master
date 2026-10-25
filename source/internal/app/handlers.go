@@ -1538,8 +1538,8 @@ func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var release struct {
-		TagName string `json:"tag_name"`
-		Assets []mihomoReleaseAsset `json:"assets"`
+		TagName string               `json:"tag_name"`
+		Assets  []mihomoReleaseAsset `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&release); err != nil {
 		writeErr(w, http.StatusBadGateway, "解析官方 Release 失败")
