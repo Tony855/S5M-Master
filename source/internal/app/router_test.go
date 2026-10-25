@@ -176,3 +176,80 @@ func TestOperatorCannotAccessAdministrativeRouteMatrix(t *testing.T) {
 		})
 	}
 }
+
+func TestSaveGlobalConfigRejectsInvalidDraftWithoutOverwriting(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "config-draft.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{"config_yaml": "mode: rule\nmixed-port: 7890\n"}); err != nil {
+		t.Fatalf("seed config draft: %v", err)
+	}
+	a := &App{store: store}
+
+	for name, body := range map[string]string{
+		"empty":        `{"config_yaml":"  "}`,
+		"invalid yaml": `{"config_yaml":"mode: [unterminated"}`,
+		"empty map":    `{"config_yaml":"{}"}`,
+		"non-object":   `{"config_yaml":"- one\n- two"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
+			response := httptest.NewRecorder()
+			a.handleSaveConfig(response, req)
+			if response.Code < 400 || response.Code >= 500 {
+				t.Fatalf("invalid draft returned HTTP %d: %s", response.Code, response.Body.String())
+			}
+			settings, err := store.GetSettings()
+			if err != nil {
+				t.Fatalf("GetSettings: %v", err)
+			}
+			if settings["config_yaml"] != "mode: rule\nmixed-port: 7890\n" {
+				t.Fatalf("invalid draft overwrote saved configuration: %q", settings["config_yaml"])
+			}
+		})
+	}
+}
+
+func TestSaveGlobalConfigRejectsOversizedRequest(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "config-size.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store}
+	body := `{"config_yaml":"` + strings.Repeat("a", (2<<20)+1) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	a.handleSaveConfig(response, req)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized request returned HTTP %d, want %d: %s", response.Code, http.StatusRequestEntityTooLarge, response.Body.String())
+	}
+}
+
+func TestSaveGlobalConfigAcceptsValidDraft(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "config-valid.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store}
+	body := `{"config_yaml":"mode: rule\nmixed-port: 7890\ndns:\n  enable: true"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config/save", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	a.handleSaveConfig(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("valid draft returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if !strings.Contains(settings["config_yaml"], "mixed-port: 7890") {
+		t.Fatalf("saved draft missing expected setting: %q", settings["config_yaml"])
+	}
+}
