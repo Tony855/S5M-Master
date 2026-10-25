@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -295,6 +296,18 @@ func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
 		t.Fatalf("GetNodeConfig: %v", err)
 	} else if cfg, _ := store.GetNodeConfig(code); cfg != nil {
 		t.Fatal("invalid request unexpectedly persisted a node config")
+	}
+}
+
+func TestDecodeErrorStatus(t *testing.T) {
+	if got := decodeErrorStatus(errors.New("请求体超过 2 MiB 限制")); got != http.StatusRequestEntityTooLarge {
+		t.Fatalf("decodeErrorStatus(size error) = %d, want %d", got, http.StatusRequestEntityTooLarge)
+	}
+	if got := decodeErrorStatus(errors.New("invalid JSON")); got != http.StatusBadRequest {
+		t.Fatalf("decodeErrorStatus(invalid JSON) = %d, want %d", got, http.StatusBadRequest)
+	}
+	if got := decodeErrorStatus(nil); got != http.StatusBadRequest {
+		t.Fatalf("decodeErrorStatus(nil) = %d, want %d", got, http.StatusBadRequest)
 	}
 }
 
