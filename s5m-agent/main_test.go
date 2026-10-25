@@ -283,4 +283,3 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
-
