@@ -77,10 +77,10 @@ ENV S6_KEEP_ENV=1 \
     S6_CMD_WAIT_FOR_SERVICES=1 \
     S6_SERVICES_GRACETIME=15000 \
     S6_KILL_FINISH_MAXTIME=5000 \
-    S5M_AGENT_PORT=81 \
+    S5M_AGENT_PORT=80 \
     MIHOMO_HOME=/data \
     MIHOMO_API=127.0.0.1:8088
 VOLUME ["/data"]
-EXPOSE 81 7890 8088
+EXPOSE 80 7890 8088
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/healthcheck.sh"]
 ENTRYPOINT ["/init"]
