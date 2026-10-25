@@ -469,9 +469,9 @@ func TestHandleGetAgentsExposesPendingAndCompletedCommandState(t *testing.T) {
 	pending := `{"id":"cmd-2","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
 	previous := `{"id":"cmd-1","type":"update_mihomo","status":"failed","message":"previous update failed","updated_at":123}`
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token":                       "global-secret",
-		"agent_machine_" + machineCode:      "dedicated-secret",
-		"agent_command_" + machineCode:     pending,
+		"agent_token":                         "global-secret",
+		"agent_machine_" + machineCode:        "dedicated-secret",
+		"agent_command_" + machineCode:        pending,
 		"agent_command_result_" + machineCode: previous,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
