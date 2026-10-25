@@ -14,6 +14,7 @@ checks = {
     "Docker selector and task execution reject RouterOS agents": "v-for=\"item in dockerAgentEntries\"" in ui and "所选机器码不是可用的 Docker Agent" in ui,
     "RouterOS list/action reject non-RouterOS agents": "所选机器码不是 RouterOS Agent" in ui and "当前选择不是 RouterOS Agent" in ui,
     "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "/api/v1/logs" in ui and "/api/v1/mihomo/update" in ui,
+    "system operations page is reachable through page navigation allowlist": "const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config','system']" in app_js and "if (v === 'system') loadSystemLogs();" in app_js,
     "backup download uses Authorization header and restore has destructive confirmation": "fetch('/api/v1/backup', { headers: authHeaders() })" in ui and "/api/v1/backup?token=" not in ui and "/api/v1/restore" in ui and "128 MiB" in ui and "确认恢复数据库" in ui,
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in ui and "/api/v1/config/save" in ui and "/api/v1/config/publish" in ui and "selectedConfigNode" in ui,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in ui and "/api/v1/config/rollback" in ui and "确认回滚配置" in ui,
