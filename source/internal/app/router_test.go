@@ -1,7 +1,6 @@
 package app
 
 import (
-	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"testing/fstest"
