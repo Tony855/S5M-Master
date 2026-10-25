@@ -463,8 +463,23 @@ createApp({
       if (!confirm('确定删除节点 "' + (row.name || row.proxy_name || row.id) + '" ？')) return;
       try {
         const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
-        if (res.ok) { loadProxies(); showMsg('已删除', 'success'); } else showMsg(await parseErr(res), 'error');
-      } catch (e) { showMsg(e.message || '删除失败', 'error'); }
+        if (res.ok) {
+          await loadProxies();
+          showMsg('已删除', 'success');
+          return;
+        }
+        const message = await parseErr(res);
+        // Deletion is committed before the server regenerates authorized-node YAML.
+        // Refresh the list on this partial-success path so the removed proxy doesn't linger.
+        if (message.includes('代理已删除')) {
+          await loadProxies();
+          showMsg(message + '。请进入配置管理点击“立即重试同步所有节点”。', 'warning');
+          return;
+        }
+        showMsg(message, 'error');
+      } catch (e) {
+        showMsg(e.message || '删除失败', 'error');
+      }
     };
 
     const findProxyArray = (obj) => {
