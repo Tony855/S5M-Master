@@ -218,6 +218,16 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 }
 
 func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
+	// Normalize persisted rows before generating either proxy entries or routing
+	// rules. Older/imported rows may predate API validation.
+	proxies = append([]Proxy(nil), proxies...)
+	for i := range proxies {
+		proxies[i].Name = strings.TrimSpace(proxies[i].Name)
+		proxies[i].Mode = strings.TrimSpace(proxies[i].Mode)
+		proxies[i].Type = strings.ToLower(strings.TrimSpace(proxies[i].Type))
+		proxies[i].Server = strings.TrimSpace(proxies[i].Server)
+		proxies[i].MachineCode = strings.TrimSpace(proxies[i].MachineCode)
+	}
 	matchesMachine := func(p Proxy) bool {
 		return machineCode == "" || p.MachineCode == "" || p.MachineCode == machineCode
 	}
@@ -237,6 +247,25 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 	for _, p := range proxies {
 		if !eligible(p) {
 			continue
+		}
+		if p.Name == "" || len(p.Name) > 100 {
+			return "", fmt.Errorf("代理名称不能为空且不能超过 100 个字符")
+		}
+		switch p.Mode {
+		case "proxy", "china", "game":
+		default:
+			return "", fmt.Errorf("代理 %q 的运行模式无效：%q", p.Name, p.Mode)
+		}
+		switch p.Type {
+		case "socks5", "http", "ss", "vmess", "vless", "trojan":
+		default:
+			return "", fmt.Errorf("代理 %q 的类型无效：%q", p.Name, p.Type)
+		}
+		if p.Server == "" || strings.ContainsAny(p.Server, " \\t\\r\\n") {
+			return "", fmt.Errorf("代理 %q 的服务器地址为空或包含空白字符", p.Name)
+		}
+		if p.Port < 1 || p.Port > 65535 {
+			return "", fmt.Errorf("代理 %q 的端口必须在 1-65535 之间", p.Name)
 		}
 		if emittedNames[p.Name] {
 			return "", fmt.Errorf("代理名称重复：%q", p.Name)
