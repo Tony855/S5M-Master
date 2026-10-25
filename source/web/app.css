@@ -750,3 +750,50 @@ html, body, #app {
     box-shadow: inset 3px 0 #60a5fa;
   }
 }
+
+
+/* Fix mobile container submenu: anchor the popup to its own trigger and
+   prevent Element Plus menu defaults from stretching it across the viewport. */
+@media (max-width: 760px) {
+  .aside .el-menu > .el-sub-menu {
+    position: relative;
+    overflow: visible;
+  }
+
+  .aside .el-menu > .el-sub-menu > .el-menu,
+  .aside .el-menu > .el-sub-menu .el-menu {
+    position: absolute !important;
+    inset: auto auto auto 0;
+    top: calc(100% - 2px) !important;
+    left: 0 !important;
+    right: auto !important;
+    bottom: auto !important;
+    display: block !important;
+    flex: none !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: max-content !important;
+    min-width: 190px !important;
+    max-width: min(260px, calc(100vw - 24px)) !important;
+    height: auto !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 8px !important;
+    overflow: visible !important;
+    box-sizing: border-box;
+    z-index: 1000 !important;
+    background: #101827 !important;
+    border: 1px solid #29384d !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, .28) !important;
+  }
+
+  .aside .el-menu > .el-sub-menu .el-menu-item {
+    display: flex !important;
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 2px 0 !important;
+    box-sizing: border-box;
+  }
+}
