@@ -26,8 +26,8 @@ func (a *App) handleContainerAgentStatus(w http.ResponseWriter, r *http.Request)
 		MihomoVersion   string          `json:"mihomo_version"`
 		Status          json.RawMessage `json:"status_json"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, "状态数据格式错误")
+	if err := decodeLimited(r, 32<<10, "32 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "状态数据格式错误")
 		return
 	}
 	if len(in.Hostname) > 255 || len(in.OS) > 100 || len(in.Arch) > 100 || len(in.MihomoVersion) > 255 {
