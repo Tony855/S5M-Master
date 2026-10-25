@@ -575,12 +575,35 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 		backupPath = "/opt/mihomo/mihomo.bak"
 		releaseURL = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 	)
-	out, err := exec.Command(binaryPath, "-v").CombinedOutput()
+	info, statErr := os.Stat(binaryPath)
+	if statErr != nil {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败：检查二进制路径 "+binaryPath+"："+statErr.Error())
+		return
+	}
+	if !info.Mode().IsRegular() {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败：目标不是普通文件："+binaryPath)
+		return
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败：二进制没有执行权限："+binaryPath)
+		return
+	}
+	out, err := exec.CommandContext(r.Context(), binaryPath, "-v").CombinedOutput()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败: "+strings.TrimSpace(string(out)))
+		detail := strings.TrimSpace(string(out))
+		if detail == "" {
+			detail = err.Error()
+		} else {
+			detail += " (" + err.Error() + ")"
+		}
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败："+detail)
 		return
 	}
 	currentVersion := parseMihomoVersion(out)
+	if currentVersion == "unknown" {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败：命令执行成功，但输出无法识别："+strings.TrimSpace(string(out)))
+		return
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, releaseURL, nil)
