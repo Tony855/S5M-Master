@@ -187,6 +187,21 @@ ENVEOF
   chmod 0600 /root/S5M-Server-credentials.txt
 fi
 
+# Backfill required S5M paths/address for older environment files as well.
+# Keep existing user choices intact; missing values use the native-install defaults.
+for entry in \
+  "S5M_ADDR=:80" \
+  "S5M_DB=$DB_DIR/s5m.db" \
+  "S5M_CONFIG=$DB_DIR/config.yaml" \
+  "S5M_BACKUP=$DB_DIR/backups" \
+  "S5M_ADMIN_USER=admin"; do
+  key="${entry%%=*}"
+  if ! grep -qE "^${key}=" "$ENV_FILE"; then
+    printf '%s\n' "$entry" >> "$ENV_FILE"
+  fi
+done
+chmod 0600 "$ENV_FILE"
+
 # Keep the main Mihomo controller API and its systemd service aligned with the
 # environment used by S5M-Server. Preserve existing values, but backfill keys that
 # may be absent from older installations before reading them under `set -e`.
