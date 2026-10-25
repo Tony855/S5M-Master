@@ -57,3 +57,48 @@ func (a *App) MihomoInfo() map[string]any {
 	}
 	return out
 }
+
+// waitForMihomoAPIVersion confirms the running Mihomo process reports the target
+// version through its controller API after a restart or binary replacement.
+func (a *App) waitForMihomoAPIVersion(expected string, timeout time.Duration) error {
+	expected = strings.TrimPrefix(strings.TrimSpace(expected), "v")
+	if expected == "" {
+		return fmt.Errorf("目标 Mihomo 版本不能为空")
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for {
+		resp, err := a.mihomoReq(http.MethodGet, "/version", nil)
+		if err != nil {
+			lastErr = err
+		} else {
+			var payload map[string]any
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				lastErr = fmt.Errorf("Mihomo /version 返回 HTTP %d", resp.StatusCode)
+				_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 16<<10))
+			} else if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&payload); err != nil {
+				lastErr = fmt.Errorf("解析 Mihomo /version 响应失败: %w", err)
+			} else {
+				actual, _ := payload["version"].(string)
+				actual = strings.TrimPrefix(strings.TrimSpace(actual), "v")
+				if actual == expected {
+					_ = resp.Body.Close()
+					return nil
+				}
+				lastErr = fmt.Errorf("运行版本不匹配，期望 v%s，实际 %q", expected, actual)
+			}
+			_ = resp.Body.Close()
+		}
+		if !time.Now().Before(deadline) {
+			if lastErr == nil {
+				lastErr = fmt.Errorf("未收到 Mihomo 版本响应")
+			}
+			return fmt.Errorf("等待 Mihomo 运行版本确认超时: %w", lastErr)
+		}
+		pause := 500 * time.Millisecond
+		if remaining := time.Until(deadline); remaining < pause {
+			pause = remaining
+		}
+		time.Sleep(pause)
+	}
+}
