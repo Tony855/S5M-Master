@@ -1032,6 +1032,43 @@ func parseProxyLine(line string) (*Proxy, error) {
 	return p, nil
 }
 
+func parseProxyImportContent(content string) ([]*Proxy, []string) {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" { return nil, []string{"导入内容为空"} }
+	if strings.HasPrefix(trimmed, "{") {
+		var input struct {
+			Protocol string `json:"protocol"`
+			Authentication struct { Enabled bool `json:"enabled"`; Username string `json:"username"`; Password string `json:"password"` } `json:"authentication"`
+			Servers []struct { Server string `json:"server"`; Port int `json:"port"`; Username string `json:"username"`; Password string `json:"password"`; UDP bool `json:"udp"`; Name string `json:"name"` } `json:"servers"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &input); err != nil { return nil, []string{"JSON 文件格式错误: " + err.Error()} }
+		protocol := strings.ToLower(strings.TrimSpace(input.Protocol))
+		if protocol == "" { return nil, []string{"JSON 文件缺少 protocol"} }
+		if len(input.Servers) == 0 { return nil, []string{"JSON 文件缺少 servers 节点"} }
+		proxies := make([]*Proxy, 0, len(input.Servers)); var failures []string
+		for i, server := range input.Servers {
+			p := &Proxy{Mode:"proxy", Type:protocol, Server:strings.TrimSpace(server.Server), Port:server.Port, SourceCIDR:"0.0.0.0/0", Enabled:true, Extra:map[string]any{}}
+			p.Name = strings.TrimSpace(server.Name); if p.Name == "" { p.Name = fmt.Sprintf("%s-%s:%d", protocol, p.Server, p.Port) }
+			username, password := server.Username, server.Password
+			if username == "" && password == "" && input.Authentication.Enabled { username, password = input.Authentication.Username, input.Authentication.Password }
+			if username != "" { p.Extra["username"] = username }; if password != "" { p.Extra["password"] = password }
+			p.Extra["udp"] = server.UDP
+			if msg := (&App{}).validateProxy(p); msg != "" { failures = append(failures, fmt.Sprintf("第 %d 个节点失败: %s", i+1, msg)); continue }
+			proxies = append(proxies, p)
+		}
+		return proxies, failures
+	}
+	var proxies []*Proxy; var failures []string
+	lines := strings.Split(strings.ReplaceAll(trimmed, "\r\n", "\n"), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line); if line == "" || strings.HasPrefix(line, "//") { continue }
+		p, err := parseProxyLine(line); if err != nil { failures = append(failures, fmt.Sprintf("第 %d 行失败: %v", i+1, err)); continue }
+		if msg := (&App{}).validateProxy(p); msg != "" { failures = append(failures, fmt.Sprintf("第 %d 行失败: %s", i+1, msg)); continue }
+		proxies = append(proxies, p)
+	}
+	return proxies, failures
+}
+
 func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Content string `json:"content"`
@@ -1047,28 +1084,11 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	successCount := 0
-	var failReasons []string
-	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(in.Content), "\r\n", "\n"), "\n")
-	for i, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "//") {
-			continue
-		}
-		p, err := parseProxyLine(line)
-		if err != nil {
-			failReasons = append(failReasons, fmt.Sprintf("第 %d 行失败: %v", i+1, err))
-			continue
-		}
-		if msg := a.validateProxy(p); msg != "" {
-			failReasons = append(failReasons, fmt.Sprintf("第 %d 行失败: %s", i+1, msg))
-			continue
-		}
+	proxies, failReasons := parseProxyImportContent(in.Content)
+	for _, p := range proxies {
 		if err := a.store.CreateProxy(p); err != nil {
 			p.Name = p.Name + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
-			if err := a.store.CreateProxy(p); err != nil {
-				failReasons = append(failReasons, fmt.Sprintf("存入失败"))
-				continue
-			}
+			if err := a.store.CreateProxy(p); err != nil { failReasons = append(failReasons, fmt.Sprintf("节点 %q 存入失败", p.Name)); continue }
 		}
 		successCount++
 	}
