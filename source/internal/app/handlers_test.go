@@ -183,3 +183,32 @@ func TestDecodeBoundsJSONRequestBody(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateAgentRegistrationInput(t *testing.T) {
+	tests := []struct {
+		name        string
+		machineCode string
+		secret      string
+		wantErr     string
+	}{
+		{name: "trims valid values", machineCode: " node_01-abc ", secret: " token ",},
+		{name: "rejects blank machine code", machineCode: "   ", secret: "token", wantErr: "机器码格式错误"},
+		{name: "rejects invalid machine code characters", machineCode: "node/01", secret: "token", wantErr: "机器码格式错误"},
+		{name: "rejects oversized machine code", machineCode: strings.Repeat("a", 65), secret: "token", wantErr: "机器码格式错误"},
+		{name: "rejects blank secret", machineCode: "node01", secret: "  ", wantErr: "专属 Token 长度无效"},
+		{name: "rejects oversized secret", machineCode: "node01", secret: strings.Repeat("x", 257), wantErr: "专属 Token 长度无效"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			machineCode, secret, gotErr := validateAgentRegistrationInput(tt.machineCode, tt.secret)
+			if !strings.Contains(gotErr, tt.wantErr) && tt.wantErr != "" {
+				t.Fatalf("error = %q, want %q", gotErr, tt.wantErr)
+			}
+			if tt.wantErr == "" {
+				if gotErr != "" || machineCode != strings.TrimSpace(tt.machineCode) || secret != strings.TrimSpace(tt.secret) {
+					t.Fatalf("normalized values = %q, %q, error %q", machineCode, secret, gotErr)
+				}
+			}
+		})
+	}
+}
