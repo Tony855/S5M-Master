@@ -972,7 +972,19 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 	if len(failReasons) > 0 {
 		msg = strings.Join(failReasons, "; ")
 	}
-	writeJSON(w, 200, map[string]any{"success": successCount, "fail": len(failReasons), "message": msg})
+	syncFailed := false
+	if successCount > 0 {
+		if err := a.syncAuthorizedNodeConfigs(); err != nil {
+			syncFailed = true
+			msg = strings.TrimSpace(msg + "; 已导入 " + strconv.Itoa(successCount) + " 条，但节点配置同步失败: " + err.Error())
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"success": successCount,
+		"fail": len(failReasons),
+		"sync_failed": syncFailed,
+		"message": msg,
+	})
 }
 
 func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
