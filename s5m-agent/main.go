@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -918,20 +920,115 @@ func executeContainerTask(task containerTask) (map[string]any, error) {
 	}
 	return map[string]any{"output": text}, nil
 }
-func getMachineID() string {
-	data, err := os.ReadFile("/etc/machine-id")
-	if err != nil {
-		return ""
-	}
-
+// normalizeMachineID validates a Linux machine-id and returns its full 128-bit hex value.
+func normalizeMachineID(data []byte) string {
 	id := strings.ToLower(strings.TrimSpace(string(data)))
-	if len(id) < 11 {
+	if len(id) != 32 {
 		return ""
 	}
-
-	return id[:11]
+	for _, ch := range id {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			return ""
+		}
+	}
+	if strings.Trim(id, "0") == "" {
+		return ""
+	}
+	return id
 }
 
+func machineIDPath() string {
+	return filepath.Join(mihomoHome(), "machine-id")
+}
+
+func readSystemMachineID(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	id := normalizeMachineID(data)
+	if id == "" {
+		return "", fmt.Errorf("系统机器标识文件为空或格式无效")
+	}
+	return id[:11], nil
+}
+
+// loadOrCreateMachineID prefers /etc/machine-id. If unavailable, it generates
+// a random ID and persists it under /data, which survives container recreation
+// when the configured volume is retained. Storage errors are never ignored.
+func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
+	if id, err := readSystemMachineID(systemPath); err == nil {
+		return id, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(storagePath), 0700); err != nil {
+		return "", fmt.Errorf("创建机器标识持久化目录失败: %w", err)
+	}
+	if data, err := os.ReadFile(storagePath); err == nil {
+		if id := normalizeMachineID(data); id != "" {
+			return id[:11], nil
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("读取备用机器标识失败: %w", err)
+	}
+	randomID := make([]byte, 16)
+	if _, err := cryptorand.Read(randomID); err != nil {
+		return "", fmt.Errorf("生成备用机器标识失败: %w", err)
+	}
+	fullID := hex.EncodeToString(randomID)
+	tmp, err := os.CreateTemp(filepath.Dir(storagePath), ".machine-id-*")
+	if err != nil {
+		return "", fmt.Errorf("创建机器标识临时文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("设置机器标识文件权限失败: %w", err)
+	}
+	if _, err := tmp.WriteString(fullID + "\n"); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("写入备用机器标识失败: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", fmt.Errorf("同步备用机器标识失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("关闭机器标识临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, storagePath); err != nil {
+		if data, readErr := os.ReadFile(storagePath); readErr == nil {
+			if id := normalizeMachineID(data); id != "" {
+				return id[:11], nil
+			}
+		}
+		return "", fmt.Errorf("持久化备用机器标识失败: %w", err)
+	}
+	return fullID[:11], nil
+}
+
+func getMachineID() (string, error) {
+	return loadOrCreateMachineID("/etc/machine-id", machineIDPath())
+}
+
+func machineIDHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "仅允许 GET", http.StatusMethodNotAllowed)
+		return
+	}
+	id, err := getMachineID()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"error": "无法生成或读取机器标识: " + err.Error(),
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"machine_id": id})
+}
 func main() {
 	// 启动 81 端口提供 Web 注册界面
 	go func() {
@@ -940,10 +1037,7 @@ func main() {
 		})
 
 		// ====== 提供前端页面的 API ======
-		http.HandleFunc("/api/machine-id", func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"machine_id":"` + getMachineID() + `"}`))
-		})
+		http.HandleFunc("/api/machine-id", machineIDHandler)
 
 		http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 			data, _ := os.ReadFile(mihomoHome() + "/agent.json")
@@ -978,9 +1072,9 @@ func main() {
 				http.Error(w, "主控地址或授权密钥无效；地址必须是完整的 HTTP(S) URL，不能包含凭据、查询参数或片段", http.StatusBadRequest)
 				return
 			}
-			machineID := getMachineID()
-			if machineID == "" {
-				http.Error(w, "无法读取有效机器码", http.StatusInternalServerError)
+			machineID, machineErr := getMachineID()
+			if machineErr != nil {
+				http.Error(w, "无法生成或读取有效机器码: "+machineErr.Error(), http.StatusInternalServerError)
 				return
 			}
 			requestData, err := json.Marshal(map[string]string{"machine_code": machineID, "secret": in.Secret})
