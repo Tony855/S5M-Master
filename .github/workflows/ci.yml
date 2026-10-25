@@ -164,14 +164,14 @@ jobs:
           html = Path("source/web/index.html").read_text(encoding="utf-8")
           parser = InlineScriptExtractor()
           parser.feed(html)
-          if not parser.scripts:
-              raise SystemExit("No inline JavaScript blocks found")
           for index, script in enumerate(parser.scripts):
               target = Path(f"/tmp/s5m-inline-{index}.js")
               target.write_text(script, encoding="utf-8")
               print(f"Extracted {target} ({len(script)} characters)")
           PY
+          node --check source/web/app.js
           for file in /tmp/s5m-inline-*.js; do
+            [[ -f "$file" ]] || continue
             node --check "$file"
           done
       - name: Check UI data-integrity regressions
@@ -183,6 +183,7 @@ jobs:
           required=(
             source/web/index.html
             source/web/app.css
+            source/web/app.js
             source/web/agents.html
           )
           missing=0
