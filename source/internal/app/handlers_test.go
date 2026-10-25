@@ -502,3 +502,36 @@ func TestHandleGetAgentsExposesPendingAndCompletedCommandState(t *testing.T) {
 		t.Fatalf("command_result = %#v, want previous failed result cmd-1", node["command_result"])
 	}
 }
+
+func TestRunningMihomoAPIVersionReportsControllerVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/version" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"v1.19.33"}`))
+	}))
+	defer server.Close()
+
+	app := &App{cfg: Config{MihomoAPI: server.URL}}
+	version, err := app.runningMihomoAPIVersion()
+	if err != nil {
+		t.Fatalf("runningMihomoAPIVersion() error = %v", err)
+	}
+	if version != "v1.19.33" {
+		t.Fatalf("running version = %q, want v1.19.33", version)
+	}
+}
+
+func TestRunningMihomoAPIVersionRejectsUnavailableController(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "controller unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	app := &App{cfg: Config{MihomoAPI: server.URL}}
+	if version, err := app.runningMihomoAPIVersion(); err == nil {
+		t.Fatalf("runningMihomoAPIVersion() = %q, nil error; want API error", version)
+	}
+}
