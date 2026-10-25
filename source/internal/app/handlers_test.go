@@ -2,8 +2,8 @@ package app
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -457,7 +457,6 @@ func TestWaitForMihomoAPIVersionRejectsWrongRunningVersion(t *testing.T) {
 		t.Fatalf("error = %q, want version mismatch diagnostic", err)
 	}
 }
-
 
 func TestHandleGetAgentsExposesPendingAndCompletedCommandState(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-command-state.db"))
