@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"os"
 	"strings"
 	"testing"
 	"time"
