@@ -919,7 +919,7 @@ func main() {
 	// 启动 81 端口提供 Web 注册界面
 	go func() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "/opt/s5m-agent/index.html")
+			http.ServeFile(w, r, "/app/index.html")
 		})
 
 		// ====== 提供前端页面的 API ======
