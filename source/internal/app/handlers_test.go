@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,6 +23,8 @@ func TestDecodeErrorStatus(t *testing.T) {
 		want int
 	}{
 		{name: "oversized body", err: errRequestBodyTooLarge, want: http.StatusRequestEntityTooLarge},
+		{name: "wrapped oversized body", err: fmt.Errorf("decode failed: %w", errRequestBodyTooLarge), want: http.StatusRequestEntityTooLarge},
+		{name: "lookalike message is not oversized", err: errors.New("请求体超过 8 KiB 限制"), want: http.StatusBadRequest},
 		{name: "malformed JSON", err: errors.New("invalid character"), want: http.StatusBadRequest},
 		{name: "nil error", err: nil, want: http.StatusBadRequest},
 	}
