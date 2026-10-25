@@ -1570,7 +1570,7 @@ func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "保存配置失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "配置草稿已保存；发布前仍会执行 Mihomo 配置校验"})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "全局配置草稿已保存，尚未发布；这不会自动更新节点独立 YAML"})
 }
 
 func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
