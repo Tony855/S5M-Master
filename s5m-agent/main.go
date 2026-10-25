@@ -84,6 +84,19 @@ func mihomoConfigPath() string {
 
 // 独立的重载函数，防止变量冲突
 
+// preserveMihomoSecret keeps the local external-controller credential stable.
+// Mihomo may continue authenticating with its startup secret after a config reload,
+// so accepting a controller-provided replacement can lock the Agent out of its API.
+func preserveMihomoSecret(current, incoming map[string]interface{}) error {
+	secret, ok := current["secret"].(string)
+	secret = strings.TrimSpace(secret)
+	if !ok || secret == "" {
+		return fmt.Errorf("本地 Mihomo 配置缺少有效 secret，拒绝热更新以避免 API 鉴权失联")
+	}
+	incoming["secret"] = secret
+	return nil
+}
+
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
 func validateMihomoConfigYAML(data []byte) (map[string]interface{}, error) {
@@ -131,12 +144,9 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	// Mihomo's external-controller authentication is established at core startup.
 	// A normal /configs reload must not rotate the API secret behind the Agent's
 	// back: keep the currently configured secret stable across controller updates.
-	oldSecret, ok := oldCfg["secret"].(string)
-	oldSecret = strings.TrimSpace(oldSecret)
-	if !ok || oldSecret == "" {
-		return false, fmt.Errorf("本地 Mihomo 配置缺少有效 secret，拒绝热更新以避免 API 鉴权失联")
+	if err := preserveMihomoSecret(oldCfg, nextCfg); err != nil {
+		return false, err
 	}
-	nextCfg["secret"] = oldSecret
 
 	oldNorm, err := yaml.Marshal(oldCfg)
 	if err != nil {
