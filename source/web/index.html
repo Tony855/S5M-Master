@@ -1190,6 +1190,10 @@ html, body, #app {
           <el-input v-model="subUrl" readonly style="margin-bottom: 20px;"><template #prepend>订阅地址</template></el-input>
           <div class="card-title" style="margin-top: 30px;">节点独立配置 (YAML)</div>
           <p class="import-note">每个机器码保存一份独立配置。代理管理中新增、编辑、删除或重新绑定代理时，主控端会自动同步该节点 YAML 的 proxies/rules；其他自定义设置保持不变。保存 YAML 后，Agent 会在下一次拉取时应用。</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <el-button type="warning" :loading="retryingNodeConfigSync" @click="retryNodeConfigSync">立即重试同步所有节点</el-button>
+          </div>
+          <p class="import-note">如果之前出现“代理已保存，但节点配置同步失败”，可在修复导致失败的配置问题后点击此按钮。操作会重建所有已授权节点的代理规则，并保留节点 YAML 中其他自定义设置。</p>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
             <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig">
               <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
@@ -1325,6 +1329,7 @@ createApp({
     const publishingGlobalConfig = ref(false);
     const loadingConfigVersions = ref(false);
     const configVersions = ref([]);
+    const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
@@ -2412,6 +2417,21 @@ const safeCopy = async (text) => {
       }
     };
 
+    const retryNodeConfigSync = async () => {
+      if (retryingNodeConfigSync.value) return;
+      retryingNodeConfigSync.value = true;
+      try {
+        const res = await api('/api/v1/nodes/config-sync', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) throw new Error(data.error || data.message || '节点配置同步失败');
+        showMsg(data.message || '节点配置已重新生成', 'success');
+      } catch (e) {
+        showMsg(e.message || '节点配置同步失败', 'error');
+      } finally {
+        retryingNodeConfigSync.value = false;
+      }
+    };
+
     const loadConfigVersions = async () => {
       loadingConfigVersions.value = true;
       try {
@@ -2543,6 +2563,7 @@ const safeCopy = async (text) => {
       routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, globalConfigYaml, savingGlobalConfig, publishingGlobalConfig, loadingConfigVersions, configVersions,
+      retryingNodeConfigSync, retryNodeConfigSync,
       saveGlobalConfig, publishGlobalConfig, loadGlobalConfig, loadConfigVersions, rollbackGlobalConfig,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate,

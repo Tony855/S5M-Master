@@ -88,6 +88,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"PUT /api/v1/settings":                a.handleUpdateSettings,
 		"GET /api/v1/nodes/{code}/config":     a.handleGetNodeConfig,
 		"PUT /api/v1/nodes/{code}/config":     a.handleSaveNodeConfig,
+		"POST /api/v1/nodes/config-sync":      a.handleRetryNodeConfigSync,
 		"GET /api/v1/instances":               a.handleListInstances,
 		"POST /api/v1/instances":              a.handleCreateInstance,
 		"DELETE /api/v1/instances/{id}":       a.handleDeleteInstance,

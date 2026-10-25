@@ -1434,3 +1434,16 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]string{"message": "完整节点配置已保存；Agent 将在下一次拉取时应用"})
 }
+
+// handleRetryNodeConfigSync regenerates cached node YAML for all authorized Agents.
+// The Agent applies the refreshed config when it next polls the config endpoint.
+func (a *App) handleRetryNodeConfigSync(w http.ResponseWriter, _ *http.Request) {
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "节点配置同步失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":      true,
+		"message": "已重新生成并保存所有已授权节点的配置；在线 Agent 将在下次拉取时应用",
+	})
+}
