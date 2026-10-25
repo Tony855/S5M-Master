@@ -1573,11 +1573,8 @@ func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ConfigYaml string `json:"config_yaml"`
 	}
-	const maxConfigBody = int64(2 << 20)
-	r.Body = http.MaxBytesReader(w, r.Body, maxConfigBody)
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
+	if err := decodeLimited(r, 2<<20, "2 MiB", &in); err != nil {
+		if strings.Contains(err.Error(), "2 MiB") {
 			writeErr(w, http.StatusRequestEntityTooLarge, "全局配置请求超过 2 MiB 限制")
 		} else {
 			writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
