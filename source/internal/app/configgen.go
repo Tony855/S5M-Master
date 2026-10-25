@@ -261,7 +261,7 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 		default:
 			return "", fmt.Errorf("代理 %q 的类型无效：%q", p.Name, p.Type)
 		}
-		if p.Server == "" || strings.ContainsAny(p.Server, " \\t\\r\\n") {
+		if p.Server == "" || strings.ContainsAny(p.Server, " \t\r\n") {
 			return "", fmt.Errorf("代理 %q 的服务器地址为空或包含空白字符", p.Name)
 		}
 		if p.Port < 1 || p.Port > 65535 {
