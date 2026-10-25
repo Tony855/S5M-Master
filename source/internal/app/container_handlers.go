@@ -52,6 +52,15 @@ func (a *App) handleContainerAgentStatus(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, "保存节点状态失败")
 		return
 	}
+	// Container agents also refresh the shared Agent last-seen timestamp. The
+	// RouterOS-only agent does not download Mihomo configuration, so this status
+	// endpoint is its authoritative online heartbeat.
+	if err := a.store.UpdateSettings(map[string]string{
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "更新 Agent 心跳失败")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
