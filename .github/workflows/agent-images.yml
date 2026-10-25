@@ -103,7 +103,7 @@ jobs:
           trap cleanup EXIT
 
           # Use a deterministic test-only system machine-id; never print it.
-          printf '%s\\n' '0123456789abcdef0123456789abcdef' > "$fake_id_file"
+          printf '%s\n' '0123456789abcdef0123456789abcdef' > "$fake_id_file"
           chmod 0444 "$fake_id_file"
 
           docker run -d --name "$container" --restart no \
