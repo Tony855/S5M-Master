@@ -82,7 +82,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/auth/me":                 a.handleMe,
 		"GET /api/v1/agents":                  a.handleGetAgents,
 		"POST /api/v1/agents/generate":        a.handleGenerateAgentToken,
-		"GET /api/v1/agents/kernel-update-info":  a.handleAgentMihomoUpdateInfo,
+		"GET /api/v1/agents/kernel-update-info": a.handleAgentMihomoUpdateInfo,
 		"POST /api/v1/agents/kernel-update":   a.handleQueueMihomoUpdate,
 		"DELETE /api/v1/agents":               a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":           a.handlePassword,
