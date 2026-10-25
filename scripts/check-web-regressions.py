@@ -16,6 +16,7 @@ checks = {
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in html and "/api/v1/config/save" in html and "/api/v1/config/publish" in html and "selectedConfigNode" in html,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
     "primary UI does not load the legacy standalone app.js": 'src="/app.js"' not in html and 'src="./app.js"' not in html,
+    "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in html and "default-openeds=\"['containers']\"" in html and 'index="docker">Docker 容器' in html and 'index="routeros-containers">RouterOS 容器' in html,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
