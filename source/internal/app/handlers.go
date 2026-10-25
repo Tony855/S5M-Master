@@ -474,43 +474,65 @@ var lastTime time.Time
 func (a *App) handleMihomoStatus(w http.ResponseWriter, _ *http.Request) {
 	const binaryPath = "/opt/mihomo/mihomo"
 	out := map[string]any{
-		"binary_path": binaryPath,
-		"version":     "未知",
-		"service":     "unknown",
-		"online":      false,
-		"checked_at":  time.Now().Unix(),
+		"binary_path":    binaryPath,
+		"version":        "未知",
+		"service":        "unknown",
+		"online":         false,
+		"binary_ok":      false,
+		"api_online":     false,
+		"api_version":    "未知",
+		"checked_at":     time.Now().Unix(),
 	}
 	if info, err := os.Stat(binaryPath); err != nil {
 		out["binary_error"] = err.Error()
 	} else if !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 {
 		out["binary_error"] = "目标不是可执行的普通文件"
-	} else if versionOutput, err := exec.Command(binaryPath, "-v").CombinedOutput(); err != nil {
-		out["binary_error"] = strings.TrimSpace(string(versionOutput))
-		if out["binary_error"] == "" {
-			out["binary_error"] = err.Error()
-		}
 	} else {
-		version := parseMihomoVersion(versionOutput)
-		out["version"] = version
-		out["binary_ok"] = version != "unknown"
-		if version == "unknown" {
-			out["binary_error"] = "版本输出无法识别: " + strings.TrimSpace(string(versionOutput))
+		versionOutput, err := exec.Command(binaryPath, "-v").CombinedOutput()
+		if err != nil {
+			out["binary_error"] = strings.TrimSpace(string(versionOutput))
+			if out["binary_error"] == "" {
+				out["binary_error"] = err.Error()
+			}
+		} else {
+			version := parseMihomoVersion(versionOutput)
+			out["version"] = version
+			out["binary_ok"] = version != "unknown"
+			if version == "unknown" {
+				out["binary_error"] = "版本输出无法识别: " + strings.TrimSpace(string(versionOutput))
+			}
 		}
 	}
+
 	serviceOutput, serviceErr := exec.Command("systemctl", "is-active", "mihomo").CombinedOutput()
 	serviceState := strings.TrimSpace(string(serviceOutput))
 	if serviceState == "" && serviceErr != nil {
 		serviceState = "unknown"
 	}
 	out["service"] = serviceState
-	out["service_error"] = ""
 	if serviceErr != nil {
 		out["service_error"] = strings.TrimSpace(string(serviceOutput))
 		if out["service_error"] == "" {
 			out["service_error"] = serviceErr.Error()
 		}
 	}
-	out["online"] = out["binary_ok"] == true && serviceState == "active"
+
+	apiVersion, apiErr := a.runningMihomoAPIVersion()
+	if apiErr != nil {
+		out["api_error"] = apiErr.Error()
+	} else {
+		out["api_online"] = true
+		out["api_version"] = apiVersion
+		binaryVersion, _ := out["version"].(string)
+		if binaryVersion != "未知" && strings.TrimPrefix(binaryVersion, "v") != strings.TrimPrefix(apiVersion, "v") {
+			out["version_mismatch"] = true
+			out["api_error"] = fmt.Sprintf("磁盘二进制版本 %s 与运行中的 Mihomo 版本 %s 不一致", binaryVersion, apiVersion)
+		}
+	}
+	out["online"] = out["binary_ok"] == true &&
+		serviceState == "active" &&
+		out["api_online"] == true &&
+		out["version_mismatch"] != true
 	writeJSON(w, http.StatusOK, out)
 }
 
