@@ -1,6 +1,7 @@
 package app
 
 import (
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
@@ -432,58 +433,253 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
 }
 
-func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
-	out, _ := exec.Command("/opt/mihomo/mihomo", "-v").Output()
-	re := regexp.MustCompile(`Mihomo Meta (v[0-9]+\.[0-9]+\.[0-9]+)`)
-	matches := re.FindStringSubmatch(string(out))
-	currentVersion := "unknown"
-	if len(matches) > 1 {
-		currentVersion = matches[1]
+type mihomoReleaseAsset struct {
+	Name               string "json:\"name\""
+	BrowserDownloadURL string "json:\"browser_download_url\""
+}
+
+func parseMihomoVersion(output []byte) string {
+	match := regexp.MustCompile("Mihomo Meta (v[0-9]+\\.[0-9]+\\.[0-9]+)").FindSubmatch(output)
+	if len(match) < 2 {
+		return "unknown"
 	}
+	return string(match[1])
+}
+
+func findMihomoCompatibleAsset(assets []mihomoReleaseAsset) string {
+	for _, asset := range assets {
+		if strings.Contains(asset.Name, "linux-amd64-compatible") &&
+			strings.HasSuffix(asset.Name, ".gz") &&
+			!strings.HasSuffix(asset.Name, ".tar.gz") &&
+			strings.HasPrefix(asset.BrowserDownloadURL, "https://") {
+			return asset.BrowserDownloadURL
+		}
+	}
+	return ""
+}
+
+func copyFileAtomic(source, destination string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	tmp, err := os.CreateTemp(filepath.Dir(destination), ".mihomo-copy-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, destination)
+}
+
+func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
+	const (
+		binaryPath = "/opt/mihomo/mihomo"
+		backupPath = "/opt/mihomo/mihomo.bak"
+		releaseURL = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+	)
+	out, err := exec.Command(binaryPath, "-v").CombinedOutput()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败: "+strings.TrimSpace(string(out)))
+		return
+	}
+	currentVersion := parseMihomoVersion(out)
+
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, releaseURL, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建更新请求失败")
+		return
+	}
 	req.Header.Set("User-Agent", "S5M-Next")
 	resp, err := client.Do(req)
 	if err != nil {
-		writeErr(w, 500, "检查更新失败")
+		writeErr(w, http.StatusBadGateway, "检查 Mihomo 更新失败: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	json.NewDecoder(resp.Body).Decode(&release)
-	latestVersion := release.TagName
-	if currentVersion == latestVersion {
-		writeJSON(w, 200, map[string]string{"message": "当前已是最新版本", "status": "latest"})
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("GitHub 更新接口返回 HTTP %d", resp.StatusCode))
 		return
 	}
-	var downloadURL string
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") {
-			downloadURL = "https://ghproxy.net/" + asset.BrowserDownloadURL
-			break
+
+	var release struct {
+		TagName string               "json:\"tag_name\""
+		Assets  []mihomoReleaseAsset "json:\"assets\""
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		writeErr(w, http.StatusBadGateway, "解析 Mihomo 发布信息失败")
+		return
+	}
+	if !regexp.MustCompile("^v[0-9]+\\.[0-9]+\\.[0-9]+$").MatchString(release.TagName) {
+		writeErr(w, http.StatusBadGateway, "GitHub 返回的 Mihomo 版本号无效")
+		return
+	}
+	if currentVersion == release.TagName {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "当前已是最新版本", "status": "latest", "version": currentVersion})
+		return
+	}
+
+	assetURL := findMihomoCompatibleAsset(release.Assets)
+	if assetURL == "" {
+		writeErr(w, http.StatusBadGateway, "未找到有效的 linux-amd64-compatible 更新包")
+		return
+	}
+
+	gzFile, err := os.CreateTemp("", "s5m-mihomo-update-*.gz")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建下载临时文件失败")
+		return
+	}
+	gzPath := gzFile.Name()
+	if err := gzFile.Close(); err != nil {
+		_ = os.Remove(gzPath)
+		writeErr(w, http.StatusInternalServerError, "准备下载临时文件失败")
+		return
+	}
+	defer os.Remove(gzPath)
+
+	download := func(url string) error {
+		cmd := exec.CommandContext(r.Context(), "curl", "--fail", "--location", "--retry", "2",
+			"--connect-timeout", "15", "--max-time", "240", "--output", gzPath, url)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		}
+		info, err := os.Stat(gzPath)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return fmt.Errorf("下载文件为空或无效")
+		}
+		return nil
+	}
+	if err := download("https://ghproxy.net/" + assetURL); err != nil {
+		_ = os.Remove(gzPath)
+		if directErr := download(assetURL); directErr != nil {
+			writeErr(w, http.StatusBadGateway, "通过代理和 GitHub 直连下载均失败: "+directErr.Error())
+			return
 		}
 	}
-	if downloadURL == "" {
-		writeErr(w, 500, "未找到适配包")
+
+	gz, err := os.Open(gzPath)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "打开下载文件失败")
 		return
 	}
-	tmp := "/tmp/mihomo_update.gz"
-	if err := exec.Command("curl", "-fL", "-o", tmp, downloadURL).Run(); err != nil {
-		writeErr(w, 500, "下载失败")
+	reader, err := gzip.NewReader(gz)
+	if err != nil {
+		_ = gz.Close()
+		writeErr(w, http.StatusBadGateway, "更新包不是有效的 gzip 文件")
 		return
 	}
-	exec.Command("systemctl", "stop", "mihomo").Run()
-	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
-	data, _ := exec.Command("gunzip", "-c", tmp).Output()
-	os.WriteFile("/opt/mihomo/mihomo", data, 0755)
-	exec.Command("systemctl", "start", "mihomo").Run()
-	writeJSON(w, 200, map[string]string{"message": "已成功更新至 " + latestVersion, "status": "updated"})
+	candidate, err := os.CreateTemp(filepath.Dir(binaryPath), ".mihomo-candidate-*")
+	if err != nil {
+		_ = reader.Close()
+		_ = gz.Close()
+		writeErr(w, http.StatusInternalServerError, "创建候选二进制失败")
+		return
+	}
+	candidatePath := candidate.Name()
+	defer os.Remove(candidatePath)
+	_, copyErr := io.Copy(candidate, reader)
+	readerErr := reader.Close()
+	gzErr := gz.Close()
+	if copyErr != nil || readerErr != nil || gzErr != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusBadGateway, "解压 Mihomo 更新包失败")
+		return
+	}
+	if err := candidate.Chmod(0o755); err != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusInternalServerError, "设置候选二进制权限失败")
+		return
+	}
+	if err := candidate.Sync(); err != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusInternalServerError, "写入候选二进制失败")
+		return
+	}
+	if err := candidate.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭候选二进制失败")
+		return
+	}
+
+	candidateOutput, err := exec.Command(candidatePath, "-v").CombinedOutput()
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "候选 Mihomo 二进制无法运行: "+strings.TrimSpace(string(candidateOutput)))
+		return
+	}
+	candidateVersion := parseMihomoVersion(candidateOutput)
+	if candidateVersion != release.TagName {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("候选版本校验失败：期望 %s，实际 %s", release.TagName, candidateVersion))
+		return
+	}
+	if err := copyFileAtomic(binaryPath, backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "备份当前 Mihomo 失败，未执行更新: "+err.Error())
+		return
+	}
+	if output, err := exec.Command("systemctl", "stop", "mihomo").CombinedOutput(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "停止 Mihomo 服务失败，未替换二进制: "+strings.TrimSpace(string(output)))
+		return
+	}
+	if err := os.Rename(candidatePath, binaryPath); err != nil {
+		startOutput, startErr := exec.Command("systemctl", "start", "mihomo").CombinedOutput()
+		msg := "替换 Mihomo 二进制失败: " + err.Error()
+		if startErr != nil {
+			msg += "; 旧服务重新启动失败: " + strings.TrimSpace(string(startOutput))
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+	if output, err := exec.Command("systemctl", "start", "mihomo").CombinedOutput(); err != nil {
+		rollbackErr := copyFileAtomic(backupPath, binaryPath)
+		restartOutput, restartErr := exec.Command("systemctl", "start", "mihomo").CombinedOutput()
+		msg := "新 Mihomo 启动失败: " + strings.TrimSpace(string(output))
+		if rollbackErr != nil {
+			msg += "; 自动恢复旧二进制失败: " + rollbackErr.Error()
+		} else if restartErr != nil {
+			msg += "; 已恢复旧二进制，但旧服务启动失败: " + strings.TrimSpace(string(restartOutput))
+		} else {
+			msg += "; 已恢复旧二进制并重新启动服务"
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+	if _, err := exec.Command("systemctl", "is-active", "--quiet", "mihomo").CombinedOutput(); err != nil {
+		rollbackErr := copyFileAtomic(backupPath, binaryPath)
+		restartOutput, restartErr := exec.Command("systemctl", "restart", "mihomo").CombinedOutput()
+		msg := "Mihomo 服务启动后未进入 active 状态"
+		if rollbackErr != nil {
+			msg += "; 自动恢复旧二进制失败: " + rollbackErr.Error()
+		} else if restartErr != nil {
+			msg += "; 已恢复旧二进制，但重启旧服务失败: " + strings.TrimSpace(string(restartOutput))
+		} else {
+			msg += "; 已恢复旧二进制并重启服务"
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已成功更新至 " + candidateVersion, "status": "updated", "version": candidateVersion})
 }
 
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
