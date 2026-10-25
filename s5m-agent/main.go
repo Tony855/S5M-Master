@@ -941,6 +941,22 @@ func machineIDPath() string {
 	return filepath.Join(mihomoHome(), "machine-id")
 }
 
+func validStoredFallbackMachineID(data []byte) string {
+	id := strings.ToLower(strings.TrimSpace(string(data)))
+	if len(id) != 32 {
+		return ""
+	}
+	for _, ch := range id {
+		if !((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')) {
+			return ""
+		}
+	}
+	if strings.Trim(id, "0") == "" {
+		return ""
+	}
+	return id
+}
+
 func readSystemMachineID(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -964,7 +980,7 @@ func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
 		return "", fmt.Errorf("创建机器标识持久化目录失败: %w", err)
 	}
 	if data, err := os.ReadFile(storagePath); err == nil {
-		if id := normalizeMachineID(data); id != "" {
+		if id := validStoredFallbackMachineID(data); id != "" {
 			return id[:11], nil
 		}
 	} else if !os.IsNotExist(err) {
@@ -998,7 +1014,7 @@ func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
 	}
 	if err := os.Rename(tmpPath, storagePath); err != nil {
 		if data, readErr := os.ReadFile(storagePath); readErr == nil {
-			if id := normalizeMachineID(data); id != "" {
+			if id := validStoredFallbackMachineID(data); id != "" {
 				return id[:11], nil
 			}
 		}
