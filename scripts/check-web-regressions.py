@@ -24,6 +24,7 @@ checks = {
     "system operations page is reachable through page navigation allowlist": "const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config','system']" in app_js and "if (v === 'system') loadSystemLogs();" in app_js,
     "backup download uses Authorization header and restore has destructive confirmation": "fetch('/api/v1/backup', { headers: authHeaders() })" in ui and "/api/v1/backup?token=" not in ui and "/api/v1/restore" in ui and "128 MiB" in ui and "确认恢复数据库" in ui,
     "global config draft save and publish are separate from node YAML": "globalConfigYaml" in ui and "/api/v1/config/save" in ui and "/api/v1/config/publish" in ui and "selectedConfigNode" in ui,
+    "global config draft endpoint bounds request size and validates YAML before persistence": "maxConfigBody = int64(2 << 20)" in handlers and "全局 YAML 语法错误" in handlers and "全局 YAML 必须是非空对象" in handlers,
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in ui and "/api/v1/config/rollback" in ui and "确认回滚配置" in ui,
     "successful rollback syncs the editable global config draft": 'UpdateSettings(map[string]string{"config_yaml": yml})' in configgen and "回滚已完成，但全局配置草稿同步失败" in configgen and "回滚已完成，但全局配置草稿同步失败" in app_js,
     "rollback keeps current database-managed proxy/rule sections": "BuildConfigForMachine(\"\")" in rollback_impl and "mergeManagedProxySections(yml, managedYAML)" in rollback_impl and "代理列表和路由规则始终以当前代理数据库为准" in html,
