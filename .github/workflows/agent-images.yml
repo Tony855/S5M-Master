@@ -129,7 +129,7 @@ jobs:
 
       - name: Validate ARM64 image contents
         run: |
-          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /sbin/tini && /sbin/tini --version && /usr/local/bin/mihomo -v'
+          docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /init && test -x /etc/cont-init.d/10-mihomo-config && test -x /etc/s6-overlay/s6-rc.d/mihomo/run && test -x /etc/s6-overlay/s6-rc.d/agent/run && /usr/local/bin/mihomo -v'
 
       - name: Export ARM64 archive
         run: |
