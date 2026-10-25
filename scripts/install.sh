@@ -90,11 +90,17 @@ d=json.load(sys.stdin)
 tag=d.get("tag_name", "")
 assets=d.get("assets", [])
 arch=sys.argv[1]
-# Prefer the canonical release asset whose filename exactly matches the tag.
-expected=f"mihomo-linux-{arch}-{tag}.gz" if tag else ""
+# Release naming differs by architecture. amd64 has explicit CPU baseline variants;
+# select the portable x86-64-v1 build. arm64 uses the unqualified asset name.
+if arch == "amd64":
+    expected = f"mihomo-linux-amd64-v1-{tag}.gz" if tag else ""
+elif arch == "arm64":
+    expected = f"mihomo-linux-arm64-{tag}.gz" if tag else ""
+else:
+    expected = ""
 matches=[a.get("browser_download_url", "") for a in assets
          if a.get("name", "") == expected and a.get("browser_download_url", "").startswith("https://github.com/")]
-if not tag or not re.fullmatch(r"v[0-9]+\\.[0-9]+\\.[0-9]+", tag) or len(matches) != 1:
+if not tag or not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) or len(matches) != 1:
     print("", "")
 else:
     print(tag, matches[0])
