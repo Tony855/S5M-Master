@@ -211,6 +211,7 @@ func (a *App) validateProxy(p *Proxy) string {
 		p.Mode = "proxy"
 	}
 	switch p.Mode {
+	switch p.Mode {
 	case "proxy", "china", "game":
 		p.Type = strings.TrimSpace(p.Type)
 		p.Server = strings.TrimSpace(p.Server)
@@ -220,10 +221,8 @@ func (a *App) validateProxy(p *Proxy) string {
 		if p.Port < 1 || p.Port > 65535 {
 			return "代理端口必须在 1–65535 之间"
 		}
-	case "direct", "reject":
-		// These modes are intentional rule metadata and do not require an endpoint.
 	default:
-		return "运行模式无效，必须是 proxy、china、game、direct 或 reject"
+		return "运行模式无效，必须是 proxy、china 或 game"
 	}
 	p.SourceCIDR = strings.TrimSpace(p.SourceCIDR)
 	if p.SourceCIDR == "" {
