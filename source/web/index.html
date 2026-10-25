@@ -589,6 +589,13 @@
               </el-tag>
             </div>
             <div class="setting-item">
+              <span class="setting-label">运行中 API 版本</span>
+              <strong>{{ mainMihomoStatus.api_version || '未知' }}</strong>
+              <el-tag :type="mainMihomoStatus.api_online && !mainMihomoStatus.version_mismatch ? 'success' : 'danger'" size="small">
+                {{ mainMihomoStatus.version_mismatch ? '版本不一致' : (mainMihomoStatus.api_online ? 'API 可达' : 'API 不可达') }}
+              </el-tag>
+            </div>
+            <div class="setting-item">
               <span class="setting-label">综合状态</span>
               <el-tag :type="mainMihomoStatus.online ? 'success' : 'danger'">{{ mainMihomoStatus.online ? '正常' : '异常 / 不可用' }}</el-tag>
             </div>
@@ -597,8 +604,8 @@
               <strong style="overflow-wrap:anywhere;">{{ mainMihomoStatus.binary_path || '/opt/mihomo/mihomo' }}</strong>
             </div>
           </div>
-          <el-alert v-if="mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error" type="warning" :closable="false" show-icon title="状态诊断">
-            {{ mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error }}
+          <el-alert v-if="mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error || mainMihomoStatus.api_error" type="warning" :closable="false" show-icon title="状态诊断">
+            {{ mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error || mainMihomoStatus.api_error }}
           </el-alert>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
             <el-button :loading="mainMihomoStatus.loading" @click="loadMainMihomoStatus">刷新版本与状态</el-button>
