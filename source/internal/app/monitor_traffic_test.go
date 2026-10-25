@@ -53,7 +53,6 @@ func TestMonitorTrafficConcurrentRequests(t *testing.T) {
 	}
 }
 
-
 func TestMonitorTrafficIncludesUpstreamStatusAndBody(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "authentication required", http.StatusUnauthorized)
