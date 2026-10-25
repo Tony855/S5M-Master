@@ -51,7 +51,7 @@ RUN set -eux; \
     curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz.sha256" -o /tmp/s6-overlay-noarch.tar.xz.sha256; \
     curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz" -o /tmp/s6-overlay-${s6_arch}.tar.xz; \
     curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz.sha256" -o /tmp/s6-overlay-${s6_arch}.tar.xz.sha256; \
-    (cd /tmp && sha256sum -c s6-noarch.tar.xz.sha256 && sha256sum -c s6-arch.tar.xz.sha256); \
+    (cd /tmp && sha256sum -c s6-overlay-noarch.tar.xz.sha256 && sha256sum -c s6-overlay-${s6_arch}.tar.xz.sha256); \
     tar -Jxpf /tmp/s6-overlay-noarch.tar.xz -C /out; \
     tar -Jxpf /tmp/s6-overlay-${s6_arch}.tar.xz -C /out
 
