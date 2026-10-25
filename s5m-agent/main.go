@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -236,6 +237,40 @@ func reloadMihomo() error {
 	return nil
 }
 
+var mihomoSpeedMu sync.Mutex
+var mihomoSpeedLastTime time.Time
+var mihomoSpeedLastUpload uint64
+var mihomoSpeedLastDownload uint64
+
+func trafficCounter(value any) (uint64, bool) {
+	n, ok := value.(float64)
+	if !ok || n < 0 || n > 1.8e19 {
+		return 0, false
+	}
+	return uint64(n), true
+}
+
+func calculateMihomoSpeeds(upload, download uint64, now time.Time) (uint64, uint64) {
+	mihomoSpeedMu.Lock()
+	defer mihomoSpeedMu.Unlock()
+	var upSpeed, downSpeed uint64
+	if !mihomoSpeedLastTime.IsZero() {
+		seconds := now.Sub(mihomoSpeedLastTime).Seconds()
+		if seconds > 0 {
+			if upload >= mihomoSpeedLastUpload {
+				upSpeed = uint64(float64(upload-mihomoSpeedLastUpload) / seconds)
+			}
+			if download >= mihomoSpeedLastDownload {
+				downSpeed = uint64(float64(download-mihomoSpeedLastDownload) / seconds)
+			}
+		}
+	}
+	mihomoSpeedLastTime = now
+	mihomoSpeedLastUpload = upload
+	mihomoSpeedLastDownload = download
+	return upSpeed, downSpeed
+}
+
 func collectMihomoStatus() map[string]any {
 	status := map[string]any{
 		"mihomo_version": "", "mihomo_healthy": false,
@@ -285,24 +320,29 @@ func collectMihomoStatus() map[string]any {
 		status["last_error"] = "读取 Mihomo 版本失败: " + err.Error()
 		return status
 	}
-	status["mihomo_version"] = version["version"]
-	traffic, err := get("/traffic")
-	if err == nil {
-		status["upload_speed"] = traffic["up"]
-		status["download_speed"] = traffic["down"]
-	} else {
-		status["last_error"] = "读取流量失败: " + err.Error()
+	versionText, ok := version["version"].(string)
+	if !ok || strings.TrimSpace(versionText) == "" {
+		status["last_error"] = "读取 Mihomo 版本失败: /version 响应缺少有效 version 字段"
+		return status
 	}
+	status["mihomo_version"] = versionText
+	status["mihomo_healthy"] = true
 	connections, err := get("/connections")
 	if err == nil {
 		items, _ := connections["connections"].([]any)
 		status["connections"] = len(items)
 		status["upload_total"] = connections["uploadTotal"]
 		status["download_total"] = connections["downloadTotal"]
+		uploadTotal, uploadOK := trafficCounter(connections["uploadTotal"])
+		downloadTotal, downloadOK := trafficCounter(connections["downloadTotal"])
+		if uploadOK && downloadOK {
+			upSpeed, downSpeed := calculateMihomoSpeeds(uploadTotal, downloadTotal, time.Now())
+			status["upload_speed"] = upSpeed
+			status["download_speed"] = downSpeed
+		}
 	} else if status["last_error"] == "" {
 		status["last_error"] = "读取连接数失败: " + err.Error()
 	}
-	status["mihomo_healthy"] = true
 	return status
 }
 
