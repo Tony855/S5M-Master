@@ -953,7 +953,11 @@ func parseProxyLine(line string) (*Proxy, error) {
 		}
 	}
 	p.Server = host
-	p.Port, _ = strconv.Atoi(portStr)
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("端口无效")
+	}
+	p.Port = port
 	if p.Name == "" {
 		p.Name = fmt.Sprintf("%s-%s:%d", p.Type, p.Server, p.Port)
 	}
@@ -967,6 +971,7 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Content string `json:"content"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := decode(r, &in); err != nil {
 		writeErr(w, 400, "参数错误")
 		return
@@ -981,7 +986,11 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 		}
 		p, err := parseProxyLine(line)
 		if err != nil {
-			failReasons = append(failReasons, fmt.Sprintf("第 %d 行失败", i+1))
+			failReasons = append(failReasons, fmt.Sprintf("第 %d 行失败: %v", i+1, err))
+			continue
+		}
+		if msg := a.validateProxy(p); msg != "" {
+			failReasons = append(failReasons, fmt.Sprintf("第 %d 行失败: %s", i+1, msg))
 			continue
 		}
 		if err := a.store.CreateProxy(p); err != nil {
