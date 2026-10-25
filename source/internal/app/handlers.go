@@ -1,6 +1,7 @@
 package app
 
 import (
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
@@ -432,58 +433,690 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
 }
 
-func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
-	out, _ := exec.Command("/opt/mihomo/mihomo", "-v").Output()
-	re := regexp.MustCompile(`Mihomo Meta (v[0-9]+\.[0-9]+\.[0-9]+)`)
-	matches := re.FindStringSubmatch(string(out))
-	currentVersion := "unknown"
-	if len(matches) > 1 {
-		currentVersion = matches[1]
+type mihomoReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+func parseMihomoVersion(output []byte) string {
+	match := regexp.MustCompile(`Mihomo Meta (v[0-9]+\\.[0-9]+\\.[0-9]+)`).FindSubmatch(output)
+	if len(match) < 2 {
+		return "unknown"
 	}
+	return string(match[1])
+}
+
+func findMihomoCompatibleAsset(assets []mihomoReleaseAsset) string {
+	for _, asset := range assets {
+		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") &&
+			strings.HasPrefix(asset.BrowserDownloadURL, "https://") {
+			return asset.BrowserDownloadURL
+		}
+	}
+	return ""
+}
+
+func copyFileAtomic(source, destination string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	dir := filepath.Dir(destination)
+	tmp, err := os.CreateTemp(dir, ".mihomo-copy-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmp, in); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o755); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, destination)
+}
+
+func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
+	const (
+		binaryPath = "/opt/mihomo/mihomo"
+		backupPath = "/opt/mihomo/mihomo.bak"
+		releaseURL = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
+	)
+	out, err := exec.Command(binaryPath, "-v").CombinedOutput()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取当前 Mihomo 版本失败: "+strings.TrimSpace(string(out)))
+		return
+	}
+	currentVersion := parseMihomoVersion(out)
+
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, releaseURL, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建更新请求失败")
+		return
+	}
 	req.Header.Set("User-Agent", "S5M-Next")
 	resp, err := client.Do(req)
 	if err != nil {
-		writeErr(w, 500, "检查更新失败")
+		writeErr(w, http.StatusBadGateway, "检查 Mihomo 更新失败: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
-	var release struct {
-		TagName string `json:"tag_name"`
-		Assets  []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	json.NewDecoder(resp.Body).Decode(&release)
-	latestVersion := release.TagName
-	if currentVersion == latestVersion {
-		writeJSON(w, 200, map[string]string{"message": "当前已是最新版本", "status": "latest"})
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("GitHub 更新接口返回 HTTP %d", resp.StatusCode))
 		return
 	}
-	var downloadURL string
-	for _, asset := range release.Assets {
-		if strings.Contains(asset.Name, "linux-amd64-compatible") && strings.HasSuffix(asset.Name, ".gz") {
-			downloadURL = "https://ghproxy.net/" + asset.BrowserDownloadURL
-			break
+
+	var release struct {
+		TagName string               `json:"tag_name"`
+		Assets  []mihomoReleaseAsset `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		writeErr(w, http.StatusBadGateway, "解析 Mihomo 发布信息失败")
+		return
+	}
+	if !regexp.MustCompile(`^v[0-9]+\\.[0-9]+\\.[0-9]+package app
+
+import (
+	"compress/gzip"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+	"gopkg.in/yaml.v3"
+)
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	slog.Error("API 报错", "code", code, "msg", msg)
+	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+func decode(r *http.Request, v any) error { return json.NewDecoder(r.Body).Decode(v) }
+
+func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	u, err := a.store.UserByUsername(in.Username)
+	if err != nil || !u.Enabled || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Password)) != nil {
+		writeErr(w, 401, "账号或密码错误")
+		return
+	}
+	tok, err := a.signToken(u)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成登录凭证失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": tok, "user": u})
+}
+
+func (a *App) handleMe(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, currentUser(r)) }
+
+func (a *App) handlePassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Old string `json:"old"`
+		New string `json:"new"`
+	}
+
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if len(in.New) < 6 {
+		writeErr(w, http.StatusBadRequest, "新密码至少 6 位")
+		return
+	}
+
+	cu := currentUser(r)
+	if cu == nil {
+		writeErr(w, http.StatusUnauthorized, "未登录")
+		return
+	}
+
+	u, err := a.store.UserByUsername(cu.Username)
+	if err != nil || u == nil || !u.Enabled {
+		writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用，请重新登录")
+		return
+	}
+
+	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(in.Old)) != nil {
+		writeErr(w, http.StatusUnauthorized, "原密码错误")
+		return
+	}
+
+	h, err := bcrypt.GenerateFromPassword([]byte(in.New), bcrypt.DefaultCost)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "密码处理失败")
+		return
+	}
+
+	if err := a.store.UpdatePassword(u.ID, string(h)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "密码保存失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "密码已更新"})
+}
+
+func isInternalSettingKey(key string) bool {
+	for _, prefix := range []string{
+		"agent_machine_", "agent_mihomo_secret_", "agent_secret_", "agent_command_",
+		"agent_command_result_", "agent_lastseen_", "agent_status_", "mihomo_secret_",
+	} {
+		if strings.HasPrefix(key, prefix) {
+			return true
 		}
 	}
-	if downloadURL == "" {
-		writeErr(w, 500, "未找到适配包")
+	return key == "agent_token"
+}
+
+func (a *App) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取设置失败")
 		return
 	}
-	tmp := "/tmp/mihomo_update.gz"
-	if err := exec.Command("curl", "-fL", "-o", tmp, downloadURL).Run(); err != nil {
-		writeErr(w, 500, "下载失败")
+	// Do not return credentials, queued commands, or runtime telemetry through the
+	// generic settings endpoint. Dedicated Agent endpoints expose only necessary fields.
+	publicSettings := make(map[string]string, len(settings))
+	for key, value := range settings {
+		if !isInternalSettingKey(key) {
+			publicSettings[key] = value
+		}
+	}
+	writeJSON(w, http.StatusOK, publicSettings)
+}
+
+func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var in map[string]string
+	if err := decode(r, &in); err != nil || in == nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
 		return
 	}
-	exec.Command("systemctl", "stop", "mihomo").Run()
-	exec.Command("cp", "/opt/mihomo/mihomo", "/opt/mihomo/mihomo.bak").Run()
-	data, _ := exec.Command("gunzip", "-c", tmp).Output()
-	os.WriteFile("/opt/mihomo/mihomo", data, 0755)
-	exec.Command("systemctl", "start", "mihomo").Run()
-	writeJSON(w, 200, map[string]string{"message": "已成功更新至 " + latestVersion, "status": "updated"})
+	for key := range in {
+		if isInternalSettingKey(key) {
+			writeErr(w, http.StatusBadRequest, "禁止通过通用设置接口修改内部授权、密钥或 Agent 命令字段")
+			return
+		}
+	}
+	if err := a.store.UpdateSettings(in); err != nil {
+		writeErr(w, http.StatusInternalServerError, "设置保存失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "设置已保存"})
+}
+
+func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {
+	list, err := a.store.ListInstances()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取实例列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
+	var in Instance
+	if err := decode(r, &in); err != nil || in.Name == "" {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	if err := a.store.CreateInstance(&in); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, in)
+}
+func (a *App) handleDeleteInstance(w http.ResponseWriter, r *http.Request) {
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "实例 ID 无效")
+		return
+	}
+
+	if err := a.store.DeleteInstance(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除实例失败")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已删除"})
+}
+
+func (a *App) handleListProxies(w http.ResponseWriter, r *http.Request) {
+	list, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取代理列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *App) validateProxy(p *Proxy) string {
+	if p.Name == "" {
+		return "名称不能为空"
+	}
+	if p.Mode == "" {
+		p.Mode = "proxy"
+	}
+	if p.Mode == "proxy" || p.Mode == "china" || p.Mode == "game" {
+		if p.Type == "" || p.Server == "" || p.Port <= 0 {
+			return "代理必须填写类型、服务器和端口"
+		}
+	}
+	if p.SourceCIDR == "" {
+		p.SourceCIDR = "0.0.0.0/0"
+	}
+	if _, _, err := net.ParseCIDR(p.SourceCIDR); err != nil {
+		return "源 IP 必须是合法 CIDR"
+	}
+	return ""
+}
+
+func (a *App) handleCreateProxy(w http.ResponseWriter, r *http.Request) {
+	var p Proxy
+	if err := decode(r, &p); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	if msg := a.validateProxy(&p); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	if p.Extra == nil {
+		p.Extra = map[string]any{}
+	}
+	if err := a.store.CreateProxy(&p); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已保存，但节点配置同步失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, p)
+}
+
+func (a *App) handleUpdateProxy(w http.ResponseWriter, r *http.Request) {
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "代理 ID 无效")
+		return
+	}
+	var p Proxy
+	if err := decode(r, &p); err != nil {
+		writeErr(w, 400, "参数错误")
+		return
+	}
+	p.ID = id
+	if msg := a.validateProxy(&p); msg != "" {
+		writeErr(w, 400, msg)
+		return
+	}
+	if p.Extra == nil {
+		p.Extra = map[string]any{}
+	}
+	if err := a.store.UpdateProxy(&p); err != nil {
+		writeErr(w, 409, err.Error())
+		return
+	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已更新，但节点配置同步失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, p)
+}
+
+func (a *App) handleDeleteProxy(w http.ResponseWriter, r *http.Request) {
+	rawID := strings.TrimSpace(r.PathValue("id"))
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		writeErr(w, http.StatusBadRequest, "代理 ID 无效")
+		return
+	}
+
+	if err := a.store.DeleteProxy(id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除代理失败")
+		return
+	}
+	if err := a.syncAuthorizedNodeConfigs(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已删除，但节点配置同步失败: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已删除"})
+}
+
+func (a *App) handlePreview(w http.ResponseWriter, r *http.Request) {
+	yml, err := a.BuildConfig()
+	if err != nil {
+		writeErr(w, 500, "生成配置失败: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"yaml": yml})
+}
+func (a *App) handlePublish(w http.ResponseWriter, r *http.Request) {
+	cv, err := a.Publish()
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "message": err.Error(), "version": cv})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "message": "发布成功", "version": cv})
+}
+func (a *App) handleVersions(w http.ResponseWriter, r *http.Request) {
+	list, err := a.store.ListVersions(30)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取配置版本失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+func (a *App) handleRollback(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Version int `json:"version"`
+	}
+	if err := decode(r, &in); err != nil || in.Version <= 0 {
+		writeErr(w, 400, "无效")
+		return
+	}
+	cv, err := a.Rollback(in.Version)
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "message": err.Error(), "version": cv})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "message": "回滚成功", "version": cv})
+}
+func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
+	list, err := a.store.ListProxies()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取代理概览失败")
+		return
+	}
+
+	enabled := 0
+	for _, p := range list {
+		if p.Enabled {
+			enabled++
+		}
+	}
+
+	// 先获取内核状态；内核异常时仍返回仪表盘数据。
+	mihomo := a.MihomoInfo()
+
+	var downloadTotal uint64
+	var uploadTotal uint64
+	var connections []any
+
+	resp, monitorErr := a.mihomoReq(http.MethodGet, "/connections", nil)
+	if monitorErr == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode < 300 {
+			var data struct {
+				DownloadTotal uint64 `json:"downloadTotal"`
+				UploadTotal   uint64 `json:"uploadTotal"`
+				Connections   []any  `json:"connections"`
+			}
+			if json.NewDecoder(resp.Body).Decode(&data) == nil {
+				downloadTotal = data.DownloadTotal
+				uploadTotal = data.UploadTotal
+				connections = data.Connections
+			}
+		}
+	}
+
+	if connections == nil {
+		connections = []any{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mihomo":        mihomo,
+		"total":         len(list),
+		"enabled":       enabled,
+		"proxy_total":   len(list),
+		"proxy_enabled": enabled,
+		"downloadTotal": downloadTotal,
+		"uploadTotal":   uploadTotal,
+		"connections":   connections,
+	})
+}
+
+var trafficMu sync.Mutex
+var lastUp, lastDown uint64
+var lastTime time.Time
+
+func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
+	resp, err := a.mihomoReq(http.MethodGet, "/connections", nil)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "读取 Mihomo 流量失败")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("Mihomo 流量接口返回 HTTP %d", resp.StatusCode))
+		return
+	}
+	var data struct {
+		DownloadTotal uint64 `json:"downloadTotal"`
+		UploadTotal   uint64 `json:"uploadTotal"`
+		Connections   []any  `json:"connections"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&data); err != nil {
+		writeErr(w, http.StatusBadGateway, "Mihomo 流量数据格式无效")
+		return
+	}
+	now := time.Now()
+	upSpeed, downSpeed := uint64(0), uint64(0)
+	trafficMu.Lock()
+	if !lastTime.IsZero() {
+		diff := now.Sub(lastTime).Seconds()
+		if diff > 0 {
+			if data.UploadTotal >= lastUp {
+				upSpeed = uint64(float64(data.UploadTotal-lastUp) / diff)
+			}
+			if data.DownloadTotal >= lastDown {
+				downSpeed = uint64(float64(data.DownloadTotal-lastDown) / diff)
+			}
+		}
+	}
+	lastUp, lastDown, lastTime = data.UploadTotal, data.DownloadTotal, now
+	trafficMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"up": upSpeed, "down": downSpeed, "conns": len(data.Connections)})
+}
+
+).MatchString(release.TagName) {
+		writeErr(w, http.StatusBadGateway, "GitHub 返回的 Mihomo 版本号无效")
+		return
+	}
+	if currentVersion == release.TagName {
+		writeJSON(w, http.StatusOK, map[string]string{"message": "当前已是最新版本", "status": "latest", "version": currentVersion})
+		return
+	}
+
+	assetURL := findMihomoCompatibleAsset(release.Assets)
+	if assetURL == "" {
+		writeErr(w, http.StatusBadGateway, "未找到有效的 linux-amd64-compatible 更新包")
+		return
+	}
+
+	gzFile, err := os.CreateTemp("", "s5m-mihomo-update-*.gz")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建下载临时文件失败")
+		return
+	}
+	gzPath := gzFile.Name()
+	if err := gzFile.Close(); err != nil {
+		_ = os.Remove(gzPath)
+		writeErr(w, http.StatusInternalServerError, "准备下载临时文件失败")
+		return
+	}
+	defer os.Remove(gzPath)
+
+	download := func(url string) error {
+		cmd := exec.CommandContext(r.Context(), "curl", "--fail", "--location", "--retry", "2",
+			"--connect-timeout", "15", "--max-time", "240", "--output", gzPath, url)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+		}
+		info, err := os.Stat(gzPath)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return fmt.Errorf("下载文件为空或无效")
+		}
+		return nil
+	}
+	if err := download("https://ghproxy.net/" + assetURL); err != nil {
+		_ = os.Remove(gzPath)
+		if directErr := download(assetURL); directErr != nil {
+			writeErr(w, http.StatusBadGateway, "通过代理和 GitHub 直连下载均失败: "+directErr.Error())
+			return
+		}
+	}
+
+	gz, err := os.Open(gzPath)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "打开下载文件失败")
+		return
+	}
+	reader, err := gzip.NewReader(gz)
+	if err != nil {
+		_ = gz.Close()
+		writeErr(w, http.StatusBadGateway, "更新包不是有效的 gzip 文件")
+		return
+	}
+	candidate, err := os.CreateTemp(filepath.Dir(binaryPath), ".mihomo-candidate-*")
+	if err != nil {
+		_ = reader.Close()
+		_ = gz.Close()
+		writeErr(w, http.StatusInternalServerError, "创建候选二进制失败")
+		return
+	}
+	candidatePath := candidate.Name()
+	defer os.Remove(candidatePath)
+	_, copyErr := io.Copy(candidate, reader)
+	readerErr := reader.Close()
+	gzErr := gz.Close()
+	if copyErr != nil || readerErr != nil || gzErr != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusBadGateway, "解压 Mihomo 更新包失败")
+		return
+	}
+	if err := candidate.Chmod(0o755); err != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusInternalServerError, "设置候选二进制权限失败")
+		return
+	}
+	if err := candidate.Sync(); err != nil {
+		_ = candidate.Close()
+		writeErr(w, http.StatusInternalServerError, "写入候选二进制失败")
+		return
+	}
+	if err := candidate.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭候选二进制失败")
+		return
+	}
+
+	candidateVersionOutput, err := exec.Command(candidatePath, "-v").CombinedOutput()
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "候选 Mihomo 二进制无法运行: "+strings.TrimSpace(string(candidateVersionOutput)))
+		return
+	}
+	candidateVersion := parseMihomoVersion(candidateVersionOutput)
+	if candidateVersion != release.TagName {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("候选版本校验失败：期望 %s，实际 %s", release.TagName, candidateVersion))
+		return
+	}
+	if err := copyFileAtomic(binaryPath, backupPath); err != nil {
+		writeErr(w, http.StatusInternalServerError, "备份当前 Mihomo 失败，未执行更新: "+err.Error())
+		return
+	}
+	if output, err := exec.Command("systemctl", "stop", "mihomo").CombinedOutput(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "停止 Mihomo 服务失败，未替换二进制: "+strings.TrimSpace(string(output)))
+		return
+	}
+	if err := os.Rename(candidatePath, binaryPath); err != nil {
+		startOutput, startErr := exec.Command("systemctl", "start", "mihomo").CombinedOutput()
+		msg := "替换 Mihomo 二进制失败: " + err.Error()
+		if startErr != nil {
+			msg += "; 旧服务重新启动失败: " + strings.TrimSpace(string(startOutput))
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+	if output, err := exec.Command("systemctl", "start", "mihomo").CombinedOutput(); err != nil {
+		rollbackErr := copyFileAtomic(backupPath, binaryPath)
+		restartOutput, restartErr := exec.Command("systemctl", "start", "mihomo").CombinedOutput()
+		msg := "新 Mihomo 启动失败: " + strings.TrimSpace(string(output))
+		if rollbackErr != nil {
+			msg += "; 自动恢复旧二进制失败: " + rollbackErr.Error()
+		} else if restartErr != nil {
+			msg += "; 已恢复旧二进制，但旧服务启动失败: " + strings.TrimSpace(string(restartOutput))
+		} else {
+			msg += "; 已恢复旧二进制并重新启动服务"
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+	if output, err := exec.Command("systemctl", "is-active", "--quiet", "mihomo").CombinedOutput(); err != nil {
+		rollbackErr := copyFileAtomic(backupPath, binaryPath)
+		restartOutput, restartErr := exec.Command("systemctl", "restart", "mihomo").CombinedOutput()
+		msg := "Mihomo 服务启动后未进入 active 状态"
+		if len(output) > 0 {
+			msg += ": " + strings.TrimSpace(string(output))
+		}
+		if rollbackErr != nil {
+			msg += "; 自动恢复旧二进制失败: " + rollbackErr.Error()
+		} else if restartErr != nil {
+			msg += "; 已恢复旧二进制，但重启旧服务失败: " + strings.TrimSpace(string(restartOutput))
+		} else {
+			msg += "; 已恢复旧二进制并重启服务"
+		}
+		writeErr(w, http.StatusInternalServerError, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已成功更新至 " + candidateVersion, "status": "updated", "version": candidateVersion})
 }
 
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
