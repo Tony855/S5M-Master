@@ -463,7 +463,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	// delivered again, recognize the already-installed target version and avoid
 	// downloading/replacing/restarting the kernel a second time.
 	if output, err := exec.Command("/usr/local/bin/mihomo", "-v").CombinedOutput(); err == nil {
-		versionPattern := regexp.MustCompile(`\\bv` + regexp.QuoteMeta(strings.TrimPrefix(cmd.Version, "v")) + `\\b`)
+		versionPattern := regexp.MustCompile(`\bv` + regexp.QuoteMeta(strings.TrimPrefix(cmd.Version, "v")) + `\b`)
 		if versionPattern.Match(output) {
 			return "Mihomo 已是目标版本 " + cmd.Version + "，按幂等重试跳过重复安装", nil
 		}
