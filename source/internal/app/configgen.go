@@ -572,6 +572,15 @@ func (a *App) Rollback(version int) (*ConfigVersion, error) {
 		return cv, fmt.Errorf("回滚失败，已恢复原配置并重新加载: %w", err)
 	}
 
+	// Keep the editable global-config draft aligned with the configuration that
+	// was actually rolled back. Otherwise preview/publish would rebuild from the
+	// stale config_yaml setting and could silently undo the rollback.
+	if err := a.store.UpdateSettings(map[string]string{"config_yaml": yml}); err != nil {
+		cv.Status = "rolled_back_draft_sync_failed"
+		_ = a.store.UpdateVersionStatus(version, cv.Status)
+		return cv, fmt.Errorf("回滚已完成，但全局配置草稿同步失败；请重新保存当前回滚配置后再发布: %w", err)
+	}
+
 	cv.Status = "rolled_back"
 	if err := a.store.UpdateVersionStatus(version, cv.Status); err != nil {
 		return cv, fmt.Errorf("回滚已完成，但记录版本状态失败: %w", err)
