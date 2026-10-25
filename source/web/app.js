@@ -1326,7 +1326,7 @@ const safeCopy = async (text) => {
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
-      switchPage, doLogin, logout,
+      switchPage, doLogin, logout, loadOverview,
       updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
