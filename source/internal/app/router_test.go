@@ -126,3 +126,53 @@ func TestManagementEndpointsRequireAdminRole(t *testing.T) {
 		t.Fatalf("operator management request returned HTTP %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
 	}
 }
+
+func TestOperatorCannotAccessAdministrativeRouteMatrix(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "role-matrix.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.CreateUser("operator", "test-hash", "operator"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	operator, err := store.UserByUsername("operator")
+	if err != nil {
+		t.Fatalf("UserByUsername: %v", err)
+	}
+	a := &App{cfg: Config{DBPath: dbPath}, store: store, jwtKey: []byte("test-signing-key")}
+	token, err := a.signToken(operator)
+	if err != nil {
+		t.Fatalf("signToken: %v", err)
+	}
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/agents"},
+		{http.MethodPut, "/api/v1/settings"},
+		{http.MethodPost, "/api/v1/config/publish"},
+		{http.MethodPost, "/api/v1/config/rollback"},
+		{http.MethodGet, "/api/v1/logs"},
+		{http.MethodPost, "/api/v1/restore"},
+		{http.MethodPost, "/api/v1/container/tasks"},
+		{http.MethodDelete, "/api/v1/agents"},
+		{http.MethodPost, "/api/v1/mihomo/update"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader("{}"))
+			req.Header.Set("Authorization", "Bearer "+token)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("operator request returned HTTP %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+			}
+		})
+	}
+}
