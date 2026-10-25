@@ -127,6 +127,17 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := yaml.Unmarshal(oldData, &oldCfg); err != nil {
 		return false, fmt.Errorf("本地 Mihomo YAML 无效: %w", err)
 	}
+
+	// Mihomo's external-controller authentication is established at core startup.
+	// A normal /configs reload must not rotate the API secret behind the Agent's
+	// back: keep the currently configured secret stable across controller updates.
+	oldSecret, ok := oldCfg["secret"].(string)
+	oldSecret = strings.TrimSpace(oldSecret)
+	if !ok || oldSecret == "" {
+		return false, fmt.Errorf("本地 Mihomo 配置缺少有效 secret，拒绝热更新以避免 API 鉴权失联")
+	}
+	nextCfg["secret"] = oldSecret
+
 	oldNorm, err := yaml.Marshal(oldCfg)
 	if err != nil {
 		return false, err
@@ -142,7 +153,9 @@ func mergeConfig(agentYml []byte) (bool, error) {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
 	}
 	tmpPath := mainPath + ".tmp"
-	if err := os.WriteFile(tmpPath, agentYml, 0600); err != nil {
+	// Write the normalized configuration so the preserved local secret is
+	// actually persisted; writing agentYml here would undo the protection above.
+	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
 	if output, err := exec.Command("/usr/local/bin/mihomo", "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
