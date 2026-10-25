@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"encoding/json"
+	"net/http/httptest"
+	"path/filepath"
 	"net/http"
 	"os"
 	"strings"
@@ -327,4 +330,72 @@ func TestTrafficCounter(t *testing.T) {
 	if _, ok := trafficCounter("123"); ok {
 		t.Fatal("trafficCounter should reject string counters")
 	}
+}
+
+
+func TestNormalizeMachineID(t *testing.T) {
+	tests := []struct { name string; data []byte; want string }{
+		{name: "valid id", data: []byte("0123456789abcdef0123456789abcdef\n"), want: "0123456789a"},
+		{name: "empty", data: []byte(""), want: ""},
+		{name: "too short", data: []byte("abc123"), want: ""},
+		{name: "invalid characters", data: []byte("0123456789gabcdef0123456789abcde"), want: ""},
+		{name: "all zero", data: []byte("00000000000000000000000000000000"), want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeMachineID(tt.data)
+			if got != "" { got = got[:11] }
+			if got != tt.want { t.Fatalf("normalizeMachineID() = %q, want %q", got, tt.want) }
+		})
+	}
+}
+
+func TestReadSystemMachineID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "machine-id")
+	if _, err := readSystemMachineID(path); err == nil { t.Fatal("missing file should fail") }
+	if err := os.WriteFile(path, nil, 0600); err != nil { t.Fatal(err) }
+	if _, err := readSystemMachineID(path); err == nil { t.Fatal("empty file should fail") }
+	if err := os.WriteFile(path, []byte("fedcba9876543210fedcba9876543210\n"), 0600); err != nil { t.Fatal(err) }
+	got, err := readSystemMachineID(path)
+	if err != nil { t.Fatal(err) }
+	if got != "fedcba98765" { t.Fatalf("readSystemMachineID() = %q", got) }
+}
+
+func TestLoadOrCreateMachineIDFallbackIsStableAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	systemPath := filepath.Join(dir, "missing-machine-id")
+	storagePath := filepath.Join(dir, "persistent-data", "machine-id")
+	first, err := loadOrCreateMachineID(systemPath, storagePath)
+	if err != nil { t.Fatal(err) }
+	if len(first) != 11 { t.Fatalf("machine ID length = %d, want 11", len(first)) }
+	info, err := os.Stat(storagePath)
+	if err != nil { t.Fatalf("fallback was not persisted: %v", err) }
+	if info.Mode().Perm() != 0600 { t.Fatalf("fallback permissions = %o, want 600", info.Mode().Perm()) }
+	// A second invocation simulates restart while /data stays mounted.
+	second, err := loadOrCreateMachineID(systemPath, storagePath)
+	if err != nil { t.Fatal(err) }
+	if first != second { t.Fatalf("machine ID changed after restart: %q != %q", first, second) }
+}
+
+func TestLoadOrCreateMachineIDRejectsUnwritableStorage(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0600); err != nil { t.Fatal(err) }
+	_, err := loadOrCreateMachineID(filepath.Join(dir, "missing"), filepath.Join(blocker, "machine-id"))
+	if err == nil { t.Fatal("expected a clear storage error") }
+}
+
+func TestMachineIDHandler(t *testing.T) {
+	t.Setenv("MIHOMO_HOME", t.TempDir())
+	req := httptest.NewRequest(http.MethodGet, "/api/machine-id", nil)
+	rec := httptest.NewRecorder()
+	machineIDHandler(rec, req)
+	if rec.Code != http.StatusOK { t.Fatalf("GET status = %d, body=%s", rec.Code, rec.Body.String()) }
+	var result map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+	if len(result["machine_id"]) != 11 { t.Fatalf("unexpected response: %#v", result) }
+	req = httptest.NewRequest(http.MethodPost, "/api/machine-id", nil)
+	rec = httptest.NewRecorder()
+	machineIDHandler(rec, req)
+	if rec.Code != http.StatusMethodNotAllowed { t.Fatalf("POST status = %d, want 405", rec.Code) }
 }
