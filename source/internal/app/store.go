@@ -536,9 +536,8 @@ func (s *Store) CancelPendingAgentTask(id int64) (int64, error) {
 	return res.RowsAffected()
 }
 
-// FailStaleAgentTasks marks expired running tasks as failed instead of replaying
-// them automatically. This avoids duplicate side effects when an Agent crashes after
-// executing a command but before the controller receives its result.
+// FailStaleAgentTasks marks running tasks as failed when their lease heartbeat expires.
+// It does not requeue them, avoiding duplicate side effects after a lost result response.
 func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.Exec(`
