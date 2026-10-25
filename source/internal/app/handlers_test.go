@@ -34,6 +34,38 @@ func TestDecodeErrorStatus(t *testing.T) {
 	}
 }
 
+
+func TestDecodeLimitedRejectsOversizedAndTrailingJSON(t *testing.T) {
+	t.Run("oversized body", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"12345"}`))
+		var got map[string]string
+		err := decodeLimited(r, 8, "8 bytes", &got)
+		if !errors.Is(err, errRequestBodyTooLarge) {
+			t.Fatalf("decodeLimited() error = %v, want oversized-body sentinel", err)
+		}
+	})
+
+	t.Run("trailing JSON value", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"value":"ok"} {}`))
+		var got map[string]string
+		if err := decodeLimited(r, 64, "64 bytes", &got); err == nil {
+			t.Fatal("decodeLimited() accepted a second trailing JSON value")
+		}
+	})
+
+	t.Run("valid JSON at limit", func(t *testing.T) {
+		body := `{"x":1}`
+		r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+		var got map[string]int
+		if err := decodeLimited(r, int64(len(body)), "exact limit", &got); err != nil {
+			t.Fatalf("decodeLimited() rejected body at exact limit: %v", err)
+		}
+		if got["x"] != 1 {
+			t.Fatalf("decoded value = %v, want x=1", got)
+		}
+	})
+}
+
 func TestIsInternalSettingKey(t *testing.T) {
 	internal := []string{
 		"agent_token",
