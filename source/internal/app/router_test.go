@@ -1,7 +1,10 @@
 package app
 
 import (
+	"io/fs"
+	"net/http"
 	"net/http/httptest"
+	"testing/fstest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,5 +78,21 @@ func TestRetryNodeConfigSyncReturnsSuccessWhenNoAuthorizedNodes(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), `"ok":true`) {
 		t.Fatalf("expected success response, got %s", response.Body.String())
+	}
+}
+
+func TestBackupEndpointRequiresBearerAuthentication(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "backup-auth.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{cfg: Config{DBPath: filepath.Join(t.TempDir(), "backup-auth.db")}, store: store, jwtKey: []byte("test-signing-key")}
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/backup", nil))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated backup request returned HTTP %d, want %d", response.Code, http.StatusUnauthorized)
 	}
 }
