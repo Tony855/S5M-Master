@@ -841,7 +841,24 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "已成功更新至 " + candidateVersion, "status": "updated", "version": candidateVersion})
+	// A successful systemd start only confirms the unit state, not which version
+	// the running Mihomo API actually serves. Verify the live version before ACKing.
+	if err := a.waitForMihomoAPIVersion(candidateVersion, 30*time.Second); err != nil {
+		rollbackErr := copyFileAtomic(backupPath, binaryPath)
+		restartOutput, restartErr := exec.Command("systemctl", "restart", "mihomo").CombinedOutput()
+		msg := "Mihomo 更新后运行版本确认失败: " + err.Error()
+		if rollbackErr != nil {
+			msg += "; 自动恢复旧二进制失败: " + rollbackErr.Error()
+		} else if restartErr != nil {
+			msg += "; 已恢复旧二进制，但重启旧服务失败: " + strings.TrimSpace(string(restartOutput))
+		} else {
+			msg += "; 已恢复旧二进制并重启服务"
+		}
+		writeErr(w, http.StatusBadGateway, msg)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "已更新并确认运行版本为 " + candidateVersion, "status": "updated", "version": candidateVersion})
 }
 
 func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
