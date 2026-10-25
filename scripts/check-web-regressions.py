@@ -17,6 +17,7 @@ checks = {
     "configuration history supports version listing and guarded rollback": "/api/v1/config/versions" in html and "/api/v1/config/rollback" in html and "确认回滚配置" in html,
     "primary UI does not load the legacy standalone app.js": 'src="/app.js"' not in html and 'src="./app.js"' not in html,
     "Docker and RouterOS pages are grouped under container management": '<el-sub-menu index="containers">' in html and "default-openeds=\"['containers']\"" in html and 'index="docker">Docker 容器' in html and 'index="routeros-containers">RouterOS 容器' in html,
+    "per-agent Mihomo update validates version and SHA-256 before queueing": "openAgentKernelUpdate(item.code)" in html and "/api/v1/agents/kernel-update" in html and r"/^v\\d+\\.\\d+\\.\\d+$/" in html and r"/^[a-f0-9]{64}$/" in html,
 }
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
