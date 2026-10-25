@@ -59,39 +59,15 @@ sudo systemctl is-enabled s5m-server mihomo
 
 只开放业务确实需要的端口。至少不要把主控 Mihomo API（默认 loopback 地址）或 Agent Mihomo API 8088 暴露到公网。若 Agent 绑定页面只供管理员使用，应限制 81/tcp 的来源地址；代理端口 7890 是否开放应按实际业务决定。
 
-## 3. Agent 节点部署（Docker）
+## 3. Agent 节点部署
 
-Agent 镜像由 `.github/workflows/agent-images.yml` 构建，目标架构为 `linux/amd64` 和 `linux/arm64`，镜像名为 `ghcr.io/tony855/s5m-agent`。稳定版使用版本标签；开发构建使用 `:dev`。生产环境应固定到具体版本标签，不建议无条件跟随 `:latest`。
+**完整的镜像包下载、SHA256 校验、Ubuntu/Debian Docker 导入运行、RouterOS 容器导入、网络配置、升级回滚和故障排查步骤，请看专门教程：**
 
-先在节点安装 Docker Engine（请遵循 Docker 官方针对所用 Debian/Ubuntu 版本的安装文档），再创建持久化目录并启动容器：
+[《S5M Agent 详细部署教程（Ubuntu/Debian 与 MikroTik RouterOS）》](DEPLOYMENT_GUIDE_CN.md)
 
-```bash
-sudo mkdir -p /opt/s5m-agent/data
-sudo chmod 0700 /opt/s5m-agent/data
-sudo docker pull ghcr.io/tony855/s5m-agent:dev
-sudo docker run -d \
-  --name s5m-agent \
-  --restart unless-stopped \
-  --init \
-  -p 81:81 \
-  -p 7890:7890 \
-  -v /opt/s5m-agent/data:/data \
-  ghcr.io/tony855/s5m-agent:dev
-```
+当前 GitHub Actions 工作流导出 `linux/amd64` 和 `linux/arm64` 两种完整容器镜像 tar 包，并作为 Actions Artifacts 提供下载；它不要求从 GHCR 拉取镜像。请先确认对应运行记录中的两个架构构建及 smoke test 均成功，再下载匹配架构的产物。不要把 amd64 镜像用于 ARM64 设备，或把 arm64 镜像用于 x86_64 设备。
 
-上面示例将 81 和 7890 发布到宿主机；请在云防火墙/系统防火墙中限制 81 的来源。不要添加 `-p 8088:8088`。若节点不需要向其他机器提供代理服务，可删掉 `-p 7890:7890`。生产环境请把 `:dev` 换成已经验证的稳定版本标签。
-
-查看容器状态和日志：
-
-```bash
-sudo docker ps --filter name=s5m-agent
-sudo docker logs --tail 200 s5m-agent
-sudo docker inspect s5m-agent --format '{{json .State.Health}}'
-curl -fsS http://127.0.0.1:81/api/machine-id
-curl -fsS http://127.0.0.1:81/api/config
-```
-
-`/api/config` 只显示是否已经保存绑定凭据及主控地址，不等于实时连通性检测。
+镜像包含 Agent、Mihomo 内核及运行所需文件。容器内 Agent 目录为 `/app`，Mihomo 可执行文件为 `/usr/local/bin/mihomo`，必须将 `/data` 持久化挂载；不要将 Mihomo API 8088 端口映射到公网。
 
 ## 4. Agent 与主控绑定
 
@@ -175,25 +151,11 @@ docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:local-arm6
 
 ## 7. GitHub Actions 编译流程
 
-每次 push/PR 的 `S5M CI` 应验证：
-1. Agent 入口脚本 shell 语法；
-2. Go 格式；
-3. 依赖下载；
-4. 带 race detector 的单元测试；
-5. `go vet` 静态检查；
-6. 原生 runner 架构构建；
-7. 新增的 Linux amd64 与 arm64 交叉编译。
+`S5M CI` 工作流负责脚本语法、Go 格式、依赖、测试、静态检查和 amd64/arm64 交叉编译。
 
-`S5M Agent multi-arch images` 负责 Docker 镜像构建、镜像 smoke test 和 amd64/arm64 归档。稳定发布应使用 `s5m-agent-vX.Y.Z` 标签，或通过 Actions 手动触发并填写语义化版本号（`X.Y.Z`）。发布前先确认 CI 全绿，再发布稳定标签；不要把尚未验证的开发镜像当成生产稳定版。
+`S5M Agent multi-arch images` 工作流负责构建完整 Alpine 镜像、验证 Agent/Mihomo/tini/健康检查脚本，并导出两个架构的镜像 tar 归档和 SHA256 文件。**当前工作流把归档作为 GitHub Actions Artifacts 上传，不再推送 GHCR。** 在 GitHub 仓库的 [Actions 页面](https://github.com/Tony855/S5M-Master/actions/workflows/agent-images.yml)选择对应运行记录，确认两个架构 job 成功后再下载 Artifacts。详细操作见 [部署教程](DEPLOYMENT_GUIDE_CN.md)。
 
-检查运行状态：
-
-```bash
-git status --short
-git log -5 --oneline
-```
-
-在 GitHub 仓库的 **Actions** 页面查看对应提交的每个 job；必须确认全部相关 job 为成功状态，而不是仅凭工作流启动或部分步骤成功就判定通过。
+稳定发布通过 `s5m-agent-vX.Y.Z` 标签或 Actions 手动触发并填写语义化版本号（`X.Y.Z`）进行。只有确认 CI、两个架构镜像构建和 smoke test 全部通过后，才应将发布包用于生产环境。
 
 ## 8. 升级、备份与恢复
 
