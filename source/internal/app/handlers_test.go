@@ -122,3 +122,38 @@ func TestValidateProxyNormalizesSupportedProtocol(t *testing.T) {
 		t.Fatalf("type = %q, want normalized socks5", proxy.Type)
 	}
 }
+
+func TestValidateInstance(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   Instance
+		wantErr string
+	}{
+		{name: "blank name", input: Instance{Name: "  "}, wantErr: "实例名称不能为空"},
+		{name: "name too long", input: Instance{Name: strings.Repeat("a", 101)}, wantErr: "不能超过 100 个字符"},
+		{name: "machine code too long", input: Instance{Name: "node-a", MachineCode: strings.Repeat("a", 129)}, wantErr: "机器码不能超过 128 个字符"},
+		{name: "malformed URL", input: Instance{Name: "node-a", APIURL: "://bad"}, wantErr: "API 地址必须是有效的 HTTP 或 HTTPS URL"},
+		{name: "unsupported URL scheme", input: Instance{Name: "node-a", APIURL: "ftp://example.com"}, wantErr: "API 地址必须是有效的 HTTP 或 HTTPS URL"},
+		{name: "URL with credentials", input: Instance{Name: "node-a", APIURL: "https://user:pass@example.com/api"}, wantErr: "不能包含用户名或密码"},
+		{name: "valid URL and normalization", input: Instance{Name: " node-a ", MachineCode: " code-1 ", APIURL: " https://example.com/api "}},
+		{name: "optional API URL", input: Instance{Name: "node-a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.input
+			msg := validateInstance(&got)
+			if tt.wantErr != "" {
+				if !strings.Contains(msg, tt.wantErr) {
+					t.Fatalf("validateInstance() = %q, want error containing %q", msg, tt.wantErr)
+				}
+				return
+			}
+			if msg != "" {
+				t.Fatalf("validateInstance() = %q, want success", msg)
+			}
+			if got.Name != strings.TrimSpace(tt.input.Name) || got.MachineCode != strings.TrimSpace(tt.input.MachineCode) || got.APIURL != strings.TrimSpace(tt.input.APIURL) {
+				t.Fatalf("instance fields were not normalized: %#v", got)
+			}
+		})
+	}
+}
