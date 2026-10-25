@@ -1,7 +1,6 @@
 package main
 
 import (
-	"sync"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -21,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
