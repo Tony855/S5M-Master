@@ -531,39 +531,6 @@ createApp({
       reader.readAsText(file);
     };
 
-    const parseProxyLine = (line) => {
-      if (!line) return null;
-      const urlRegex = /^([a-zA-Z0-9]+):\/\/(?:(.*?)@)?([^@]+)$/;
-      const urlMatch = line.match(urlRegex);
-      if (urlMatch) {
-        let protocol = urlMatch[1].toLowerCase(); let authStr = urlMatch[2] || ''; let hostPort = urlMatch[3];
-        let username = '', password = '';
-        if (authStr) {
-          const authParts = authStr.split(':');
-          if (authParts.length >= 2) { username = authParts[0]; password = authParts.slice(1).join(':'); } else { username = authStr; }
-        }
-        if (protocol === 'socks') protocol = 'socks5';
-        let host = ''; let port = 1080;
-        if (hostPort.startsWith('[')) {
-          const match6 = hostPort.match(/^\[([^\]]+)\](?::(\d+))?$/);
-          if (match6) { host = match6[1]; port = parseInt(match6[2], 10) || 1080; }
-        } else if (hostPort.split(':').length > 2) {
-          const matchPort = hostPort.match(/(.+?):?(\d+)$/);
-          if (matchPort) { host = matchPort[1]; port = parseInt(matchPort[2], 10); } else { host = hostPort; }
-        } else {
-          const parts = hostPort.split(':'); host = parts[0]; port = parseInt(parts[1], 10) || 1080;
-        }
-        const extra = {}; if (username) extra.username = username; if (password) extra.password = password;
-        return { name: `${protocol}-${host}:${port}`, type: protocol, server: host, port: port, extra: Object.keys(extra).length > 0 ? extra : undefined };
-      }
-      const parts = line.split(/[\s,]+/);
-      if (parts.length >= 4) return { name: parts[0], type: parts[1], server: parts[2], port: parseInt(parts[3], 10) || 1080 };
-      if (line.includes(':') && !line.includes(' ')) {
-        const parts = line.split(':'); if (parts.length === 2) return { name: 'socks5-' + line, type: 'socks5', server: parts[0], port: parseInt(parts[1], 10) };
-      }
-      return null;
-    };
-
     const importProxies = async () => {
       const content = String(importText.value || '').trim();
       if (!content) return showMsg('请输入或上传代理链接', 'warning');
@@ -1162,13 +1129,6 @@ const safeCopy = async (text) => {
       }
     };
 
-    const loadConfig = async () => {
-      try {
-        const res = await api('/api/v1/config/preview?t=' + Date.now());
-        if (res.ok) { const d = await res.json().catch(() => ({})); configYaml.value = d.config_yaml || d.yaml || d.yaml_text || ''; }
-      } catch (e) { console.warn(e); }
-    };
-
     const loadGlobalConfig = async () => {
       try {
         const res = await api('/api/v1/config/preview?t=' + Date.now());
@@ -1291,29 +1251,6 @@ const safeCopy = async (text) => {
         if (res.ok) { const s = await res.json().catch(() => ({})); subUrl.value = s.subscribe_url || s.sub_url || (location.origin + '/api/v1/subscribe'); }
         else { subUrl.value = location.origin + '/api/v1/subscribe'; }
       } catch (e) { subUrl.value = location.origin + '/api/v1/subscribe'; }
-    };
-
-    const saveConfig = async () => {
-      if (!configYaml.value) return showMsg('配置不能为空', 'warning');
-      savingConfig.value = true;
-      try {
-        const res = await api('/api/v1/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config_yaml: configYaml.value }) });
-        if (res.ok) showMsg('已保存草稿', 'success'); else showMsg(await parseErr(res), 'error');
-      } catch (e) { showMsg(e.message || '保存失败', 'error'); }
-      savingConfig.value = false;
-    };
-
-    const publishConfig = async () => {
-      if (!configYaml.value) return showMsg('配置不能为空', 'warning');
-      publishing.value = true;
-      try {
-        let res = await api('/api/v1/config/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config_yaml: configYaml.value }) });
-        if (!res.ok) { showMsg('保存失败：' + (await parseErr(res)), 'error'); publishing.value = false; return; }
-        res = await api('/api/v1/config/publish', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (res.ok) showMsg(d.message || '已下发，Agent 将在 30 秒内拉取', 'success'); else showMsg(d.error || d.message || '发布失败', 'error');
-      } catch (e) { showMsg(e.message || '发布失败', 'error'); }
-      publishing.value = false;
     };
 
     onMounted(() => {
