@@ -209,6 +209,10 @@ rules:
 MIHOMO_CONFIG_EOF
   chmod 0600 "$DB_DIR/config.yaml"
 fi
+# The S5M service runs as s5m-server and must read/replace the active config
+# during publish/rollback. Keep it private while granting ownership to that service.
+chown s5m-server:s5m-server "$DB_DIR/config.yaml"
+chmod 0600 "$DB_DIR/config.yaml"
 
 cat > /etc/systemd/system/mihomo.service <<MIHOMO_SERVICE_EOF
 [Unit]
