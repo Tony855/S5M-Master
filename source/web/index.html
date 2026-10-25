@@ -1083,7 +1083,7 @@ html, body, #app {
           <p class="import-note">通过 RouterOS 专用 Agent 调用原生 API-SSL，不执行 Linux Docker 命令。Agent 必须使用独立机器码，不能与同一设备上的 Docker/Mihomo Agent 共用机器码。</p>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0;">
             <el-select v-model="dockerMachineCode" placeholder="选择 RouterOS Agent 机器码" filterable style="flex:1;min-width:240px;">
-              <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
+              <el-option v-for="item in routerOSAgentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
             </el-select>
             <el-button type="primary" :loading="routerosLoading" :disabled="!dockerMachineCode" @click="refreshRouterOS">读取 RouterOS 容器</el-button>
           </div>
@@ -1176,6 +1176,7 @@ createApp({
         return matchesQuery && matchesStatus && matchesMachine && matchesStartDate && matchesEndDate;
       });
     });
+    const routerOSAgentEntries = computed(() => agentEntries.value.filter(item => item.os === 'routeros'));
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
     const routerosLoading = ref(false);
@@ -2144,7 +2145,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
+      routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
