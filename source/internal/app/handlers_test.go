@@ -370,10 +370,18 @@ func TestParseProxyImportContentSOCKS5JSONIPv4IPv6(t *testing.T) {
 		]
 	}`
 	proxies, failures := parseProxyImportContent(content)
-	if len(failures) != 0 { t.Fatalf("unexpected failures: %v", failures) }
-	if len(proxies) != 2 { t.Fatalf("got %d proxies, want 2", len(proxies)) }
-	if proxies[0].Server != "151.242.11.70" || proxies[0].Port != 23049 { t.Fatalf("unexpected IPv4 proxy: %+v", proxies[0]) }
-	if proxies[1].Server != "2401:b60:e00e:7244::" || proxies[1].Port != 23050 { t.Fatalf("unexpected IPv6 proxy: %+v", proxies[1]) }
+	if len(failures) != 0 {
+		t.Fatalf("unexpected failures: %v", failures)
+	}
+	if len(proxies) != 2 {
+		t.Fatalf("got %d proxies, want 2", len(proxies))
+	}
+	if proxies[0].Server != "151.242.11.70" || proxies[0].Port != 23049 {
+		t.Fatalf("unexpected IPv4 proxy: %+v", proxies[0])
+	}
+	if proxies[1].Server != "2401:b60:e00e:7244::" || proxies[1].Port != 23050 {
+		t.Fatalf("unexpected IPv6 proxy: %+v", proxies[1])
+	}
 	for i, p := range proxies {
 		if p.Type != "socks5" {
 			t.Errorf("proxy %d type = %q", i, p.Type)
@@ -389,6 +397,8 @@ func TestParseProxyImportContentSOCKS5JSONIPv4IPv6(t *testing.T) {
 
 func TestParseProxyImportContentRejectsMalformedJSON(t *testing.T) {
 	proxies, failures := parseProxyImportContent(`{"protocol":"socks5","servers":[`)
-	if len(proxies) != 0 || len(failures) == 0 { t.Fatalf("expected malformed JSON failure, got proxies=%v failures=%v", proxies, failures) }
+	if len(proxies) != 0 || len(failures) == 0 {
+		t.Fatalf("expected malformed JSON failure, got proxies=%v failures=%v", proxies, failures)
+	}
 }
 
