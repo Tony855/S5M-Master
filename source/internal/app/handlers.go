@@ -1594,9 +1594,10 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	type AgentInfo struct {
 		Authorized          bool           `json:"authorized"`
 		LastSeen            int64          `json:"last_seen"`
-		Status              map[string]any `json:"status,omitempty"`
-		CommandResult       map[string]any `json:"command_result,omitempty"`
-		DesiredConfigSHA256 string         `json:"desired_config_sha256,omitempty"`
+		Status              map[string]any    `json:"status,omitempty"`
+		CommandResult       map[string]any    `json:"command_result,omitempty"`
+		PendingCommand      map[string]string `json:"pending_command,omitempty"`
+		DesiredConfigSHA256 string            `json:"desired_config_sha256,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -1632,7 +1633,14 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_command_result_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &commandResult)
 		}
-		info := AgentInfo{Authorized: true, LastSeen: lastSeen, Status: status, CommandResult: commandResult}
+		var pendingCommand map[string]string
+		if raw := settings["agent_command_"+code]; raw != "" {
+			_ = json.Unmarshal([]byte(raw), &pendingCommand)
+		}
+		info := AgentInfo{
+			Authorized: true, LastSeen: lastSeen, Status: status,
+			CommandResult: commandResult, PendingCommand: pendingCommand,
+		}
 		if nodeConfig, configErr := a.store.GetNodeConfig(code); configErr == nil && nodeConfig != nil && strings.TrimSpace(nodeConfig.YAML) != "" {
 			sum := sha256.Sum256([]byte(strings.TrimSpace(nodeConfig.YAML)))
 			info.DesiredConfigSHA256 = fmt.Sprintf("%x", sum[:])
