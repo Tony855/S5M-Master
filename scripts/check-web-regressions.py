@@ -50,36 +50,30 @@ checks["simple template event handlers are exposed by Vue setup"] = not missing_
 if missing_handlers:
     print("Missing setup return handlers: " + ", ".join(missing_handlers))
 
-failed = [name for name, ok in checks.items() if not ok]
-for name, ok in checks.items():
-    print(("PASS" if ok else "FAIL") + ": " + name)
-if failed:
-    raise SystemExit(1)
 
-
-// Keep frontend API calls and backend route declarations in sync. This catches
+# Keep frontend API calls and backend route declarations in sync. This catches
 // accidental path/method drift when either the Vue UI or Go router is refactored.
 router_source = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 route_patterns = set(
     (method, path)
     for method, path in __import__("re").findall(
-        r'"(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\\s*:', router_source
+        r'"(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\s*:', router_source
     )
 )
 route_patterns.update(
     __import__("re").findall(
-        r'mux\\.HandleFunc\\("(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\\s*,',
+        r'mux\.HandleFunc\("(GET|POST|PUT|DELETE|PATCH) (/api/v1/[^"]+)"\s*,',
         router_source,
     )
 )
 
 def normalize_route(path):
     path = path.split("?", 1)[0].rstrip("/")
-    return __import__("re").sub(r"\\{[^/]+\\}", "{param}", path)
+    return __import__("re").sub(r"\{[^/]+\}", "{param}", path)
 
 ui_api_calls = []
 for match in __import__("re").finditer(
-    r"""\\bapi\\(\\s*(['"])(/api/v1/[^'"]+)\\1\\s*(?:,\\s*\\{\\s*method:\\s*(['"])(GET|POST|PUT|DELETE|PATCH)\\3)?""",
+    r"""\bapi\(\s*(['"])(/api/v1/[^'"]+)\1\s*(?:,\s*\{\s*method:\s*(['"])(GET|POST|PUT|DELETE|PATCH)\3)?""",
     app_js,
 ):
     method = match.group(4) or "GET"
@@ -105,3 +99,10 @@ for method, path in sorted(set(ui_api_calls)):
 checks["frontend API calls resolve to backend routes"] = not missing_api_routes
 if missing_api_routes:
     print("Frontend API routes without backend declarations: " + ", ".join(missing_api_routes))
+
+
+failed = [name for name, ok in checks.items() if not ok]
+for name, ok in checks.items():
+    print(("PASS" if ok else "FAIL") + ": " + name)
+if failed:
+    raise SystemExit(1)
