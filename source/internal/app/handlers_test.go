@@ -536,7 +536,6 @@ func TestRunningMihomoAPIVersionRejectsUnavailableController(t *testing.T) {
 	}
 }
 
-
 func TestDecodeLimitedRejectsTrailingJSONAndOversizedBodies(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -553,7 +552,7 @@ func TestDecodeLimitedRejectsTrailingJSONAndOversizedBodies(t *testing.T) {
 			err := decodeLimited(req, tc.max, "test limit", &payload)
 			if err == nil {
 				t.Fatal("decodeLimited() succeeded, want error")
-				}
+			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("decodeLimited() error = %q, want substring %q", err, tc.want)
 			}
