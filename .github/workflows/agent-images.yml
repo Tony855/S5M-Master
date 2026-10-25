@@ -221,6 +221,7 @@ jobs:
           first_id="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/machine-id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["machine_id"])')"
           [[ "${#first_id}" -eq 11 ]]
           [[ -s "$data_dir/machine-id" ]] || { echo "Fallback machine ID was not persisted in /data" >&2; exit 1; }
+          chmod 0644 "$data_dir/machine-id"
           python3 - "$data_dir/machine-id" "$first_id" <<'PY'
           import pathlib, re, sys
           data = pathlib.Path(sys.argv[1]).read_text().strip()
