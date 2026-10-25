@@ -1558,8 +1558,7 @@ createApp({
 
     const downloadBackup = async () => {
       try {
-        // The current backup endpoint accepts the admin token as a query parameter.
-        const res = await fetch('/api/v1/backup?token=' + encodeURIComponent(token.value));
+        const res = await fetch('/api/v1/backup', { headers: authHeaders() });
         if (res.status === 401) { logout(); throw new Error('登录已失效'); }
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
