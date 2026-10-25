@@ -196,7 +196,7 @@ for entry in \
   "S5M_BACKUP=$DB_DIR/backups" \
   "S5M_ADMIN_USER=admin"; do
   key="${entry%%=*}"
-  if ! grep -qE "^\\${key}=" "$ENV_FILE"; then
+  if ! grep -qE "^${key}=" "$ENV_FILE"; then
     printf '%s\\n' "$entry" >> "$ENV_FILE"
   fi
 done
