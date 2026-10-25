@@ -508,20 +508,9 @@ func (a *App) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
-	t, err := jwt.Parse(r.URL.Query().Get("token"), func(t *jwt.Token) (any, error) { return a.jwtKey, nil }, jwt.WithValidMethods([]string{"HS256"}))
-	if err != nil || t == nil || !t.Valid {
-		writeErr(w, http.StatusUnauthorized, "登录已失效")
-		return
-	}
-	claims, ok := t.Claims.(jwt.MapClaims)
-	username, validUsername := claims["usr"].(string)
-	if !ok || !validUsername || strings.TrimSpace(username) == "" {
-		writeErr(w, http.StatusUnauthorized, "登录凭证无效")
-		return
-	}
-	u, err := a.store.UserByUsername(username)
-	if err != nil || u == nil || !u.Enabled {
-		writeErr(w, http.StatusUnauthorized, "账号不存在或已禁用")
+	u := currentUser(r)
+	if u == nil || !u.Enabled {
+		writeErr(w, http.StatusUnauthorized, "未登录或账号已禁用")
 		return
 	}
 	if u.Role != "admin" {

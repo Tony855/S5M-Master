@@ -114,7 +114,9 @@ func TestDownloadBackupCreatesSQLiteSnapshot(t *testing.T) {
 		t.Fatalf("signToken: %v", err)
 	}
 	response := httptest.NewRecorder()
-	a.handleDownloadBackup(response, httptest.NewRequest(http.MethodGet, "/api/v1/backup?token="+token, nil))
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/backup", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	a.auth(a.handleDownloadBackup)(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d; body=%s", response.Code, http.StatusOK, response.Body.String())
 	}
