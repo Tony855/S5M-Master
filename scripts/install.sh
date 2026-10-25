@@ -187,6 +187,59 @@ ENVEOF
   chmod 0600 /root/S5M-Server-credentials.txt
 fi
 
+# Keep the main Mihomo controller API and its systemd service aligned with the
+# environment used by S5M-Server. Preserve an existing user configuration.
+MIHOMO_API_URL="$(grep -E '^MIHOMO_API=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+MIHOMO_PORT="$(printf '%s' "$MIHOMO_API_URL" | sed -nE 's#^https?://[^/:]+:([0-9]+)(/.*)?$#\1#p')"
+MIHOMO_PORT="${MIHOMO_PORT:-8088}"
+MIHOMO_SECRET_VALUE="$(grep -E '^MIHOMO_SECRET=' "$ENV_FILE" | tail -n1 | cut -d= -f2-)"
+if [[ ! -s "$DB_DIR/config.yaml" ]]; then
+  install -d -o root -g root -m 0750 "$DB_DIR"
+  cat > "$DB_DIR/config.yaml" <<MIHOMO_CONFIG_EOF
+mode: rule
+mixed-port: 8080
+log-level: info
+external-controller: 127.0.0.1:${MIHOMO_PORT}
+secret: "${MIHOMO_SECRET_VALUE}"
+allow-lan: true
+find-process-mode: "off"
+proxies: []
+rules:
+  - MATCH,DIRECT
+MIHOMO_CONFIG_EOF
+  chmod 0600 "$DB_DIR/config.yaml"
+fi
+
+cat > /etc/systemd/system/mihomo.service <<MIHOMO_SERVICE_EOF
+[Unit]
+Description=Mihomo Proxy Core (S5M main controller)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=$MIHOMO_BIN
+ConditionPathExists=$DB_DIR/config.yaml
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=$MIHOMO_BIN -d $DB_DIR -f $DB_DIR/config.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=1048576
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=$DB_DIR
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
+MIHOMO_SERVICE_EOF
+
 rm -rf /opt/S5M-Server/source
 install -d -m 0755 /opt/S5M-Server/source
 cp -a "$SRC/." /opt/S5M-Server/source/
@@ -229,6 +282,12 @@ WantedBy=multi-user.target
 SERVICEEOF
 
 systemctl daemon-reload
+systemctl enable mihomo
+if ! systemctl restart mihomo; then
+  echo "❌ 主控 Mihomo 服务启动失败。请检查：journalctl -u mihomo -n 100 --no-pager" >&2
+  systemctl status mihomo --no-pager -l >&2 || true
+  exit 1
+fi
 systemctl enable "$UNIT"
 systemctl restart "$UNIT"
 

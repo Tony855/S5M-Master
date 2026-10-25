@@ -41,7 +41,7 @@ func LoadEnv() Config {
 		JWTSecret:        env("S5M_JWT_SECRET", randomHex(32)),
 		AdminUser:        env("S5M_ADMIN_USER", "admin"),
 		AdminPass:        env("S5M_ADMIN_PASSWORD", ""),
-		MihomoAPI:        env("MIHOMO_API", "http://127.0.0.1:9090"),
+		MihomoAPI:        env("MIHOMO_API", "http://127.0.0.1:8088"),
 		MihomoSecret:     env("MIHOMO_SECRET", ""),
 		MihomoConfigPath: env("MIHOMO_CONFIG_PATH", "/app/config.yaml"),
 	}
