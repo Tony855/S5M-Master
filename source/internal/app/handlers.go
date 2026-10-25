@@ -1448,8 +1448,15 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "生成内核更新命令失败")
 		return
 	}
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_" + in.MachineCode: string(payload)}); err != nil {
+	// Use an atomic insert rather than a read-then-write check: two concurrent
+	// admin requests must not overwrite each other's pending Agent command.
+	created, err := a.store.CreateSettingIfAbsent("agent_command_"+in.MachineCode, string(payload))
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存内核更新命令失败")
+		return
+	}
+	if !created {
+		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本", "command_id": command["id"]})

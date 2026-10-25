@@ -300,3 +300,30 @@ func TestSaveNodeConfigsRejectsBlankMachineCode(t *testing.T) {
 		t.Fatal("SaveNodeConfigs() should reject a blank machine code")
 	}
 }
+
+func TestCreateSettingIfAbsentDoesNotOverwritePendingCommand(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-setting-test.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	created, err := store.CreateSettingIfAbsent("agent_command_node-a", `{"id":"first","type":"update_mihomo"}`)
+	if err != nil || !created {
+		t.Fatalf("first CreateSettingIfAbsent() = %v, %v; want true, nil", created, err)
+	}
+	created, err = store.CreateSettingIfAbsent("agent_command_node-a", `{"id":"second","type":"update_mihomo"}`)
+	if err != nil {
+		t.Fatalf("second CreateSettingIfAbsent() error = %v", err)
+	}
+	if created {
+		t.Fatal("second CreateSettingIfAbsent() overwrote an existing pending command")
+	}
+	value, err := store.GetSetting("agent_command_node-a")
+	if err != nil {
+		t.Fatalf("GetSetting(): %v", err)
+	}
+	if value != `{"id":"first","type":"update_mihomo"}` {
+		t.Fatalf("pending command = %q, want the original command", value)
+	}
+}
