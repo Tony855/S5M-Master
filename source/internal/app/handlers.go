@@ -1098,7 +1098,7 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, validationError)
 		return
 	}
-		settings, err := a.store.GetSettings()
+	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 注册配置失败")
 		return
