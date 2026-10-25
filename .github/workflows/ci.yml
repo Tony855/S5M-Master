@@ -174,6 +174,8 @@ jobs:
           for file in /tmp/s5m-inline-*.js; do
             node --check "$file"
           done
+      - name: Check UI data-integrity regressions
+        run: python3 scripts/check-web-regressions.py
       - name: Verify required web files
         shell: bash
         run: |
