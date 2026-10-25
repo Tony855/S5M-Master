@@ -32,7 +32,7 @@ if [ ! -s "$CONFIG_PATH" ] && [ -s "$LEGACY_CONFIG" ]; then
 fi
 
 if [ ! -s "$CONFIG_PATH" ]; then
-  cp /opt/s5m/default-config.yaml "$CONFIG_PATH"
+  cp /app/default-config.yaml "$CONFIG_PATH"
   chmod 0600 "$CONFIG_PATH"
 fi
 
