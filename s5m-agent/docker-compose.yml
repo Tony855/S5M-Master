@@ -4,7 +4,7 @@ services:
     container_name: s5m-agent
     restart: unless-stopped
     ports:
-      - "81:81"
+      - "80:80"
     volumes:
       - ./data:/data
     # TUN is disabled by default. Enable only on hosts that support it and
