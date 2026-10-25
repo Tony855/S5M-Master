@@ -1891,7 +1891,7 @@ createApp({
       const version = String(kernelUpdateVersion.value || '').trim();
       const sha256 = String(kernelUpdateSHA256.value || '').trim().toLowerCase();
       if (!machineCode) return showMsg('请先选择目标 Agent', 'warning');
-      if (!/^v\\d+\\.\\d+\\.\\d+$/.test(version)) return showMsg('版本号格式无效，应为 v主版本.次版本.修订版本', 'warning');
+      if (!/^v\d+\.\d+\.\d+$/.test(version)) return showMsg('版本号格式无效，应为 v主版本.次版本.修订版本', 'warning');
       if (!/^[a-f0-9]{64}$/.test(sha256)) return showMsg('SHA-256 必须是 64 位十六进制字符串', 'warning');
       if (queueingKernelUpdate.value) return;
       try {
