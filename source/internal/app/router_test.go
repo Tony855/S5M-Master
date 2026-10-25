@@ -3,6 +3,7 @@ package app
 import (
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +57,23 @@ func TestHealthChecksDatabaseReadiness(t *testing.T) {
 	a.handleHealth(response, httptest.NewRequest("GET", "/api/v1/health", nil))
 	if response.Code != 503 {
 		t.Fatalf("closed database returned HTTP %d, want 503", response.Code)
+	}
+}
+
+func TestRetryNodeConfigSyncReturnsSuccessWhenNoAuthorizedNodes(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "config-sync.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store}
+	response := httptest.NewRecorder()
+	a.handleRetryNodeConfigSync(response, httptest.NewRequest("POST", "/api/v1/nodes/config-sync", nil))
+	if response.Code != 200 {
+		t.Fatalf("sync with no authorized nodes returned HTTP %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "`"ok":true`") {
+		t.Fatalf("expected success response, got %s", response.Body.String())
 	}
 }
