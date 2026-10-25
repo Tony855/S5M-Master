@@ -267,7 +267,6 @@ func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T)
 	}
 }
 
-
 func TestDecodeLimitedRejectsTrailingJSONAndOversizedBody(t *testing.T) {
 	t.Run("trailing JSON", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"ok":true} {"extra":true}`))
