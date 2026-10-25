@@ -514,15 +514,25 @@ createApp({
           try {
             const arr = findProxyArray(JSON.parse(content));
             if (!arr || !arr.length) throw new Error('找不到包含 server/address 的节点数组');
-            const lines = arr.map(item => {
-              const name = item.name || item.remark || item.proxy_name || '未命名';
-              const type = item.type || item.protocol || 'socks5';
-              const server = item.server || item.address || item.host || '';
-              const port = item.port || 1080;
-              return `${name} ${type} ${server} ${port}`;
-            }).filter(line => line.split(' ')[2] !== ''); 
-            if (!lines.length) throw new Error('解析出了节点但缺少有效字段');
-            importText.value = lines.join('\n'); showMsg(`成功解析 ${lines.length} 条节点`, 'success');
+            const lines = arr.map((item, index) => {
+              const name = String(item.name || item.remark || item.proxy_name || `节点-${index + 1}`).trim();
+              const type = String(item.type || item.protocol || 'socks5').trim().toLowerCase();
+              const server = String(item.server || item.address || item.host || '').trim();
+              const port = Number(item.port || item.server_port || 1080);
+              if (!server || !Number.isInteger(port) || port < 1 || port > 65535) return '';
+              if (!/^[a-z][a-z0-9+.-]*$/.test(type)) return '';
+              // The backend's text importer expects URI syntax, not space-separated columns.
+              // Encode credentials to keep delimiters in usernames/passwords from breaking the URI.
+              const username = item.username == null ? '' : String(item.username);
+              const password = item.password == null ? '' : String(item.password);
+              const auth = username || password
+                ? encodeURIComponent(username) + ':' + encodeURIComponent(password) + '@'
+                : '';
+              const host = server.includes(':') && !server.startsWith('[') ? '[' + server + ']' : server;
+              return `${type}://${auth}${host}:${port}#${name.replace(/[\r\n#]/g, ' ')}`;
+            }).filter(Boolean);
+            if (!lines.length) throw new Error('解析出了节点，但缺少有效服务器、端口或协议字段');
+            importText.value = lines.join('\n'); showMsg(`成功解析 ${lines.length} 条节点；导入时将按协议链接格式提交`, 'success');
           } catch (err) { showMsg('JSON 解析失败：' + err.message, 'error'); importText.value = ''; }
         } else {
           importText.value = content; showMsg('文件读取成功，请点击导入', 'success');
