@@ -39,6 +39,8 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 
 const maxJSONRequestBody = 2 << 20
 
+var errRequestBodyTooLarge = errors.New("请求体超过大小限制")
+
 func decodeLimited(r *http.Request, maxBytes int64, sizeLabel string, v any) error {
 	if maxBytes <= 0 {
 		return errors.New("请求体大小限制无效")
@@ -48,7 +50,7 @@ func decodeLimited(r *http.Request, maxBytes int64, sizeLabel string, v any) err
 		return err
 	}
 	if int64(len(body)) > maxBytes {
-		return fmt.Errorf("请求体超过 %s 限制", sizeLabel)
+		return fmt.Errorf("%w: %s", errRequestBodyTooLarge, sizeLabel)
 	}
 	if err := json.Unmarshal(body, v); err != nil {
 		return err
@@ -61,7 +63,7 @@ func decode(r *http.Request, v any) error {
 }
 
 func decodeErrorStatus(err error) int {
-	if err != nil && strings.Contains(err.Error(), "请求体超过 ") {
+	if errors.Is(err, errRequestBodyTooLarge) {
 		return http.StatusRequestEntityTooLarge
 	}
 	return http.StatusBadRequest
