@@ -920,6 +920,7 @@ func executeContainerTask(task containerTask) (map[string]any, error) {
 	}
 	return map[string]any{"output": text}, nil
 }
+
 // normalizeMachineID validates a Linux machine-id and returns its full 128-bit hex value.
 func normalizeMachineID(data []byte) string {
 	id := strings.ToLower(strings.TrimSpace(string(data)))
