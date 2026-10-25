@@ -1126,54 +1126,13 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	authHeader := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeErr(w, 401, "缺少 Agent Token")
-		return
-	}
-
-	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
-		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, fmt.Errorf("不支持的 JWT 签名算法")
+	machineCode, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil {
+		status := http.StatusUnauthorized
+		if strings.HasPrefix(authErr.Error(), "读取 Agent 授权失败:") {
+			status = http.StatusInternalServerError
 		}
-		return a.jwtKey, nil
-	})
-	if err != nil || token == nil || !token.Valid {
-		writeErr(w, 401, "无效或已过期的 Agent Token")
-		return
-	}
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		writeErr(w, 401, "无效的 Agent Token")
-		return
-	}
-	machineCode, ok := claims["sub"].(string)
-	role, roleOK := claims["role"].(string)
-	if !ok || machineCode == "" || !roleOK || role != "agent" {
-		writeErr(w, 401, "Agent 身份或机器码无效")
-		return
-	}
-
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		writeErr(w, 500, "读取设备授权状态失败")
-		return
-	}
-
-	// 已删除、未授权，或仍沿用全局 Token 的旧记录一律拒绝。
-	machineToken := settings["agent_machine_"+machineCode]
-	if machineToken == "" || machineToken == settings["agent_token"] {
-		writeErr(w, 401, "设备未授权或已解绑")
-		return
-	}
-
-	// JWT 必须绑定当前专属 Token；更换 Token 后旧 JWT 立即失效。
-	version, versionOK := claims["ver"].(string)
-	currentVersion := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
-	if !versionOK || version == "" || version != currentVersion {
-		writeErr(w, 401, "Agent 授权版本已失效，请重新绑定")
+		writeErr(w, status, authErr.Error())
 		return
 	}
 
@@ -1230,7 +1189,7 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 			return nil, fmt.Errorf("不支持的 JWT 签名算法")
 		}
 		return a.jwtKey, nil
-	})
+	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || token == nil || !token.Valid {
 		return "", fmt.Errorf("无效或已过期的 Agent Token")
 	}
@@ -1390,42 +1349,13 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	authHeader := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authHeader, "Bearer ") {
-		writeErr(w, http.StatusUnauthorized, "缺少 Agent Token")
-		return
-	}
-	token, err := jwt.Parse(strings.TrimPrefix(authHeader, "Bearer "), func(t *jwt.Token) (interface{}, error) {
-		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
-			return nil, fmt.Errorf("不支持的 JWT 签名算法")
+	code, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil {
+		status := http.StatusUnauthorized
+		if strings.HasPrefix(authErr.Error(), "读取 Agent 授权失败:") {
+			status = http.StatusInternalServerError
 		}
-		return a.jwtKey, nil
-	})
-	if err != nil || token == nil || !token.Valid {
-		writeErr(w, http.StatusUnauthorized, "无效或已过期的 Agent Token")
-		return
-	}
-	claims, ok := token.Claims.(jwt.MapClaims)
-	if !ok {
-		writeErr(w, http.StatusUnauthorized, "无效的 Agent Token")
-		return
-	}
-	code, codeOK := claims["sub"].(string)
-	role, roleOK := claims["role"].(string)
-	version, versionOK := claims["ver"].(string)
-	if !codeOK || code == "" || !roleOK || role != "agent" || !versionOK || version == "" {
-		writeErr(w, http.StatusUnauthorized, "Agent 身份无效")
-		return
-	}
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取设备授权失败")
-		return
-	}
-	machineToken := settings["agent_machine_"+code]
-	currentVersion := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
-	if machineToken == "" || machineToken == settings["agent_token"] || version != currentVersion {
-		writeErr(w, http.StatusUnauthorized, "设备未授权或授权已失效")
+		writeErr(w, status, authErr.Error())
 		return
 	}
 	in["received_at"] = time.Now().Unix()
