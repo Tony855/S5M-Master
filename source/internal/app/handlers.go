@@ -434,7 +434,7 @@ func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 }
 
 type mihomoReleaseAsset struct {
-	Name string "json:\"name\""
+	Name               string "json:\"name\""
 	BrowserDownloadURL string "json:\"browser_download_url\""
 }
 
@@ -521,8 +521,8 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var release struct {
-		TagName string "json:\"tag_name\""
-		Assets []mihomoReleaseAsset "json:\"assets\""
+		TagName string               "json:\"tag_name\""
+		Assets  []mihomoReleaseAsset "json:\"assets\""
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 		writeErr(w, http.StatusBadGateway, "解析 Mihomo 发布信息失败")
