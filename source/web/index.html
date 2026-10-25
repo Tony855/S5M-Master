@@ -72,7 +72,7 @@
         <p class="import-note">目标节点：<strong>{{ kernelUpdateMachineCode }}</strong>。更新命令会进入该 Agent 的待执行队列；Agent 在线时会下载文件、校验 SHA-256，并测试新内核及当前配置后再应用。</p>
         <el-form label-position="top">
           <el-form-item label="目标版本" required>
-            <el-input v-model="kernelUpdateVersion" placeholder="例如 v1.19.31" />
+            <el-input v-model="kernelUpdateVersion" placeholder="例如 v1.19.31（填写官方版本）" />
           </el-form-item>
           <el-form-item label="官方 Release 压缩包 SHA-256" required>
             <el-input v-model="kernelUpdateSHA256" maxlength="64" placeholder="64 位十六进制 SHA-256" />
@@ -310,6 +310,16 @@
                 主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '不可用' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
               <div v-else class="instance-token">运行状态：尚未上报（请检查 Agent 版本、网络连接和主控地址）</div>
+              <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-token">
+                Mihomo 更新：<el-tag type="warning" size="small">待 Agent 确认</el-tag> · 目标版本 {{ item.pendingCommand.version || '未知' }}
+              </div>
+              <div v-else-if="item.commandResult && item.commandResult.type === 'update_mihomo'" class="instance-token">
+                上次 Mihomo 更新：
+                <el-tag :type="item.commandResult.status === 'success' ? 'success' : (item.commandResult.status === 'failed' ? 'danger' : 'info')" size="small">
+                  {{ item.commandResult.status === 'success' ? '成功' : (item.commandResult.status === 'failed' ? '失败' : (item.commandResult.status || '未知')) }}
+                </el-tag>
+                · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
+              </div>
               <div class="instance-link-summary">
                 <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
                 <span>独立配置：<strong>{{ nodeConfigState(item.code) }}</strong></span>
