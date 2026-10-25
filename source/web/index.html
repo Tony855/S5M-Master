@@ -733,6 +733,23 @@ html, body, #app {
         <template #footer><el-button @click="pwdDialog=false">取消</el-button><el-button type="primary" :loading="pwdSaving" @click="changeAdminPassword">保存新密码</el-button></template>
       </el-dialog>
 
+      <el-dialog v-model="kernelUpdateDialog" title="更新节点 Mihomo 内核" width="min(620px, 94vw)" :close-on-click-modal="false">
+        <p class="import-note">目标节点：<strong>{{ kernelUpdateMachineCode }}</strong>。更新命令会进入该 Agent 的待执行队列；Agent 在线时会下载文件、校验 SHA-256，并测试新内核及当前配置后再应用。</p>
+        <el-form label-position="top">
+          <el-form-item label="目标版本" required>
+            <el-input v-model="kernelUpdateVersion" placeholder="例如 v1.19.31" />
+          </el-form-item>
+          <el-form-item label="官方 Release 压缩包 SHA-256" required>
+            <el-input v-model="kernelUpdateSHA256" maxlength="64" placeholder="64 位十六进制 SHA-256" />
+          </el-form-item>
+        </el-form>
+        <p class="section-hint">请从 Mihomo 官方 GitHub Release 核对对应架构的 .gz 文件及 SHA-256。amd64 常用文件名为 mihomo-linux-amd64-compatible-版本.gz；arm64 为 mihomo-linux-arm64-版本.gz。不要使用未经核实的校验值。</p>
+        <template #footer>
+          <el-button @click="kernelUpdateDialog = false">取消</el-button>
+          <el-button type="primary" :loading="queueingKernelUpdate" @click="queueAgentKernelUpdate">验证并排队更新</el-button>
+        </template>
+      </el-dialog>
+
       <div v-if="page === 'dashboard'">
         <div class="grid-cards">
           <div class="stat-card"><div class="stat-title">Agent 在线节点</div><div class="stat-value">{{ overview.remote_online || 0 }} <span class="stat-total">/ {{ overview.remote_node_total || 0 }}</span></div><div class="section-hint">已连接的远程实例</div></div>
@@ -966,6 +983,7 @@ html, body, #app {
                 <el-button size="small" @click="dockerMachineCode = item.code; switchPage('docker')">管理容器</el-button>
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
                 <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
+                <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
               </div>
             </div>
@@ -1312,6 +1330,11 @@ createApp({
     const savingConfig = ref(false);
     const publishing = ref(false);
     const updatingKernel = ref(false);
+    const kernelUpdateDialog = ref(false);
+    const kernelUpdateMachineCode = ref('');
+    const kernelUpdateVersion = ref('v1.19.31');
+    const kernelUpdateSHA256 = ref('');
+    const queueingKernelUpdate = ref(false);
     const systemLogs = ref('');
     const loadingSystemLogs = ref(false);
     const restoringBackup = ref(false);
@@ -1854,6 +1877,48 @@ createApp({
         } else { showMsg(data.error || data.message || '生成失败', 'error'); }
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       generating.value = false;
+    };
+
+    const openAgentKernelUpdate = (code) => {
+      kernelUpdateMachineCode.value = String(code || '').trim();
+      kernelUpdateVersion.value = 'v1.19.31';
+      kernelUpdateSHA256.value = '';
+      kernelUpdateDialog.value = Boolean(kernelUpdateMachineCode.value);
+    };
+
+    const queueAgentKernelUpdate = async () => {
+      const machineCode = String(kernelUpdateMachineCode.value || '').trim();
+      const version = String(kernelUpdateVersion.value || '').trim();
+      const sha256 = String(kernelUpdateSHA256.value || '').trim().toLowerCase();
+      if (!machineCode) return showMsg('请先选择目标 Agent', 'warning');
+      if (!/^v\d+\.\d+\.\d+$/.test(version)) return showMsg('版本号格式无效，应为 v主版本.次版本.修订版本', 'warning');
+      if (!/^[a-f0-9]{64}$/.test(sha256)) return showMsg('SHA-256 必须是 64 位十六进制字符串', 'warning');
+      if (queueingKernelUpdate.value) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确认向 Agent ' + machineCode + ' 排队更新 Mihomo 到 ' + version + '？请确保版本与节点架构匹配，并已从官方 Release 核实 SHA-256。',
+          '确认更新 Mihomo 内核',
+          { type: 'warning', confirmButtonText: '确认排队', cancelButtonText: '取消' }
+        );
+      } catch (_) {
+        return;
+      }
+      queueingKernelUpdate.value = true;
+      try {
+        const res = await api('/api/v1/agents/kernel-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machine_code: machineCode, version, sha256 })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        kernelUpdateDialog.value = false;
+        showMsg(data.message || '更新命令已排队；Agent 在线时将执行', 'success');
+      } catch (e) {
+        showMsg(e.message || '排队更新失败', 'error');
+      } finally {
+        queueingKernelUpdate.value = false;
+      }
     };
 
     const deleteAgent = async (code) => {
@@ -2480,6 +2545,8 @@ const safeCopy = async (text) => {
       subUrl, globalConfigYaml, savingGlobalConfig, publishingGlobalConfig, loadingConfigVersions, configVersions,
       saveGlobalConfig, publishGlobalConfig, loadGlobalConfig, loadConfigVersions, rollbackGlobalConfig,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate,
+      openAgentKernelUpdate, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
