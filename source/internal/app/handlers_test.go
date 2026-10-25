@@ -267,6 +267,37 @@ func TestAgentAuthorizationUsesOneValidatorAndRevokesChangedTokens(t *testing.T)
 	}
 }
 
+func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-json.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "node_json"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":           "global-secret",
+		"agent_machine_" + code: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	app := &App{store: store}
+	body := `{"config_yaml":"secret: node-secret\ntun:\n  enable: false\ndns:\n  enable: false\n"} {"unexpected":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+code+"/config", strings.NewReader(body))
+	req.SetPathValue("code", code)
+	rec := httptest.NewRecorder()
+
+	app.handleSaveNodeConfig(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if _, err := store.GetNodeConfig(code); err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	} else if cfg, _ := store.GetNodeConfig(code); cfg != nil {
+		t.Fatal("invalid request unexpectedly persisted a node config")
+	}
+}
+
 func TestDecodeLimitedRejectsTrailingJSONAndOversizedBody(t *testing.T) {
 	t.Run("trailing JSON", func(t *testing.T) {
 		req := httptest.NewRequest("POST", "/", strings.NewReader(`{"ok":true} {"extra":true}`))
