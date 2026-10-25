@@ -1245,7 +1245,7 @@ const safeCopy = async (text) => {
       if (!row || !Number(row.version)) return;
       try {
         await ElementPlus.ElMessageBox.confirm(
-          '确定回滚到配置版本 v' + row.version + '？这会替换当前发布配置。',
+          '确定回滚到配置版本 v' + row.version + '？将恢复该版本的全局设置；代理列表和路由规则仍以当前代理数据库为准。',
           '确认回滚配置',
           { type: 'warning', confirmButtonText: '确认回滚', cancelButtonText: '取消' }
         );
