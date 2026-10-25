@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,10 +165,40 @@ func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, list)
 }
+func validateInstance(in *Instance) string {
+	in.Name = strings.TrimSpace(in.Name)
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.APIURL = strings.TrimSpace(in.APIURL)
+
+	if in.Name == "" {
+		return "实例名称不能为空"
+	}
+	if len(in.Name) > 100 {
+		return "实例名称不能超过 100 个字符"
+	}
+	if len(in.MachineCode) > 128 {
+		return "机器码不能超过 128 个字符"
+	}
+	if len(in.APIURL) > 2048 {
+		return "API 地址不能超过 2048 个字符"
+	}
+	if in.APIURL != "" {
+		parsed, err := url.ParseRequestURI(in.APIURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
+			return "API 地址必须是有效的 HTTP 或 HTTPS URL，且不能包含用户名或密码"
+		}
+	}
+	return ""
+}
+
 func (a *App) handleCreateInstance(w http.ResponseWriter, r *http.Request) {
 	var in Instance
-	if err := decode(r, &in); err != nil || in.Name == "" {
-		writeErr(w, 400, "参数错误")
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "参数错误")
+		return
+	}
+	if msg := validateInstance(&in); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
 		return
 	}
 	if err := a.store.CreateInstance(&in); err != nil {
