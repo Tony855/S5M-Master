@@ -1,11 +1,12 @@
 package main
 
 import (
-	"errors"
 	"encoding/json"
-	"net/http/httptest"
-	"path/filepath"
+	"errors"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"os"
 	"strings"
 	"testing"
@@ -331,7 +332,6 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
-
 
 func TestNormalizeMachineID(t *testing.T) {
 	tests := []struct { name string; data []byte; want string }{
