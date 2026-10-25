@@ -316,7 +316,11 @@ if ! systemctl restart mihomo; then
   exit 1
 fi
 systemctl enable "$UNIT"
-systemctl restart "$UNIT"
+if ! systemctl restart "$UNIT"; then
+  echo "❌ S5M-Server 服务启动失败。请检查：journalctl -u $UNIT -n 100 --no-pager" >&2
+  systemctl status "$UNIT" --no-pager -l >&2 || true
+  exit 1
+fi
 
 ADDR="$(grep -E '^S5M_ADDR=' "$ENV_FILE" | cut -d= -f2-)"
 PORT="${ADDR##*:}"
