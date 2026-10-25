@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-# The Agent API must respond. Do not use the on-disk Mihomo secret as a
-# container-liveness probe: a credential mismatch must not make the container
-# unhealthy or trigger an orchestrator restart that interrupts proxy traffic.
+# Verify the Agent HTTP API responds. Credential mismatches must not make
+# the container unhealthy or trigger unnecessary restarts.
 wget -q -T 3 -O /dev/null http://127.0.0.1:80/api/config
 
-# Confirm S6 still supervises the Mihomo service, without forcing an API
-# authentication check that could fail while the proxy dataplane is healthy.
-[ "$(s6-svstat -o up /run/service/mihomo 2>/dev/null || true)" = "true" ]
+# s6-overlay v3 does not ship the legacy s6-svstat command. Alpine BusyBox
+# provides pidof; use it to verify the Mihomo dataplane process is present.
+# The service supervisor remains responsible for restarting a crashed process.
+pidof mihomo >/dev/null 2>&1
