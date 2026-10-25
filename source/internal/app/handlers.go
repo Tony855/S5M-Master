@@ -218,7 +218,7 @@ func (a *App) validateProxy(p *Proxy) string {
 			return "代理必须填写类型、服务器和端口"
 		}
 		if p.Port < 1 || p.Port > 65535 {
-			return "代理端口必须在 1–65535 之间"
+			return "代理端口必须在 1-65535 之间"
 		}
 	default:
 		return "运行模式无效，必须是 proxy、china 或 game"
