@@ -1079,10 +1079,30 @@ html, body, #app {
 
       <div v-if="page === 'routeros-containers'">
         <div class="card-panel">
-          <div class="card-title">RouterOS /container 管理</div>
-          <p class="import-note">此页面用于后续接入 MikroTik RouterOS 原生容器管理接口。目前尚未连接 RouterOS API，暂不提供会造成误解的操作按钮。</p>
-          <el-alert title="RouterOS 管理接口尚未接入" type="warning" :closable="false" show-icon description="下一步将实现路由器连接配置、连通性测试、容器列表、启动/停止、日志与镜像管理。建议优先通过 API-SSL 或 WireGuard 管理网连接，并使用权限受限的专用账号。"></el-alert>
-          <p class="import-note" style="margin-top:14px">每台路由器使用独立凭据；凭据应在服务端安全保存，不应发送到浏览器。RouterOS 版本和设备架构需在接入时校验。</p>
+          <div class="card-title">RouterOS 原生容器管理</div>
+          <p class="import-note">通过 RouterOS 专用 Agent 调用原生 API-SSL，不执行 Linux Docker 命令。Agent 必须使用独立机器码，不能与同一设备上的 Docker/Mihomo Agent 共用机器码。</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0;">
+            <el-select v-model="dockerMachineCode" placeholder="选择 RouterOS Agent 机器码" filterable style="flex:1;min-width:240px;">
+              <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
+            </el-select>
+            <el-button type="primary" :loading="routerosLoading" :disabled="!dockerMachineCode" @click="refreshRouterOS">读取 RouterOS 容器</el-button>
+          </div>
+          <el-alert title="连接要求" type="info" :closable="false" show-icon description="RouterOS Agent 主动连接 S5M，适用于动态公网 IPv4 和 CGNAT。Agent 还必须能通过已配置的 API-SSL 地址访问 RouterOS 宿主；请配置有效证书、最小权限账号和管理网防火墙。"></el-alert>
+          <p class="import-note" style="margin:12px 0;">{{ routerosStatus || '选择 RouterOS Agent 后读取容器列表。启动、停止和重启操作会写入任务记录。' }}</p>
+          <el-table :data="routerosContainers" v-loading="routerosLoading" stripe style="width:100%;margin-top:12px;" empty-text="暂无容器数据；请确认 Agent 在线并已配置 RouterOS API-SSL。">
+            <el-table-column label="ID" min-width="90"><template #default="{ row }">{{ row['.id'] || '—' }}</template></el-table-column>
+            <el-table-column prop="name" label="容器名称" min-width="130" />
+            <el-table-column prop="remote-image" label="镜像" min-width="180" show-overflow-tooltip />
+            <el-table-column prop="status" label="状态" min-width="110" />
+            <el-table-column prop="interface" label="接口" min-width="110" />
+            <el-table-column label="操作" min-width="210" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="success" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.start', row)">启动</el-button>
+                <el-button size="small" type="warning" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.stop', row)">停止</el-button>
+                <el-button size="small" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.restart', row)">重启</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </div>
       </div>
 
@@ -1158,6 +1178,9 @@ createApp({
     });
     const dockerMachineCode = ref('');
     const dockerLoading = ref(false);
+    const routerosLoading = ref(false);
+    const routerosContainers = ref([]);
+    const routerosStatus = ref('');
     const dockerContainers = ref([]);
     const selectedDockerIDs = ref([]);
     const bulkDockerProgress = ref('');
@@ -1328,6 +1351,7 @@ createApp({
       if (v === 'proxies') loadProxies();
       if (v === 'instances') loadAgentsData();
       if (v === 'docker') { loadAgentsData(); loadContainerTasks(); }
+      if (v === 'routeros-containers') { loadAgentsData(); routerosContainers.value = []; routerosStatus.value = ''; }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
     };
 
@@ -1905,6 +1929,42 @@ createApp({
       finally { dockerLoading.value = false; }
     };
 
+    const refreshRouterOS = async () => {
+      if (!dockerMachineCode.value) return showMsg('请先选择 RouterOS Agent 机器码', 'warning');
+      routerosLoading.value = true;
+      routerosStatus.value = '正在读取 RouterOS 原生 /container/print…';
+      try {
+        const result = await dockerTask('routeros.container.list');
+        routerosContainers.value = Array.isArray(result.containers) ? result.containers : [];
+        routerosStatus.value = '读取完成：' + routerosContainers.value.length + ' 个 RouterOS 容器；任务 #' + (result.task_id || '—');
+        await loadContainerTasks({ silent: true });
+      } catch (e) {
+        routerosStatus.value = e.message || '读取 RouterOS 容器失败';
+        showMsg(routerosStatus.value, 'error');
+      } finally { routerosLoading.value = false; }
+    };
+    const routerOSAction = async (action, row) => {
+      const id = String(row && row['.id'] || '');
+      if (!/^\*[0-9a-fA-F]{1,31}$/.test(id)) return showMsg('RouterOS 容器内部 ID 无效', 'error');
+      const labels = { 'routeros.container.start': '启动', 'routeros.container.stop': '停止', 'routeros.container.restart': '重启' };
+      const label = labels[action];
+      if (!label) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm('确定' + label + ' RouterOS 容器 ' + (row.name || id) + '（' + id + '）？', '确认 RouterOS 操作', { type: 'warning', confirmButtonText: '确认' + label, cancelButtonText: '取消' });
+      } catch (_) { return; }
+      routerosLoading.value = true;
+      routerosStatus.value = '正在提交' + label + '任务…';
+      try {
+        const result = await dockerTask(action, { container_id: id });
+        routerosStatus.value = label + '任务成功，任务 #' + (result.task_id || '—');
+        showDockerResult('RouterOS ' + label + '结果', result);
+        await refreshRouterOS();
+      } catch (e) {
+        routerosStatus.value = e.message || 'RouterOS 操作失败';
+        showMsg(routerosStatus.value, 'error');
+      } finally { routerosLoading.value = false; }
+    };
+
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
@@ -2084,6 +2144,7 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
+      routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       subUrl, configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       proxyDialog, proxyForm, savingProxy,
