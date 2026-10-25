@@ -1437,6 +1437,14 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 	}
 	var pending map[string]string
 	if json.Unmarshal([]byte(settings["agent_command_"+code]), &pending) != nil || pending["id"] != in.ID {
+		// The first ACK may have been committed while its HTTP response was lost.
+		// Accept a retry only when the stored result belongs to this exact command ID.
+		var previous map[string]any
+		if json.Unmarshal([]byte(settings["agent_command_result_"+code]), &previous) == nil &&
+			previous["id"] == in.ID {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true})
+			return
+		}
 		writeErr(w, http.StatusConflict, "命令已被替换或不存在")
 		return
 	}
