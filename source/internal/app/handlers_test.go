@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
 	"errors"
 	"net/http"
@@ -454,5 +455,48 @@ func TestWaitForMihomoAPIVersionRejectsWrongRunningVersion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "运行版本不匹配") {
 		t.Fatalf("error = %q, want version mismatch diagnostic", err)
+	}
+}
+
+
+func TestHandleGetAgentsExposesPendingAndCompletedCommandState(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-command-state.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "node_status"
+	pending := `{"id":"cmd-2","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
+	previous := `{"id":"cmd-1","type":"update_mihomo","status":"failed","message":"previous update failed","updated_at":123}`
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":                       "global-secret",
+		"agent_machine_" + machineCode:      "dedicated-secret",
+		"agent_command_" + machineCode:     pending,
+		"agent_command_result_" + machineCode: previous,
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil)
+	rec := httptest.NewRecorder()
+	app.handleGetAgents(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	node := payload[machineCode]
+	pendingCommand, ok := node["pending_command"].(map[string]any)
+	if !ok || pendingCommand["id"] != "cmd-2" || pendingCommand["version"] != "v1.2.3" {
+		t.Fatalf("pending_command = %#v, want pending Mihomo update cmd-2/v1.2.3", node["pending_command"])
+	}
+	commandResult, ok := node["command_result"].(map[string]any)
+	if !ok || commandResult["id"] != "cmd-1" || commandResult["status"] != "failed" {
+		t.Fatalf("command_result = %#v, want previous failed result cmd-1", node["command_result"])
 	}
 }
