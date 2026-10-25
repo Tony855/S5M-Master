@@ -517,12 +517,17 @@ func (a *App) handleMihomoStatus(w http.ResponseWriter, _ *http.Request) {
 func (a *App) handleMonitorTraffic(w http.ResponseWriter, _ *http.Request) {
 	resp, err := a.mihomoReq(http.MethodGet, "/connections", nil)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "读取 Mihomo 流量失败")
+		writeErr(w, http.StatusBadGateway, "连接主控 Mihomo API 失败: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		writeErr(w, http.StatusBadGateway, fmt.Sprintf("Mihomo 流量接口返回 HTTP %d", resp.StatusCode))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		detail := strings.TrimSpace(string(body))
+		if detail == "" {
+			detail = http.StatusText(resp.StatusCode)
+		}
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("主控 Mihomo /connections 返回 HTTP %d: %s", resp.StatusCode, detail))
 		return
 	}
 	var data struct {

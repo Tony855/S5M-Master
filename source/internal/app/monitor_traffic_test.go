@@ -52,3 +52,31 @@ func TestMonitorTrafficConcurrentRequests(t *testing.T) {
 		t.Errorf("concurrent traffic request failed: %s", err)
 	}
 }
+
+func TestMonitorTrafficIncludesUpstreamStatusAndBody(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "authentication required", http.StatusUnauthorized)
+	}))
+	defer upstream.Close()
+	a := &App{cfg: Config{MihomoAPI: upstream.URL}}
+	response := httptest.NewRecorder()
+	a.handleMonitorTraffic(response, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	if !strings.Contains(response.Body.String(), "HTTP 401") || !strings.Contains(response.Body.String(), "authentication required") {
+		t.Fatalf("response should include safe upstream diagnostic, got %s", response.Body.String())
+	}
+}
+
+func TestMonitorTrafficIncludesConnectionError(t *testing.T) {
+	a := &App{cfg: Config{MihomoAPI: "http://127.0.0.1:1"}}
+	response := httptest.NewRecorder()
+	a.handleMonitorTraffic(response, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadGateway)
+	}
+	if !strings.Contains(response.Body.String(), "连接主控 Mihomo API 失败") {
+		t.Fatalf("response should explain connection failure, got %s", response.Body.String())
+	}
+}
