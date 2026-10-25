@@ -1542,16 +1542,35 @@ func (a *App) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		ConfigYaml string `json:"config_yaml"`
 	}
+	const maxConfigBody = int64(2 << 20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxConfigBody)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, 400, "参数错误")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "全局配置请求超过 2 MiB 限制")
+		} else {
+			writeErr(w, http.StatusBadRequest, "请求 JSON 无效")
+		}
 		return
 	}
-	err := a.store.UpdateSettings(map[string]string{"config_yaml": in.ConfigYaml})
-	if err != nil {
-		writeErr(w, 500, "保存配置失败")
+	if strings.TrimSpace(in.ConfigYaml) == "" {
+		writeErr(w, http.StatusBadRequest, "全局 YAML 不能为空")
 		return
 	}
-	writeJSON(w, 200, map[string]string{"message": "配置已保存，Agent 将在 30 秒内拉取更新"})
+	var config map[string]any
+	if err := yaml.Unmarshal([]byte(in.ConfigYaml), &config); err != nil {
+		writeErr(w, http.StatusBadRequest, "全局 YAML 语法错误: "+err.Error())
+		return
+	}
+	if len(config) == 0 {
+		writeErr(w, http.StatusBadRequest, "全局 YAML 必须是非空对象")
+		return
+	}
+	if err := a.store.UpdateSettings(map[string]string{"config_yaml": in.ConfigYaml}); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存配置失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "配置草稿已保存；发布前仍会执行 Mihomo 配置校验"})
 }
 
 func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
