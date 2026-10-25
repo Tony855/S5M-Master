@@ -980,10 +980,10 @@ func (a *App) handleImportProxies(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{
-		"success": successCount,
-		"fail": len(failReasons),
+		"success":     successCount,
+		"fail":        len(failReasons),
 		"sync_failed": syncFailed,
-		"message": msg,
+		"message":     msg,
 	})
 }
 
