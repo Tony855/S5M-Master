@@ -566,8 +566,34 @@
         </div>
         <div class="card-panel">
           <div class="card-title">主控服务器 Mihomo 内核</div>
-          <p class="import-note">此操作更新主控服务器的 /opt/mihomo/mihomo，并重启主控机的 mihomo systemd 服务；不会更新各个 Agent 节点。更新前会验证候选二进制并备份旧版本，但仍建议在维护窗口执行。Agent 节点内核请在节点实例列表中单独排队更新，并核对官方版本与 SHA-256。</p>
-          <el-button type="primary" :loading="updatingKernel" @click="updateKernel">更新主控 Mihomo 内核</el-button>
+          <p class="import-note">此处仅显示主控服务器本机 Mihomo 状态，不会自动更新或重启，也不会更新各个 Agent 节点。手动更新会替换 /opt/mihomo/mihomo 并重启 mihomo systemd 服务；更新期间代理流量可能中断。Agent 节点内核请在节点实例列表中单独排队更新。</p>
+          <div class="settings-grid" style="margin:16px 0;">
+            <div class="setting-item">
+              <span class="setting-label">当前 Mihomo 版本</span>
+              <strong>{{ mainMihomoStatus.version || '未知' }}</strong>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">systemd 服务状态</span>
+              <el-tag :type="mainMihomoStatus.service === 'active' ? 'success' : (mainMihomoStatus.service === 'activating' ? 'warning' : 'danger')">
+                {{ mainMihomoStatus.service === 'active' ? '运行中' : (mainMihomoStatus.service === 'inactive' ? '已停止' : (mainMihomoStatus.service === 'failed' ? '启动失败' : (mainMihomoStatus.service || '未知'))) }}
+              </el-tag>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">综合状态</span>
+              <el-tag :type="mainMihomoStatus.online ? 'success' : 'danger'">{{ mainMihomoStatus.online ? '正常' : '异常 / 不可用' }}</el-tag>
+            </div>
+            <div class="setting-item">
+              <span class="setting-label">二进制路径</span>
+              <strong style="overflow-wrap:anywhere;">{{ mainMihomoStatus.binary_path || '/opt/mihomo/mihomo' }}</strong>
+            </div>
+          </div>
+          <el-alert v-if="mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error" type="warning" :closable="false" show-icon title="状态诊断">
+            {{ mainMihomoStatus.queryError || mainMihomoStatus.binary_error || mainMihomoStatus.service_error }}
+          </el-alert>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+            <el-button :loading="mainMihomoStatus.loading" @click="loadMainMihomoStatus">刷新版本与状态</el-button>
+            <el-button type="primary" :loading="updatingKernel" @click="updateKernel">更新主控 Mihomo 内核</el-button>
+          </div>
         </div>
       </div>
     </el-main>
