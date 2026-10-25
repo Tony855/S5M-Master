@@ -2,7 +2,7 @@
 ARG GO_VERSION=1.23
 ARG ALPINE_VERSION=3.21
 ARG MIHOMO_VERSION=v1.19.31
-ARG S6_OVERLAY_VERSION=3.2.1
+ARG S6_OVERLAY_VERSION=3.2.3.2
 # SHA-256 digests published by the official MetaCubeX/mihomo v1.19.31 release.
 ARG MIHOMO_AMD64_SHA256=04cf9f09671704f839ddbee2e93069dc831a4123a75281e725d1d96ab9ac1afc
 ARG MIHOMO_ARM64_SHA256=9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4
@@ -46,10 +46,12 @@ RUN set -eux; \
       *) echo "Unsupported architecture for s6-overlay: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     mkdir -p /out; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors \
-      "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz" -o /tmp/s6-noarch.tar.xz; \
-    curl --fail --show-error --silent --location --retry 3 --retry-all-errors \
-      "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${s6_arch}.tar.xz" -o /tmp/s6-arch.tar.xz; \
+    base="https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}"; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz" -o /tmp/s6-noarch.tar.xz; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-noarch.tar.xz.sha256" -o /tmp/s6-noarch.tar.xz.sha256; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz" -o /tmp/s6-arch.tar.xz; \
+    curl --fail --show-error --silent --location --retry 3 --retry-all-errors "${base}/s6-overlay-${s6_arch}.tar.xz.sha256" -o /tmp/s6-arch.tar.xz.sha256; \
+    (cd /tmp && sha256sum -c s6-noarch.tar.xz.sha256 && sha256sum -c s6-arch.tar.xz.sha256); \
     tar -Jxpf /tmp/s6-noarch.tar.xz -C /out; \
     tar -Jxpf /tmp/s6-arch.tar.xz -C /out
 
@@ -66,6 +68,7 @@ COPY s5m-agent/healthcheck.sh /healthcheck.sh
 COPY s5m-agent/default-config.yaml /app/default-config.yaml
 COPY s5m-agent/cont-init.d/ /etc/cont-init.d/
 COPY s5m-agent/services/ /etc/s6-overlay/s6-rc.d/
+COPY s5m-agent/s6-overlay/user-bundles.d/ /etc/s6-overlay/user-bundles.d/
 RUN chmod 0755 /healthcheck.sh /etc/cont-init.d/10-mihomo-config \
     /etc/s6-overlay/s6-rc.d/mihomo/run \
     /etc/s6-overlay/s6-rc.d/agent/run \
