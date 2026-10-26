@@ -222,7 +222,7 @@ createApp({
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') { loadProxies(); loadAgentsData(); }
       if (v === 'instances') loadAgentsData();
-      if (v === 'config') { loadAgentsData(); loadSettings(); }
+      if (v === 'config') { loadAgentsData(); loadSettings(); loadMihomoTemplate(); loadTemplateNodeStatus(); }
       if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }
     };
 
