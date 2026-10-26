@@ -575,7 +575,13 @@ createApp({
             arch: item.status && item.status.arch || '',
             mihomoRunning: Boolean(item.status && item.status.mihomo_healthy),
             mihomoVersion: item.status && item.status.mihomo_version || '',
-            updated_at: item.status && item.status.received_at || '',
+            runtimeReported: Boolean(item.status && (
+              item.status.mihomo_version || item.status.hostname || item.status.os ||
+              item.status.arch || item.status.received_at
+            )),
+            updated_at: item.status && Number(item.status.received_at) > 0
+              ? new Date(Number(item.status.received_at) * 1000).toLocaleString()
+              : '',
             pendingCommand: item.pending_command && typeof item.pending_command === 'object' ? item.pending_command : null,
             commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
           });
