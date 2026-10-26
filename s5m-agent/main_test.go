@@ -511,7 +511,7 @@ func TestReportHeartbeatWebSocketSuccess(t *testing.T) {
 				t.Errorf("unexpected heartbeat payload: %#v", msg)
 				return
 			}
-			if err := conn.WriteJSON(map[string]any{"type": "heartbeat.ack", "ok": true}); err != nil {
+			if err := conn.WriteJSON(map[string]any{"type": "heartbeat.ack", "id": msg.ID, "ok": true}); err != nil {
 				t.Errorf("write ack: %v", err)
 			}
 		case "/api/v1/agent/heartbeat":
