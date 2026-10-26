@@ -463,3 +463,16 @@ func TestMachineIDHandler(t *testing.T) {
 		t.Fatalf("POST status = %d, want 405", rec.Code)
 	}
 }
+
+func TestMihomoBinaryPathForRouterOS(t *testing.T) {
+	t.Setenv("S5M_ROUTEROS", "1")
+	t.Setenv("MIHOMO_HOME", "/routeros-persist")
+	if got, want := mihomoBinaryPath(), "/routeros-persist/bin/mihomo"; got != want {
+		t.Fatalf("RouterOS mihomoBinaryPath() = %q, want %q", got, want)
+	}
+	t.Setenv("S5M_ROUTEROS", "0")
+	if got, want := mihomoBinaryPath(), "/usr/local/bin/mihomo"; got != want {
+		t.Fatalf("default mihomoBinaryPath() = %q, want %q", got, want)
+	}
+}
+
