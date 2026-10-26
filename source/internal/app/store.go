@@ -131,21 +131,6 @@ CREATE TABLE IF NOT EXISTS agent_status(
  status_json TEXT NOT NULL DEFAULT '{}',
  updated_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS agent_tasks(
- id INTEGER PRIMARY KEY AUTOINCREMENT,
- machine_code TEXT NOT NULL,
- action TEXT NOT NULL,
- params_json TEXT NOT NULL DEFAULT '{}',
- status TEXT NOT NULL DEFAULT 'pending',
- result_json TEXT NOT NULL DEFAULT '',
- error_text TEXT NOT NULL DEFAULT '',
- created_at TEXT NOT NULL,
- updated_at TEXT NOT NULL,
- claimed_at TEXT NOT NULL DEFAULT '',
- finished_at TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS idx_agent_tasks_machine_status
- ON agent_tasks(machine_code, status, id);
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_created
  ON agent_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
@@ -412,8 +397,8 @@ func (s *Store) DeleteSettings(keys []string) error {
 	return tx.Commit()
 }
 
-// DeleteAgentBinding atomically revokes a machine credential and invalidates its live work.
-// Completed task history and the node's YAML are retained for audit/re-registration.
+// DeleteAgentBinding atomically revokes a machine credential and clears live node status.
+// The node's YAML is retained for audit/re-registration.
 func (s *Store) DeleteAgentBinding(machineCode string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -426,10 +411,6 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 		}
 	}
 	if _, err := tx.Exec(`DELETE FROM agent_status WHERE machine_code=?`, machineCode); err != nil {
-		return err
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := tx.Exec(`UPDATE agent_tasks SET status='failed', error_text='Agent binding removed', updated_at=?, finished_at=? WHERE machine_code=? AND status IN ('pending','running')`, now, now, machineCode); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -513,77 +494,4 @@ func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
                 WHERE trim(node_configs.yaml_text) = ''`,
 		machineCode, yamlText, time.Now().Format(time.RFC3339))
 	return err
-}
-
-// CreateAgentTask 创建一个等待 Agent 领取的任务。
-func (s *Store) CreateAgentTask(machineCode, action, paramsJSON string) (int64, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`
-        INSERT INTO agent_tasks
-            (machine_code, action, params_json, status, created_at, updated_at)
-        VALUES (?, ?, ?, 'pending', ?, ?)`,
-		machineCode, action, paramsJSON, now, now)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
-}
-
-// CancelPendingAgentTask cancels only tasks that have not been claimed by an Agent.
-func (s *Store) CancelPendingAgentTask(id int64) (int64, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`UPDATE agent_tasks
-		SET status='cancelled', error_text='Cancelled by administrator', updated_at=?, finished_at=?
-		WHERE id=? AND status='pending'`, now, now, id)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// FailStaleAgentTasks marks running tasks as failed when their lease heartbeat expires.
-// It does not requeue them, avoiding duplicate side effects after a lost result response.
-func (s *Store) FailStaleAgentTasks(machineCode, staleBefore string) (int64, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`
-		UPDATE agent_tasks
-		SET status='failed',
-		    error_text='Agent task lease expired; task was not automatically retried',
-		    updated_at=?, finished_at=?
-		WHERE machine_code=? AND status='running'
-		  AND updated_at < ?`,
-		now, now, machineCode, staleBefore)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// RenewAgentTaskLease refreshes the lease timestamp only while the task is running
-// and belongs to the authenticated Agent.
-func (s *Store) RenewAgentTaskLease(id int64, machineCode string) (int64, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`UPDATE agent_tasks SET updated_at=?
-		WHERE id=? AND machine_code=? AND status='running'`, now, id, machineCode)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
-}
-
-// UpdateAgentTaskResult 仅允许更新属于指定机器且仍在执行中的任务。
-func (s *Store) UpdateAgentTaskResult(id int64, machineCode, status, resultJSON, errorText string) (int64, error) {
-	if status != "succeeded" && status != "failed" {
-		return 0, fmt.Errorf("invalid task status")
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(`
-        UPDATE agent_tasks
-        SET status=?, result_json=?, error_text=?, updated_at=?, finished_at=?
-        WHERE id=? AND machine_code=? AND status='running'`,
-		status, resultJSON, errorText, now, now, id, machineCode)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
