@@ -18,6 +18,7 @@ type App struct {
 
 	agentWSMu         sync.Mutex
 	agentWSGeneration map[string]uint64
+	agentHeartbeatAt  map[string]int64
 }
 
 func New(cfg Config) (*App, error) {
