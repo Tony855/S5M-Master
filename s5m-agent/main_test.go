@@ -57,6 +57,7 @@ func TestMihomoSecretCandidates(t *testing.T) {
 }
 
 func TestHostnameHandler(t *testing.T) {
+	t.Setenv("S5M_HOSTNAME", "edge-node-01")
 	req := httptest.NewRequest(http.MethodGet, "/api/hostname", nil)
 	rec := httptest.NewRecorder()
 	hostnameHandler(rec, req)
@@ -67,12 +68,8 @@ func TestHostnameHandler(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode hostname response: %v", err)
 	}
-	want, err := os.Hostname()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if payload["hostname"] != want {
-		t.Fatalf("hostname = %q, want %q", payload["hostname"], want)
+	if payload["hostname"] != "edge-node-01" {
+		t.Fatalf("hostname = %q, want configured host hostname", payload["hostname"])
 	}
 	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("Cache-Control = %q, want no-store", got)
