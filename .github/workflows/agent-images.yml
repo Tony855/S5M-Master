@@ -11,6 +11,7 @@ on:
       - "go.mod"
       - "go.sum"
       - ".github/workflows/agent-images.yml"
+      - "docs/ROUTEROS_NATIVE_AGENT_CN.md"
   workflow_dispatch:
     inputs:
       release_version:
@@ -97,7 +98,7 @@ jobs:
           container="s5m-agent-runtime-test"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$data_dir"
+            sudo rm -rf "$data_dir"
             rm -f "$fake_id_file"
           }
           trap cleanup EXIT
@@ -195,7 +196,7 @@ jobs:
           container="s5m-agent-fallback-test"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$data_dir"
+            sudo rm -rf "$data_dir"
             rm -f "$empty_id_file"
           }
           trap cleanup EXIT
@@ -311,10 +312,120 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  build-routeros-archives:
+    name: Build RouterOS native container archive (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build RouterOS-specific image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile.routeros
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: s5m-agent:routeros-${{ matrix.arch }}-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test RouterOS profile image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --platform ${{ matrix.platform }} --entrypoint /bin/sh s5m-agent:routeros-${{ matrix.arch }}-test -ec '
+            test -x /init
+            test -x /app/s5m-agent
+            test -x /healthcheck.sh
+            test -x /usr/local/bin/mihomo.initial
+            test -x /etc/cont-init.d/10-mihomo-config
+            test -x /etc/s6-overlay/s6-rc.d/mihomo/run
+            test -x /etc/s6-overlay/s6-rc.d/agent/run
+            test -f /etc/s6-overlay/s6-rc.d/user/contents.d/mihomo
+            test -f /etc/s6-overlay/s6-rc.d/user/contents.d/agent
+            test -s /app/default-config.yaml
+            /usr/local/bin/mihomo.initial -v
+          '
+          docker image inspect s5m-agent:routeros-${{ matrix.arch }}-test --format '{{.Os}}/{{.Architecture}}' | grep -Fx '${{ matrix.platform }}'
+      - name: Test RouterOS image service supervision
+        shell: bash
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          data_dir="$(mktemp -d)"
+          container="s5m-routeros-runtime-${{ matrix.arch }}"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            sudo rm -rf "$data_dir"
+          }
+          trap cleanup EXIT
+          start_and_check() {
+            docker run -d --name "$container" --platform ${{ matrix.platform }} \
+              -p 127.0.0.1::80/tcp -v "$data_dir:/data" \
+              s5m-agent:routeros-${{ matrix.arch }}-test >/dev/null
+            for attempt in $(seq 1 60); do
+              state="$(docker inspect --format '{{.State.Status}}' "$container")"
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+              if [[ "$state" != "running" ]]; then docker logs "$container" >&2; exit 1; fi
+              if [[ "$health" == "healthy" ]]; then break; fi
+              sleep 2
+            done
+            [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]] || {
+              docker logs "$container" >&2
+              docker inspect --format '{{json .State.Health}}' "$container" >&2
+              exit 1
+            }
+            port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+            curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${port}/api/config" >/dev/null
+          }
+          start_and_check
+          test -x "$data_dir/bin/mihomo"
+          test -s "$data_dir/config.yaml"
+          # Files are created by the root user inside the container; read hashes with sudo.
+          kernel_hash="$(sudo sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')"
+          config_hash="$(sudo sha256sum "$data_dir/config.yaml" | awk '{print $1}')"
+          # Recreate the container while keeping RouterOS's persistent /data mount.
+          docker rm -f "$container" >/dev/null
+          start_and_check
+          [[ "$(sudo sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')" == "$kernel_hash" ]] || {
+            echo "Persistent Mihomo kernel changed after container recreation" >&2
+            exit 1
+          }
+          [[ "$(sudo sha256sum "$data_dir/config.yaml" | awk '{print $1}')" == "$config_hash" ]] || {
+            echo "Persistent Mihomo configuration changed after container recreation" >&2
+            exit 1
+          }
+
+      - name: Export RouterOS image archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker save s5m-agent:routeros-${{ matrix.arch }}-test -o dist/s5m-agent-routeros-${{ matrix.arch }}.tar
+          sha256sum dist/s5m-agent-routeros-${{ matrix.arch }}.tar > dist/s5m-agent-routeros-${{ matrix.arch }}.tar.sha256
+      - name: Upload RouterOS archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-agent-routeros-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+
   publish-github-release:
     name: Publish stable GitHub Release
     if: startsWith(github.ref, 'refs/tags/s5m-agent-v') || (github.event_name == 'workflow_dispatch' && inputs.release_version != '')
-    needs: [build-and-publish, build-arm64-archive]
+    needs: [build-and-publish, build-arm64-archive, build-routeros-archives]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -331,6 +442,18 @@ jobs:
           name: s5m-agent-linux-arm64
           path: dist/arm64
 
+      - name: Download RouterOS amd64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-routeros-amd64
+          path: dist/routeros-amd64
+
+      - name: Download RouterOS arm64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-routeros-arm64
+          path: dist/routeros-arm64
+
       - name: Publish release and attach archives
         uses: softprops/action-gh-release@v2
         with:
@@ -344,3 +467,7 @@ jobs:
             dist/amd64/s5m-agent-linux-amd64.tar.sha256
             dist/arm64/s5m-agent-linux-arm64.tar
             dist/arm64/s5m-agent-linux-arm64.tar.sha256
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar.sha256
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar.sha256
