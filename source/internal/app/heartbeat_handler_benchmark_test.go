@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -75,5 +74,4 @@ func BenchmarkHTTPAgentHeartbeatHandler(b *testing.B) {
 			}
 		}
 	})
-	_ = fmt.Sprintf // keep benchmark output extensible without changing benchmark contract
 }
