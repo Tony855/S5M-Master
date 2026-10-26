@@ -35,8 +35,7 @@
         <div class="topbar-status"><span class="topbar-dot"></span><span>控制台已连接</span></div>
         <el-dropdown trigger="click" @command="handleUserMenu">
           <button type="button" class="admin-menu-trigger" aria-label="管理员菜单">
-            <span class="admin-avatar">{{ (currentUser || 'A').slice(0,1).toUpperCase() }}</span>
-            <span class="admin-user-text"><strong>{{ currentUser || 'admin' }}</strong><small>管理员</small></span>
+            <span class="admin-avatar" :title="(currentUser || 'admin') + ' · 账户菜单'">{{ (currentUser || 'A').slice(0,1).toUpperCase() }}</span>
             <span class="admin-chevron">▾</span>
           </button>
           <template #dropdown>
