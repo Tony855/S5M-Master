@@ -154,12 +154,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		msg.Status["received_at"] = time.Now().Unix()
+		receivedAt := time.Now()
+		msg.Status["received_at"] = receivedAt.Unix()
 		payload, marshalErr := json.Marshal(msg.Status)
 		if marshalErr != nil {
 			return
 		}
-		now := strconv.FormatInt(time.Now().Unix(), 10)
+		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		a.agentWSMu.Lock()
 		if a.agentWSGeneration[machineCode] != generation {
 			a.agentWSMu.Unlock()
@@ -169,6 +170,18 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 				"message": "Agent WebSocket 连接已被更新连接取代",
 			})
 			return
+		}
+		if a.agentHeartbeatAt == nil {
+			a.agentHeartbeatAt = make(map[string]int64)
+		}
+		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
+			a.agentWSMu.Unlock()
+			_ = conn.WriteJSON(map[string]string{
+				"type":    "error",
+				"id":      msg.ID,
+				"message": "已忽略较旧的 Agent 心跳",
+			})
+			continue
 		}
 		if err := a.store.UpdateSettings(map[string]string{
 			"agent_lastseen_" + machineCode: now,
@@ -182,6 +195,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
+		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
 		a.agentWSMu.Unlock()
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := conn.WriteJSON(map[string]any{
