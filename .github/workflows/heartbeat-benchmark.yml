@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   heartbeat-benchmark:
-    name: SQLite heartbeat persistence benchmark
+    name: Agent heartbeat benchmarks
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -30,7 +30,7 @@ jobs:
           cache-dependency-path: source/go.sum
       - name: Download dependencies
         run: go mod download
-      - name: Run heartbeat persistence benchmark
+      - name: Run heartbeat benchmarks
         shell: bash
         env:
           BENCHTIME: ${{ inputs.benchtime }}
@@ -40,4 +40,4 @@ jobs:
             echo "Invalid benchtime: use a positive duration such as 3s or 10s."
             exit 2
           fi
-          go test ./internal/app -run '^$' -bench '^BenchmarkAgentHeartbeatPersistence$' -benchmem -benchtime="$BENCHTIME" -count=1
+          go test ./internal/app -run '^$' -bench '^BenchmarkAgent(HTTPHeartbeatEndToEnd|HeartbeatPersistence)$' -benchmem -benchtime="$BENCHTIME" -count=1
