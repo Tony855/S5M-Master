@@ -38,47 +38,6 @@ createApp({
         return matchesQuery && matchesStatus;
       });
     });
-    const routerOSAgentEntries = computed(() => agentEntries.value.filter(item => item.os === 'routeros'));
-    const dockerAgentEntries = computed(() => agentEntries.value.filter(item => item.os !== 'routeros'));
-    const dockerMachineCode = ref('');
-    const dockerLoading = ref(false);
-    const routerosLoading = ref(false);
-    const routerosContainers = ref([]);
-    const routerosStatus = ref('');
-    const dockerContainers = ref([]);
-    const selectedDockerIDs = ref([]);
-    const bulkDockerProgress = ref('');
-    const dockerStatus = ref('');
-    const dockerOutput = ref('');
-    const dockerOutputVisible = ref(false);
-    const containerTasks = ref([]);
-    const containerTasksLoading = ref(false);
-    const containerTaskSearch = ref('');
-    const containerTaskStatusFilter = ref('all');
-    const containerTaskMachineFilter = ref('');
-    const containerTaskStartDate = ref('');
-    const containerTaskEndDate = ref('');
-    const selectedFailedContainerTasks = ref([]);
-    const bulkRetryLoading = ref(false);
-    const containerTaskPage = ref(1);
-    const containerTaskTotal = ref(0);
-    const containerTaskMachineOptions = computed(() => [...new Set(containerTasks.value.map(t => t.machine_code).filter(Boolean))].sort());
-    const containerTaskDuration = (task) => {
-      if (!task.claimed_at || !task.finished_at) return '—';
-      const elapsed = Date.parse(task.finished_at) - Date.parse(task.claimed_at);
-      if (!Number.isFinite(elapsed) || elapsed < 0) return '—';
-      return elapsed < 1000 ? '<1 秒' : (elapsed < 60000 ? Math.round(elapsed / 1000) + ' 秒' : (elapsed / 60000).toFixed(1) + ' 分钟');
-    };
-    const filteredContainerTasks = computed(() => {
-      const query = String(containerTaskSearch.value || '').trim().toLowerCase();
-      return containerTasks.value.filter(task => {
-        const matchesQuery = !query || [task.id, task.machine_code, task.action].some(value => String(value == null ? '' : value).toLowerCase().includes(query));
-        const matchesStatus = containerTaskStatusFilter.value === 'all' || task.status === containerTaskStatusFilter.value;
-        const matchesMachine = !containerTaskMachineFilter.value || task.machine_code === containerTaskMachineFilter.value;
-        return matchesQuery && matchesStatus && matchesMachine;
-      });
-    });
-
     const subUrl = ref('');
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
@@ -254,14 +213,6 @@ createApp({
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') { loadProxies(); loadAgentsData(); }
       if (v === 'instances') loadAgentsData();
-      if (v === 'docker') {
-        if (!dockerAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
-        loadAgentsData();
-      }
-      if (v === 'routeros-containers') {
-        if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
-        loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
-      }
       if (v === 'config') { loadAgentsData(); loadSettings(); }
       if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }
     };
@@ -608,22 +559,9 @@ createApp({
         }
         const data = await res.json();
         const now = Math.floor(Date.now() / 1000);
-        let nodeByCode = {};
-        try {
-          const nodeRes = await api('/api/v1/container/nodes?t=' + Date.now());
-          if (nodeRes.ok) {
-            const nodeData = await nodeRes.json();
-            (Array.isArray(nodeData.nodes) ? nodeData.nodes : []).forEach(node => {
-              if (node && node.machine_code) nodeByCode[node.machine_code] = node;
-            });
-          }
-        } catch (nodeError) {
-          console.warn('读取节点运行状态失败，暂时使用注册心跳数据', nodeError);
-        }
         const list = [];
         Object.keys(data || {}).forEach(code => {
           const item = data[code] || {};
-          const node = nodeByCode[code] || {};
           const last = Number(item.last_seen) || 0;
           // Agent connectivity comes from the authenticated Agent heartbeat; container runtime reports may be stale or absent.
           const online = last > 0 && (now - last) < 90;
@@ -632,14 +570,12 @@ createApp({
             tokenConfigured: item.token_configured === true,
             online: online,
             last_seen: last,
-            hostname: node.hostname || '',
-            os: node.os || '',
-            arch: node.arch || '',
-            runtimeReported: Object.prototype.hasOwnProperty.call(nodeByCode, code),
-            dockerAvailable: node.docker_available === true,
-            mihomoRunning: node.mihomo_running === true,
-            mihomoVersion: node.mihomo_version || '',
-            updated_at: node.updated_at || '',
+            hostname: '',
+            os: '',
+            arch: '',
+            mihomoRunning: Boolean(item.status && item.status.mihomo_healthy),
+            mihomoVersion: item.status && item.status.mihomo_version || '',
+            updated_at: item.status && item.status.received_at || '',
             pendingCommand: item.pending_command && typeof item.pending_command === 'object' ? item.pending_command : null,
             commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
           });
@@ -735,351 +671,10 @@ createApp({
       if (!confirm('确定删除机器码 "' + code + '" 的 Token？')) return;
       try {
         const res = await api('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' });
-        if (res.ok) { if (dockerMachineCode.value === code) { dockerMachineCode.value = ''; dockerContainers.value = []; dockerStatus.value = ''; } if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; } await loadAgentsData(); showMsg('已撤销绑定；旧 Token 已失效，未完成任务已标记失败', 'success'); } else showMsg(await parseErr(res), 'error');
+        if (res.ok) { if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; } await loadAgentsData(); showMsg('已撤销绑定；旧 Token 已失效', 'success'); } else showMsg(await parseErr(res), 'error');
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
-    const dockerTask = async (action, params = {}) => {
-      if (!dockerMachineCode.value) throw new Error('请先选择实例');
-      if (!dockerAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
-        dockerMachineCode.value = '';
-        throw new Error('所选机器码不是可用的 Docker Agent，请重新选择实例');
-      }
-      const create = await api('/api/v1/container/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: dockerMachineCode.value, action, params }) });
-      const created = await create.json().catch(() => ({}));
-      if (!create.ok || !created.id) throw new Error(created.error || '创建 Docker 任务失败');
-      dockerStatus.value = '任务 #' + created.id + ' 已提交，等待实例 Agent 执行…';
-      for (let i = 0; i < 20; i++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const response = await api('/api/v1/container/tasks?limit=100&t=' + Date.now());
-        const data = await response.json().catch(() => ({}));
-        const task = (data.tasks || []).find(x => Number(x.id) === Number(created.id));
-        if (task && (task.status === 'succeeded' || task.status === 'failed')) {
-          await loadContainerTasks();
-          if (task.status === 'failed') {
-            const error = new Error(task.error || '实例执行失败');
-            error.taskId = Number(created.id);
-            error.taskStatus = 'failed';
-            throw error;
-          }
-          dockerStatus.value = '任务 #' + created.id + ' 执行成功';
-          const result = task.result && typeof task.result === 'object' ? task.result : { output: String(task.result || '') };
-          return { ...result, task_id: Number(created.id) };
-        }
-      }
-      const timeoutError = new Error('任务 #' + created.id + ' 在 20 秒内未返回最终状态；任务可能仍在执行，请到任务记录查询，不要直接重复提交');
-      timeoutError.taskId = Number(created.id);
-      timeoutError.taskStatus = 'unknown';
-      throw timeoutError;
-    };
-    const taskStatusLabel = (status) => ({ pending: '等待执行', running: '执行中', succeeded: '成功', failed: '失败', cancelled: '已取消' }[status] || status || '未知');
-    const taskStatusType = (status) => ({ pending: 'info', running: 'warning', succeeded: 'success', failed: 'danger', cancelled: 'info' }[status] || 'info');
-    const loadContainerTasks = async (options = {}) => {
-      const silent = options.silent === true;
-      containerTasksLoading.value = true;
-      try {
-        const res = await api('/api/v1/container/tasks?limit=100&offset=' + ((containerTaskPage.value - 1) * 100) + '&t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '读取容器任务失败');
-        containerTasks.value = Array.isArray(data.tasks) ? data.tasks : [];
-        containerTaskTotal.value = Number.isFinite(Number(data.total)) ? Number(data.total) : containerTasks.value.length;
-      } catch (e) {
-        if (!silent) showMsg(e.message || '读取容器任务失败', 'error');
-      } finally {
-        containerTasksLoading.value = false;
-      }
-    };
-    const isRetryableContainerTask = (task) => task.status === 'failed';
-    const onContainerTaskSelectionChange = (rows) => { selectedFailedContainerTasks.value = rows.filter(task => task.status === 'failed'); };
-    const retryFailedContainerTasks = async () => {
-      const tasks = selectedFailedContainerTasks.value.slice();
-      if (!tasks.length || bulkRetryLoading.value) return;
-      try {
-        await ElementPlus.ElMessageBox.confirm(
-          `将为选中的 ${tasks.length} 个失败任务分别创建新任务，原任务记录会保留。重试可能重复执行启停/重启等操作，请确认已检查失败原因。`,
-          '批量重新提交失败任务',
-          { type: 'warning', confirmButtonText: '创建新任务', cancelButtonText: '取消' }
-        );
-      } catch (e) { return; }
-      bulkRetryLoading.value = true;
-      const results = [];
-      let cursor = 0;
-      const worker = async () => {
-        while (cursor < tasks.length) {
-          const task = tasks[cursor++];
-          try {
-            const res = await api('/api/v1/container/tasks', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ machine_code: task.machine_code, action: task.action, params: task.params || {} })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok || !data.id) throw new Error(data.error || '提交失败');
-            results.push({ id: task.id, ok: true, newId: data.id });
-          } catch (e) { results.push({ id: task.id, ok: false, error: e.message || '提交失败' }); }
-        }
-      };
-      try {
-        await Promise.all(Array.from({ length: Math.min(3, tasks.length) }, () => worker()));
-        const ok = results.filter(x => x.ok);
-        const failed = results.filter(x => !x.ok);
-        selectedFailedContainerTasks.value = [];
-        await loadContainerTasks();
-        const summary = ok.map(x => `原 #${x.id} → 新 #${x.newId}`).concat(failed.map(x => `原 #${x.id}：${x.error}`)).join('\n');
-        dockerOutput.value = `批量重试完成：成功 ${ok.length}，失败 ${failed.length}\n\n${summary}`;
-        dockerOutputVisible.value = true;
-        showMsg(`批量重新提交完成：成功 ${ok.length}，失败 ${failed.length}`, failed.length ? 'warning' : 'success');
-      } finally { bulkRetryLoading.value = false; }
-    };
-    const changeContainerTaskPage = (page) => {
-      containerTaskPage.value = page;
-      containerTaskSearch.value = '';
-      containerTaskMachineFilter.value = '';
-      containerTaskStartDate.value = '';
-      containerTaskEndDate.value = '';
-      loadContainerTasks();
-    };
-    const showContainerTask = (task) => {
-      const formatJSON = value => value == null ? '' : (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
-      const result = formatJSON(task.result);
-      const params = formatJSON(task.params);
-      dockerOutput.value = '任务 #' + task.id + ' · ' + taskStatusLabel(task.status)
-        + '\n实例：' + task.machine_code
-        + '\n动作：' + task.action
-        + '\n创建时间：' + (task.created_at || '—')
-        + '\n领取时间：' + (task.claimed_at || '—')
-        + '\n更新时间：' + (task.updated_at || '—')
-        + '\n完成时间：' + (task.finished_at || '—')
-        + '\n错误：' + (task.error || '无')
-        + '\n\n任务参数：\n' + (params || '无参数')
-        + '\n\n执行结果：\n' + (result || '无结果');
-      dockerOutputVisible.value = true;
-    };
-    const retryContainerTask = async (task) => {
-      try {
-        await ElementPlus.ElMessageBox.confirm(
-          '将为实例 ' + task.machine_code + ' 创建一个新的任务 #' + task.id + ' 的副本。请先检查失败原因，确认重复执行不会造成意外影响。',
-          '重新提交失败任务',
-          { type: 'warning', confirmButtonText: '创建新任务', cancelButtonText: '取消' }
-        );
-        const res = await api('/api/v1/container/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: task.machine_code, action: task.action, params: task.params || {} })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.id) throw new Error(data.error || '重新提交任务失败');
-        dockerMachineCode.value = task.machine_code;
-        showMsg('已创建新任务 #' + data.id + '（原任务 #' + task.id + ' 保留）', 'success');
-        await loadContainerTasks();
-      } catch (e) {
-        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '重新提交任务失败', 'error');
-      }
-    };
-    const cancelContainerTask = async (task) => {
-      try {
-        await ElementPlus.ElMessageBox.confirm('确定取消尚未被 Agent 领取的任务 #' + task.id + '？', '取消容器任务', { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '返回' });
-        const res = await api('/api/v1/container/tasks/' + encodeURIComponent(task.id), { method: 'DELETE' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || '取消任务失败');
-        showMsg('任务 #' + task.id + ' 已取消', 'success');
-        await loadContainerTasks();
-      } catch (e) {
-        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '取消任务失败', 'error');
-      }
-    };
-
-    const containerIdentity = (row) => String(row && (row.ID || row.Id || row.Names) || '');
-    const isDockerSelected = (row) => selectedDockerIDs.value.includes(containerIdentity(row));
-    const onDockerSelectionChange = (rows) => {
-      selectedDockerIDs.value = rows.map(containerIdentity).filter(Boolean);
-    };
-    const toggleDockerSelection = (row, checked) => {
-      const id = containerIdentity(row);
-      if (!id) return;
-      const next = new Set(selectedDockerIDs.value);
-      if (checked) next.add(id); else next.delete(id);
-      selectedDockerIDs.value = Array.from(next);
-    };
-    const clearDockerSelection = () => {
-      selectedDockerIDs.value = [];
-    };
-
-    const runBulkDockerAction = async (action) => {
-      const labels = { 'docker.start': '启动', 'docker.stop': '停止', 'docker.restart': '重启' };
-      const label = labels[action];
-      if (!label || dockerLoading.value) return;
-      const selected = dockerContainers.value.filter(row => selectedDockerIDs.value.includes(containerIdentity(row)));
-      const eligible = selected.filter(row => action === 'docker.start' ? row.State !== 'running' : action === 'docker.stop' ? row.State === 'running' : true);
-      const skipped = selected.length - eligible.length;
-      if (!eligible.length) {
-        showMsg(action === 'docker.start' ? '所选容器均已运行，无需启动' : '所选容器均未运行，无需停止', 'info');
-        return;
-      }
-      try {
-        await ElementPlus.ElMessageBox.confirm(
-          '即将' + label + ' ' + eligible.length + ' 个容器。任务最多 3 个并发执行，每个容器单独记录任务 ID。' +
-          (skipped ? '\n另有 ' + skipped + ' 个容器因当前状态不适用而跳过。' : '') +
-          '\n部分任务若 20 秒内未完成，系统会标记为“状态待确认”，请在任务记录核实，避免重复提交。\n是否继续？',
-          '确认批量' + label,
-          { type: 'warning', confirmButtonText: '确认执行', cancelButtonText: '取消' }
-        );
-      } catch (e) {
-        if (e !== 'cancel' && e !== 'close') showMsg(e.message || '批量操作已取消', 'warning');
-        return;
-      }
-      dockerLoading.value = true;
-      bulkDockerProgress.value = '正在批量' + label + '：0/' + eligible.length + ' 完成';
-      const outcomes = new Array(eligible.length);
-      let cursor = 0;
-      let completed = 0;
-      const worker = async () => {
-        while (cursor < eligible.length) {
-          const index = cursor++;
-          const row = eligible[index];
-          const id = containerIdentity(row);
-          try {
-            const result = await dockerTask(action, { container_id: id });
-            outcomes[index] = {
-              name: row.Names || id, id, beforeState: row.State || '未知',
-              afterState: '待刷新', ok: true, status: 'succeeded',
-              taskId: result.task_id || null,
-              detail: String(result.output || '操作成功').trim()
-            };
-          } catch (e) {
-            outcomes[index] = {
-              name: row.Names || id, id, beforeState: row.State || '未知',
-              afterState: '待确认', ok: false,
-              status: e.taskStatus || (e.taskId ? 'unknown' : 'failed'),
-              taskId: e.taskId || null,
-              detail: e.message || '执行失败'
-            };
-          }
-          completed++;
-          bulkDockerProgress.value = '正在批量' + label + '：' + completed + '/' + eligible.length + ' 完成';
-        }
-      };
-      try {
-        await Promise.all(Array.from({ length: Math.min(3, eligible.length) }, () => worker()));
-        try {
-          await refreshDocker();
-          const refreshedById = new Map(dockerContainers.value.map(row => [containerIdentity(row), row]));
-          outcomes.forEach(item => {
-            if (!item) return;
-            const current = refreshedById.get(item.id);
-            item.afterState = current ? (current.State || '未知') : '未查询到';
-          });
-        } catch (_) {
-          // Preserve task results even when the post-operation state refresh fails.
-        }
-        const succeeded = outcomes.filter(item => item && item.ok).length;
-        const failed = outcomes.filter(item => item && item.status === 'failed').length;
-        const unknown = outcomes.filter(item => item && item.status === 'unknown').length;
-        const lines = outcomes.map(item => {
-          if (!item) return '[状态待确认] 未能读取该容器的任务结果';
-          const statusLabel = item.status === 'succeeded' ? '成功' : item.status === 'failed' ? '失败' : '状态待确认';
-          return '[' + statusLabel + '] ' + item.name + ' (' + item.id + ')' +
-            (item.taskId ? ' · 任务 #' + item.taskId : '') +
-            '\n容器状态：' + item.beforeState + ' → ' + item.afterState +
-            '\n' + item.detail;
-        });
-        if (skipped) lines.push('[跳过] ' + skipped + ' 个容器：状态不符合该操作条件');
-        dockerOutput.value = '批量' + label + '结果：成功 ' + succeeded + '，失败 ' + failed +
-          '，状态待确认 ' + unknown + '，跳过 ' + skipped + '\n\n' + lines.join('\n\n') +
-          (unknown ? '\n\n注意：状态待确认的任务可能仍在执行。请按任务 ID 到“容器任务记录”核实后再决定是否重试。' : '');
-        dockerOutputVisible.value = true;
-        bulkDockerProgress.value = '批量' + label + '完成：成功 ' + succeeded + '，失败 ' + failed +
-          '，状态待确认 ' + unknown + '，跳过 ' + skipped;
-        showMsg(bulkDockerProgress.value, (failed || unknown) ? 'warning' : 'success');
-        selectedDockerIDs.value = [];
-      } finally {
-        dockerLoading.value = false;
-      }
-    };
-
-    const refreshDocker = async () => {
-      dockerLoading.value = true;
-      try {
-        const result = await dockerTask('docker.list');
-        const output = result.output || '';
-        dockerContainers.value = output.split(/\r?\n/).filter(Boolean).map(line => { try { return JSON.parse(line); } catch (_) { return {}; } });
-        selectedDockerIDs.value = [];
-        dockerStatus.value = '已读取 ' + dockerContainers.value.length + ' 个容器';
-      } catch (e) { dockerStatus.value = e.message || '查询失败'; showMsg(dockerStatus.value, 'warning'); }
-      finally { dockerLoading.value = false; }
-    };
-    const showDockerResult = (title, result) => {
-      dockerOutput.value = title + '\n\n' + (result.output || JSON.stringify(result, null, 2));
-      dockerOutputVisible.value = true;
-    };
-    const inspectDocker = async (id) => {
-      dockerLoading.value = true;
-      try { const r = await dockerTask('docker.inspect', { container_id: id }); showDockerResult('容器详情：' + id, r); }
-      catch (e) { showMsg(e.message || '读取详情失败', 'error'); }
-      finally { dockerLoading.value = false; }
-    };
-    const logsDocker = async (id) => {
-      dockerLoading.value = true;
-      try { const r = await dockerTask('docker.logs', { container_id: id, tail: 200 }); showDockerResult('容器日志：' + id, r); }
-      catch (e) { showMsg(e.message || '读取日志失败', 'error'); }
-      finally { dockerLoading.value = false; }
-    };
-    const dockerAction = async (action, row) => {
-      const id = row.ID || row.Id || row.Names;
-      if (!id) return showMsg('容器 ID 不存在', 'error');
-      const labels = { 'docker.start': '启动', 'docker.stop': '停止', 'docker.restart': '重启' };
-      if (!confirm('确定' + labels[action] + '容器 ' + (row.Names || id) + '？')) return;
-      dockerLoading.value = true;
-      try { const r = await dockerTask(action, { container_id: id }); showDockerResult(labels[action] + '容器结果', r); await refreshDocker(); }
-      catch (e) { showMsg(e.message || 'Docker 操作失败', 'error'); }
-      finally { dockerLoading.value = false; }
-    };
-
-    const routerOSCommand = async (action, params = {}) => {
-      const code = String(dockerMachineCode.value || '').trim();
-      if (!code || !routerOSAgentEntries.value.some(item => item.code === code)) throw new Error('请先选择有效的 RouterOS Agent');
-      const response = await api('/api/v1/agents/routeros-command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: code, action, container_id: params.container_id || '' }) });
-      const queued = await response.json().catch(() => ({}));
-      if (!response.ok || !queued.command_id) throw new Error(queued.error || queued.message || 'RouterOS 命令排队失败');
-      routerosStatus.value = '命令 #' + queued.command_id + ' 已排队，等待 RouterOS Agent 执行…';
-      for (let attempt = 0; attempt < 30; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const resultResponse = await api('/api/v1/agents/routeros-command-result?machine_code=' + encodeURIComponent(code) + '&t=' + Date.now());
-        const payload = await resultResponse.json().catch(() => ({}));
-        if (!resultResponse.ok) throw new Error(payload.error || '读取 RouterOS 命令结果失败');
-        const result = payload.result;
-        if (!result || String(result.id || '') !== String(queued.command_id)) continue;
-        if (result.status === 'failed') throw new Error(result.message || ('RouterOS 命令 #' + queued.command_id + ' 执行失败'));
-        if (result.status !== 'success') continue;
-        let detail = result.message || '';
-        try { detail = JSON.parse(detail); } catch (_) {}
-        return { command_id: queued.command_id, output: typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2), ...(detail && typeof detail === 'object' ? detail : {}) };
-      }
-      const timeout = new Error('命令 #' + queued.command_id + ' 在 30 秒内没有收到最终结果；请检查 RouterOS Agent 在线状态后再决定是否重试');
-      timeout.commandId = queued.command_id; timeout.commandStatus = 'unknown'; throw timeout;
-    };
-    const refreshRouterOS = async () => {
-      if (!dockerMachineCode.value) return showMsg('请先选择 RouterOS Agent 机器码', 'warning');
-      if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) { dockerMachineCode.value = ''; return showMsg('所选机器码不是 RouterOS Agent，请重新选择', 'warning'); }
-      routerosLoading.value = true; routerosStatus.value = '正在读取 RouterOS 原生 /container/print…';
-      try {
-        const result = await routerOSCommand('list');
-        routerosContainers.value = Array.isArray(result.containers) ? result.containers : [];
-        routerosStatus.value = '读取完成：' + routerosContainers.value.length + ' 个 RouterOS 容器；命令 #' + result.command_id;
-      } catch (e) { routerosStatus.value = e.message || '读取 RouterOS 容器失败'; showMsg(routerosStatus.value, e.commandStatus === 'unknown' ? 'warning' : 'error'); }
-      finally { routerosLoading.value = false; }
-    };
-    const routerOSAction = async (action, row) => {
-      if (!dockerMachineCode.value || !routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) { dockerMachineCode.value = ''; return showMsg('当前选择不是 RouterOS Agent，请重新选择后操作', 'warning'); }
-      const id = String(row && row['.id'] || '');
-      if (!/^\\*[0-9a-fA-F]{1,31}$/.test(id)) return showMsg('RouterOS 容器内部 ID 无效', 'error');
-      const labels = { 'routeros.container.start': '启动', 'routeros.container.stop': '停止', 'routeros.container.restart': '重启' };
-      const label = labels[action]; if (!label) return;
-      try { await ElementPlus.ElMessageBox.confirm('确定' + label + ' RouterOS 容器 ' + (row.name || id) + '（' + id + '）？', '确认 RouterOS 操作', { type: 'warning', confirmButtonText: '确认' + label, cancelButtonText: '取消' }); } catch (_) { return; }
-      routerosLoading.value = true; routerosStatus.value = '正在提交' + label + '命令…';
-      try { const result = await routerOSCommand(action.replace('routeros.container.', ''), { container_id: id }); routerosStatus.value = label + '成功，命令 #' + result.command_id; showDockerResult('RouterOS ' + label + '结果', result); await refreshRouterOS(); }
-      catch (e) { routerosStatus.value = e.message || 'RouterOS 操作失败'; showMsg(routerosStatus.value, e.commandStatus === 'unknown' ? 'warning' : 'error'); }
-      finally { routerosLoading.value = false; }
-    };
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
@@ -1250,9 +845,6 @@ const safeCopy = async (text) => {
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
-      dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
-      routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
-      containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
