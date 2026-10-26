@@ -1,5 +1,7 @@
 # S5M RouterOS 原生 Container Agent（RouterOS 7.21.5）
 
+构建目标与通用 Linux 版的区别、镜像标签及发布流程见：[S5M Agent 构建与发布矩阵](S5M_AGENT_BUILD_MATRIX_CN.md)。
+
 本方案让 S5M Agent 与 Mihomo 作为一个 Linux 容器运行在 RouterOS 的原生 `/container` 子系统中。主控仍只负责 Agent 注册、心跳、节点 Mihomo YAML 同步及受支持架构的 Mihomo 内核更新；**不提供、也不恢复主控远程管理 RouterOS 容器的页面或 API**。
 
 ## 支持范围
