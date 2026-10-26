@@ -25,17 +25,6 @@
         <el-menu-item index="dashboard">系统概览</el-menu-item>
         <el-menu-item index="proxies">代理管理</el-menu-item>
         <el-menu-item index="instances">节点实例管理</el-menu-item>
-        <el-dropdown class="container-nav-dropdown" trigger="click" @command="switchPage">
-          <button type="button" class="container-nav-trigger" :class="{ 'is-active': ['docker','routeros-containers'].includes(page) }" aria-label="容器管理菜单">
-            容器管理 <span class="container-nav-caret" aria-hidden="true">▾</span>
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="docker">Docker 容器</el-dropdown-item>
-              <el-dropdown-item command="routeros-containers">RouterOS 容器</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
         <el-menu-item index="config">配置管理</el-menu-item>
         <el-menu-item index="system">系统运维</el-menu-item>
       </el-menu>
@@ -284,7 +273,7 @@
           </div>
         </div>
 
-        <!-- One unified instance area: registration, status and Docker management. -->
+        <!-- Unified instance area: registration, status and proxy/config association. -->
         <div class="card-panel instance-panel">
           <div class="card-title"><span>节点实例管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新节点实例</el-button></div>
           <p class="import-note">在这里统一管理已注册节点实例，并直接查看该实例关联的代理节点和独立 Mihomo 配置。代理管理中的机器码绑定会自动同步到对应节点配置的 proxies/rules；自定义 YAML 的 DNS、TUN、端口等其他设置会保留。</p>
@@ -296,7 +285,6 @@
               <el-option label="全部实例" value="all" />
               <el-option label="仅在线" value="online" />
               <el-option label="仅离线" value="offline" />
-              <el-option label="Docker 可用" value="docker" />
             </el-select>
           </div>
           <div v-if="agentLoading" class="empty-state">正在加载实例…</div>
@@ -312,7 +300,7 @@
               <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }} · 最近心跳：{{ item.last_seen ? new Date(item.last_seen * 1000).toLocaleString() : '暂无记录' }}</div>
               <div v-if="item.updated_at" class="instance-token">状态更新时间：{{ item.updated_at }}</div>
               <div v-if="item.runtimeReported" class="instance-token">
-                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Docker：{{ item.dockerAvailable ? '可用' : '不可用' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
+                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
               <div v-else class="instance-token">运行状态：尚未上报（请检查 Agent 版本、网络连接和主控地址）</div>
               <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-token">
@@ -330,7 +318,6 @@
                 <span>独立配置：<strong>{{ nodeConfigState(item.code) }}</strong></span>
               </div>
               <div class="instance-actions">
-                <el-button size="small" @click="dockerMachineCode = item.code; switchPage('docker')">管理容器</el-button>
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
                 <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
                 <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
@@ -339,165 +326,6 @@
             </div>
           </div>
 
-        </div>
-      </div>
-
-      <div v-if="page === 'docker'">
-        <div class="card-panel docker-panel">
-          <div class="card-title"><span>Docker 容器管理</span><span class="section-hint">选择实例后查询与操作</span></div>
-          <div class="docker-controls">
-            <el-select v-model="dockerMachineCode" placeholder="选择实例节点" filterable>
-              <el-option v-for="item in dockerAgentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
-            </el-select>
-            <el-button type="primary" :disabled="!dockerMachineCode" :loading="dockerLoading" @click="refreshDocker">查询容器</el-button>
-          </div>
-          <div v-if="dockerStatus" class="docker-status">{{ dockerStatus }}</div>
-          <div class="subsection-heading" style="margin-top:22px">
-            <span>容器任务记录</span>
-            <span class="section-hint">共 {{ containerTaskTotal }} 条 · 本页显示 {{ filteredContainerTasks.length }} 条</span>
-            <el-button size="small" :loading="containerTasksLoading" @click="loadContainerTasks">刷新任务</el-button>
-          </div>
-          <div class="docker-controls" style="margin:10px 0 14px">
-            <el-input v-model="containerTaskSearch" clearable placeholder="搜索本页任务 ID、实例或操作" />
-            <el-select v-model="containerTaskMachineFilter" clearable filterable placeholder="筛选本页实例" style="max-width:190px"><el-option v-for="code in containerTaskMachineOptions" :key="code" :label="code" :value="code" /></el-select>
-            <el-date-picker v-model="containerTaskStartDate" type="date" value-format="YYYY-MM-DD" placeholder="开始日期" clearable style="max-width:150px" />
-            <el-date-picker v-model="containerTaskEndDate" type="date" value-format="YYYY-MM-DD" placeholder="结束日期" clearable style="max-width:150px" />
-            <el-select v-model="containerTaskStatusFilter" style="max-width:170px" aria-label="筛选任务状态">
-              <el-option label="全部任务" value="all" />
-              <el-option label="等待执行" value="pending" />
-              <el-option label="执行中" value="running" />
-              <el-option label="成功" value="succeeded" />
-              <el-option label="失败" value="failed" />
-              <el-option label="已取消" value="cancelled" />
-            </el-select>
-            <el-button size="small" type="warning" :disabled="selectedFailedContainerTasks.length===0 || bulkRetryLoading" :loading="bulkRetryLoading" @click="retryFailedContainerTasks">批量重新提交 ({{ selectedFailedContainerTasks.length }})</el-button>
-          </div>
-          <el-table :data="filteredContainerTasks" stripe style="width:100%" empty-text="没有符合条件的任务记录" @selection-change="onContainerTaskSelectionChange">
-            <el-table-column type="selection" width="42" :selectable="isRetryableContainerTask" />
-            <el-table-column prop="id" label="任务 ID" width="85" />
-            <el-table-column prop="machine_code" label="实例" min-width="130" show-overflow-tooltip />
-            <el-table-column prop="action" label="操作" min-width="130" />
-            <el-table-column label="状态" width="110">
-              <template #default="scope">
-                <el-tag :type="taskStatusType(scope.row.status)">{{ taskStatusLabel(scope.row.status) }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="created_at" label="创建时间" min-width="170" />
-            <el-table-column label="执行耗时" width="115"><template #default="scope">{{ containerTaskDuration(scope.row) }}</template></el-table-column>
-            <el-table-column label="操作" width="170" fixed="right">
-              <template #default="scope">
-                <el-button v-if="scope.row.status === 'pending'" size="small" type="danger" plain @click="cancelContainerTask(scope.row)">取消</el-button>
-                <el-button v-else size="small" @click="showContainerTask(scope.row)">详情</el-button>
-                <el-button v-if="scope.row.status === 'failed'" size="small" type="warning" plain @click="retryContainerTask(scope.row)">重新提交</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
- 
-          <el-pagination style="margin-top:14px;justify-content:flex-end;flex-wrap:wrap" background layout="prev, pager, next" :current-page="containerTaskPage" :page-size="100" :total="containerTaskTotal" @current-change="changeContainerTaskPage" />         <div class="docker-bulk-toolbar">
-            <div class="docker-bulk-copy"><strong>批量操作</strong><span>已选择 {{ selectedDockerIDs.length }} 个容器 · 最多 3 个并发任务</span></div>
-            <div class="docker-bulk-buttons">
-              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.start')">批量启动</el-button>
-              <el-button size="small" type="warning" plain :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.stop')">批量停止</el-button>
-              <el-button size="small" type="primary" :disabled="!selectedDockerIDs.length || dockerLoading" @click="runBulkDockerAction('docker.restart')">批量重启</el-button>
-              <el-button size="small" :disabled="!selectedDockerIDs.length || dockerLoading" @click="clearDockerSelection">清空选择</el-button>
-            </div>
-          </div>
-          <div v-if="bulkDockerProgress" class="docker-status">{{ bulkDockerProgress }}</div>
-          <div class="docker-table-wrap docker-desktop-table">
-            <el-table :data="dockerContainers" @selection-change="onDockerSelectionChange" stripe style="width:100%" empty-text="暂无容器数据，请选择在线且安装 Docker 的实例并查询">
-              <el-table-column type="selection" width="48" reserve-selection />
-              <el-table-column prop="Names" label="容器名称" min-width="130" />
-              <el-table-column prop="Image" label="镜像" min-width="150" />
-              <el-table-column prop="State" label="状态" width="100" />
-              <el-table-column prop="Status" label="运行详情" min-width="140" />
-              <el-table-column label="操作" width="210">
-                <template #default="scope">
-                  <el-button size="small" @click="inspectDocker(scope.row.ID)">详情</el-button>
-                  <el-button size="small" @click="logsDocker(scope.row.ID)">日志</el-button>
-                  <el-dropdown @command="cmd => dockerAction(cmd, scope.row)">
-                    <el-button size="small" type="primary">操作 ▾</el-button>
-                    <template #dropdown><el-dropdown-menu><el-dropdown-item command="docker.start" :disabled="scope.row.State === 'running'">启动</el-dropdown-item><el-dropdown-item command="docker.stop" :disabled="scope.row.State !== 'running'">停止</el-dropdown-item><el-dropdown-item command="docker.restart">重启</el-dropdown-item></el-dropdown-menu></template>
-                  </el-dropdown>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-
-          <div class="docker-mobile-list">
-            <div v-if="!dockerContainers.length" class="docker-mobile-empty">
-              <span class="docker-empty-icon">▤</span>
-              <strong>暂无容器数据</strong>
-              <span>请选择在线且已安装 Docker 的实例，然后点击“查询容器”。</span>
-            </div>
-            <article v-for="item in dockerContainers" :key="item.ID" class="docker-mobile-card">
-              <div class="docker-mobile-card-head">
-                <el-checkbox :model-value="isDockerSelected(item)" @change="checked => toggleDockerSelection(item, checked)" aria-label="选择容器" />
-                <div class="docker-mobile-name">
-                  <strong>{{ item.Names || item.ID || '未命名容器' }}</strong>
-                  <small>{{ item.ID || '' }}</small>
-                </div>
-                <span class="docker-state" :class="item.State === 'running' ? 'is-running' : 'is-stopped'">
-                  {{ item.State || '未知' }}
-                </span>
-              </div>
-              <div class="docker-mobile-field">
-                <span>镜像</span>
-                <strong>{{ item.Image || '—' }}</strong>
-              </div>
-              <div class="docker-mobile-field">
-                <span>运行详情</span>
-                <strong>{{ item.Status || '—' }}</strong>
-              </div>
-              <div class="docker-mobile-actions">
-                <el-button size="small" @click="inspectDocker(item.ID)">详情</el-button>
-                <el-button size="small" @click="logsDocker(item.ID)">日志</el-button>
-                <el-dropdown @command="cmd => dockerAction(cmd, item)">
-                  <el-button size="small" type="primary">操作 ▾</el-button>
-                  <template #dropdown>
-                    <el-dropdown-menu>
-                      <el-dropdown-item command="docker.start" :disabled="item.State === 'running'">启动</el-dropdown-item>
-                      <el-dropdown-item command="docker.stop" :disabled="item.State !== 'running'">停止</el-dropdown-item>
-                      <el-dropdown-item command="docker.restart">重启</el-dropdown-item>
-                    </el-dropdown-menu>
-                  </template>
-                </el-dropdown>
-              </div>
-            </article>
-          </div>
-          <el-dialog v-model="dockerOutputVisible" title="实例操作结果" width="min(760px, 94vw)">
-            <pre class="docker-output">{{ dockerOutput }}</pre>
-            <template #footer><el-button @click="dockerOutputVisible=false">关闭</el-button><el-button type="primary" @click="safeCopy(dockerOutput)">复制结果</el-button></template>
-          </el-dialog>
-        </div>
-      </div>
-
-
-      <div v-if="page === 'routeros-containers'">
-        <div class="card-panel">
-          <div class="card-title">RouterOS 原生容器管理</div>
-          <p class="import-note">通过 RouterOS 专用 Agent 调用原生 API-SSL，不执行 Linux Docker 命令。Agent 必须使用独立机器码，不能与同一设备上的 Docker/Mihomo Agent 共用机器码。</p>
-          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0;">
-            <el-select v-model="dockerMachineCode" placeholder="选择 RouterOS Agent 机器码" filterable style="flex:1;min-width:240px;">
-              <el-option v-for="item in routerOSAgentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
-            </el-select>
-            <el-button type="primary" :loading="routerosLoading" :disabled="!dockerMachineCode" @click="refreshRouterOS">读取 RouterOS 容器</el-button>
-          </div>
-          <el-alert title="连接要求" type="info" :closable="false" show-icon description="RouterOS Agent 主动连接 S5M，适用于动态公网 IPv4 和 CGNAT。Agent 还必须能通过已配置的 API-SSL 地址访问 RouterOS 宿主；请配置有效证书、最小权限账号和管理网防火墙。"></el-alert>
-          <p class="import-note" style="margin:12px 0;">{{ routerosStatus || '选择 RouterOS Agent 后读取容器列表。启动、停止和重启操作会写入任务记录。' }}</p>
-          <el-table :data="routerosContainers" v-loading="routerosLoading" stripe style="width:100%;margin-top:12px;" empty-text="暂无容器数据；请确认 Agent 在线并已配置 RouterOS API-SSL。">
-            <el-table-column label="ID" min-width="90"><template #default="{ row }">{{ row['.id'] || '—' }}</template></el-table-column>
-            <el-table-column prop="name" label="容器名称" min-width="130" />
-            <el-table-column prop="remote-image" label="镜像" min-width="180" show-overflow-tooltip />
-            <el-table-column prop="status" label="状态" min-width="110" />
-            <el-table-column prop="interface" label="接口" min-width="110" />
-            <el-table-column label="操作" min-width="210" fixed="right">
-              <template #default="{ row }">
-                <el-button size="small" type="success" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.start', row)">启动</el-button>
-                <el-button size="small" type="warning" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.stop', row)">停止</el-button>
-                <el-button size="small" :disabled="!row['.id'] || routerosLoading" @click="routerOSAction('routeros.container.restart', row)">重启</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
         </div>
       </div>
 

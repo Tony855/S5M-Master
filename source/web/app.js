@@ -252,7 +252,7 @@ createApp({
       loggingIn.value = false;
     };
 
-    const PAGES = ['dashboard','proxies','instances','docker','routeros-containers','config','system'];
+    const PAGES = ['dashboard','proxies','instances','config','system'];
     const switchPage = (v) => {
       if (!PAGES.includes(v)) v = 'dashboard';
       page.value = v;
@@ -261,7 +261,7 @@ createApp({
       if (v === 'instances') loadAgentsData();
       if (v === 'docker') {
         if (!dockerAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
-        loadAgentsData(); loadContainerTasks();
+        loadAgentsData();
       }
       if (v === 'routeros-containers') {
         if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
@@ -1328,8 +1328,7 @@ const safeCopy = async (text) => {
           instanceRefreshTimer = setInterval(() => {
             if (!token.value || page.value !== 'instances') return;
             if (!agentLoading.value) loadAgentsData();
-            if (!containerTasksLoading.value) loadContainerTasks({ silent: true });
-          }, 10000);
+                }, 10000);
         }
       }
     });
