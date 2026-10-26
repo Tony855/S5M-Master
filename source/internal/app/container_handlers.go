@@ -2,8 +2,11 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -59,6 +62,25 @@ func (a *App) handleContainerAgentStatus(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request) {
+ u := currentUser(r); if u == nil || u.Role != "admin" { writeErr(w, http.StatusForbidden, "仅管理员可以操作 RouterOS 容器"); return }
+ var in struct { MachineCode string `json:"machine_code"`; Action string `json:"action"`; ContainerID string `json:"container_id"` }
+ if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil { writeErr(w, decodeErrorStatus(err), "请求 JSON 无效"); return }
+ in.MachineCode = strings.TrimSpace(in.MachineCode); in.Action = strings.TrimSpace(in.Action); in.ContainerID = strings.TrimSpace(in.ContainerID)
+ if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(in.MachineCode) { writeErr(w, http.StatusBadRequest, "机器码格式无效"); return }
+ commandType := map[string]string{"list":"routeros_container_list", "start":"routeros_container_start", "stop":"routeros_container_stop", "restart":"routeros_container_restart"}[in.Action]
+ if commandType == "" { writeErr(w, http.StatusBadRequest, "仅支持 list/start/stop/restart"); return }
+ if in.Action == "list" { in.ContainerID = "" } else if !regexp.MustCompile("^\\*[0-9A-Fa-f]{1,31}$").MatchString(in.ContainerID) { writeErr(w, http.StatusBadRequest, "RouterOS 容器内部 ID 无效"); return }
+ settings, err := a.store.GetSettings(); if err != nil { writeErr(w, http.StatusInternalServerError, "读取 Agent 授权失败"); return }
+ token := settings["agent_machine_"+in.MachineCode]; if token == "" || token == settings["agent_token"] { writeErr(w, http.StatusNotFound, "目标 Agent 未授权"); return }
+ var osName string; err = a.store.db.QueryRow("SELECT os FROM agent_status WHERE machine_code=?", in.MachineCode).Scan(&osName)
+ if err != nil || strings.ToLower(strings.TrimSpace(osName)) != "routeros" { writeErr(w, http.StatusBadRequest, "目标 Agent 未报告为 RouterOS 节点"); return }
+ command := map[string]string{"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": commandType}
+ if in.ContainerID != "" { command["container_id"] = in.ContainerID }
+ payload, err := json.Marshal(command); if err != nil { writeErr(w, http.StatusInternalServerError, "生成 RouterOS 命令失败"); return }
+ created, err := a.store.CreateSettingIfAbsent("agent_command_"+in.MachineCode, string(payload)); if err != nil { writeErr(w, http.StatusInternalServerError, "保存 RouterOS 命令失败"); return }; if !created { writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试"); return }
+ writeJSON(w, http.StatusAccepted, map[string]string{"message":"RouterOS 命令已排队；节点在线时将执行并回传结果", "command_id":command["id"]})
+}
 func (a *App) handleContainerNodes(w http.ResponseWriter, r *http.Request) {
 	if !a.requireContainerAdmin(w, r) {
 		return
