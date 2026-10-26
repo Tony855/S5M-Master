@@ -62,6 +62,7 @@ jobs:
           sh -n cont-init.d/10-mihomo-config
           sh -n services/mihomo/run
           sh -n services/agent/run
+          sh -n routeros-entrypoint.sh
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -85,6 +86,21 @@ jobs:
         run: go vet ./...
       - name: Build agent
         run: go build -trimpath -o /tmp/s5m-agent .
+      - name: Verify RouterOS profile remains separate from remote container management
+        working-directory: .
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
+          entry = Path("s5m-agent/routeros-entrypoint.sh").read_text(encoding="utf-8")
+          dockerfile = Path("s5m-agent/Dockerfile.routeros").read_text(encoding="utf-8")
+          assert 'filepath.Join(mihomoHome(), "bin", "mihomo")' in main
+          assert 'S5M_ROUTEROS=1' in dockerfile
+          assert '/data/bin/mihomo' in entry
+          assert 'processContainerTask' not in main
+          assert 'reportContainerStatus' not in main
+          print("RouterOS persistent kernel profile verified; remote container task handlers remain absent")
+          PY
       - name: Cross-compile Agent for supported Linux architectures
         shell: bash
         run: |
