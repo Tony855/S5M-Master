@@ -181,3 +181,102 @@ sudo tar -C /opt/s5m-agent -czf /var/backups/s5m-manual/agent-data.tgz data
 - **Docker 构建失败**：确认构建上下文是仓库根目录 `.`，并使用 `-f s5m-agent/Dockerfile`；检查 `s5m-agent/go.mod`、`s5m-agent/go.sum` 是否存在、Go modules 与 Mihomo release 是否可下载。
 - **架构错误**：`uname -m` 查看设备架构；常见映射为 `x86_64 → amd64`、`aarch64 → arm64`。不要在未验证的 CPU 架构上复用另一架构的二进制。
 
+
+## 10. Ubuntu 24.04：从本地 tar 镜像完整重装 Agent（清除旧 Agent 数据）
+
+本节适用于已下载完整镜像包到 `/root/s5m-agent-linux-amd64.tar` 的 Ubuntu/Debian x86_64 节点。**这是破坏性重装流程**：会删除旧的 `s5m-agent` 容器、旧 Agent 专用目录 `/opt/s5m-agent` 和旧的同名测试镜像；不会清空 Docker 全局目录，也不会删除其他项目的容器、镜像或卷。执行前确认目标容器名称和目录确实只供 S5M Agent 使用。
+
+### 10.1 确认系统、镜像包和 Docker 正常
+
+逐段复制执行，不要把多条命令拆开后漏掉反斜杠：
+
+```bash
+uname -m
+# 本教程 amd64 镜像预期输出 x86_64
+
+ls -lh /root/s5m-agent-linux-amd64.tar
+file /root/s5m-agent-linux-amd64.tar
+tar -tf /root/s5m-agent-linux-amd64.tar >/dev/null \
+  && echo "镜像归档结构正常" \
+  || { echo "镜像包损坏或不是 tar 文件，停止操作"; exit 1; }
+
+systemctl is-active docker
+systemctl is-active containerd
+docker info
+```
+
+如果系统不是 `x86_64`、Docker/containerd 未运行，或 `docker info` 报错，请先处理对应问题，不要继续清理。若镜像包旁有 GitHub Actions 提供的 SHA256 文件，应先用 `sha256sum -c 文件名.sha256` 校验；校验文件必须与该镜像包来自同一次构建产物。
+
+### 10.2 删除旧 Agent（不保留旧数据）
+
+```bash
+docker rm -f s5m-agent 2>/dev/null || true
+docker image rm s5m-agent:amd64-test 2>/dev/null || true
+docker image rm s5m-agent:local 2>/dev/null || true
+rm -rf -- /opt/s5m-agent
+install -d -m 0750 /opt/s5m-agent/data
+```
+
+以上会清除旧 Agent 的本地绑定凭据和配置。重装后通常需要在主控重新核对/生成节点授权并重新绑定。**不要执行** `rm -rf /var/lib/docker`、`rm -rf /var/lib/containerd` 或清理全局 Docker 资源的命令；这些目录可能包含其他业务数据，而且删除它们会破坏容器运行时。
+
+### 10.3 导入镜像并确认实际标签
+
+```bash
+docker load -i /root/s5m-agent-linux-amd64.tar
+docker image ls
+```
+
+从输出确认刚导入的镜像名称和标签。GitHub Actions 导出的 amd64 测试镜像通常标记为 `s5m-agent:amd64-test`。如果实际输出不是这个标签，后面的启动命令必须把镜像名替换成实际值，不能猜标签。
+
+### 10.4 启动容器（Agent 管理端口 + Mihomo 代理端口）
+
+若导入结果确实是 `s5m-agent:amd64-test`，执行下面**完整的一条命令**。请从 `docker run` 开始一次性复制到最后一行：
+
+```bash
+docker run -d \
+  --name s5m-agent \
+  --restart unless-stopped \
+  -p 81:80 \
+  -p 7890:7890 \
+  -v /opt/s5m-agent/data:/data \
+  -v /etc/machine-id:/etc/machine-id:ro \
+  s5m-agent:amd64-test
+```
+
+端口说明：
+
+- `81:80`：宿主机 TCP/81 转发到容器内 Agent 页面/API TCP/80。
+- `7890:7890`：将 Mihomo mixed-port 发布到宿主机 TCP/7890，供其他设备使用代理时需要。若只在本机测试，建议改为 `-p 127.0.0.1:7890:7890`；若要让局域网/公网客户端连接，必须先确认 Mihomo 监听地址、配置认证/访问策略，并在云安全组和主机防火墙中仅放行可信来源。**不要把未受保护的 7890 直接暴露到整个公网，避免形成开放代理。**
+- `/data`：Agent 配置与绑定凭据存储位置。本流程先删除旧数据再创建新目录。
+- `/etc/machine-id:ro`：只读提供宿主机稳定机器标识；请勿在重装时随意生成新机器标识。
+- 不要映射 Mihomo 控制 API TCP/8088；它只应供容器内部 Agent 使用。
+- 不要添加 `--init`；当前镜像入口由 `/init` 管理。
+
+### 10.5 检查容器、日志、端口和接口
+
+```bash
+docker ps -a --filter 'name=^/s5m-agent$'
+docker inspect s5m-agent --format '状态={{.State.Status}} 重启次数={{.RestartCount}}'
+docker logs --tail 150 s5m-agent
+docker port s5m-agent
+ss -lntp | grep -E ':(81|7890)\b' || true
+
+curl -i --max-time 10 http://127.0.0.1:81/api/config
+curl -i --max-time 10 http://127.0.0.1:81/api/machine-id
+```
+
+HTTP 接口需要有响应；具体状态码和响应内容应结合该版本接口实现判断。再检查主控中节点的绑定状态、最后心跳和日志。容器启动成功不等于已经完成主控注册；需要确认绑定、心跳和配置同步都正常。
+
+如容器启动失败：
+
+```bash
+docker logs --tail 200 s5m-agent
+docker inspect s5m-agent --format '{{json .State}}'
+journalctl -u docker -u containerd -n 100 --no-pager
+```
+
+若 `docker load` 报 containerd content/ingest 目录不存在，停止重复删除/重装；先检查 `systemctl status containerd docker`、`docker info` 和日志，修复运行时后再导入。不要靠删除 `/var/lib/containerd` 来尝试解决。
+
+### 10.6 命令换行常见错误
+
+正确写法是每一行（最后的镜像名除外）都以反斜杠 `\` 结尾。例如 `-p 7890:7890 \` 后面才可以继续下一行。如果第一行在 `-p 7890:7890` 后没有反斜杠，shell 会立刻执行一个缺少镜像名的 `docker run`，随后把 `-v` 当成独立命令并报 `-bash: -v: command not found`。出现这种情况时，不要继续输入剩余行；请从完整的 `docker run` 命令重新复制执行。
