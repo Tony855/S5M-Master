@@ -40,4 +40,11 @@ jobs:
             echo "Invalid benchtime: use a positive duration such as 3s or 10s."
             exit 2
           fi
-          go test ./internal/app -run '^$' -bench '^BenchmarkAgent(HTTPHeartbeatEndToEnd|HeartbeatPersistence)$' -benchmem -benchtime="$BENCHTIME" -count=1
+          go test ./internal/app -run '^$' -bench '^BenchmarkAgent(HTTPHeartbeatEndToEnd|HeartbeatPersistence)$' -benchmem -benchtime="$BENCHTIME" -count=1 | tee heartbeat-benchmark-results.txt
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: heartbeat-benchmark-results
+          path: source/heartbeat-benchmark-results.txt
+          if-no-files-found: error
+          retention-days: 30
