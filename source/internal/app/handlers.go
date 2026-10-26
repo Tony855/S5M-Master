@@ -1485,6 +1485,117 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 	return code, nil
 }
 
+// handleAgentMihomoUpdateInfo resolves the official latest stable release for a
+// registered Agent's architecture and calculates the checksum from the downloaded
+// official release asset. The checksum is never accepted from browser input.
+func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	if code == "" {
+		writeErr(w, http.StatusBadRequest, "缺少目标机器码")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 设置失败")
+		return
+	}
+	if strings.TrimSpace(settings["agent_machine_"+code]) == "" {
+		writeErr(w, http.StatusNotFound, "目标 Agent 未注册")
+		return
+	}
+	var status map[string]any
+	if raw := settings["agent_status_"+code]; raw != "" {
+		_ = json.Unmarshal([]byte(raw), &status)
+	}
+	arch, _ := status["arch"].(string)
+	arch = strings.ToLower(strings.TrimSpace(arch))
+	var assetPattern string
+	switch arch {
+	case "amd64", "x86_64":
+		assetPattern = "mihomo-linux-amd64-compatible-"
+	case "arm64", "aarch64":
+		assetPattern = "mihomo-linux-arm64-"
+	default:
+		writeErr(w, http.StatusBadRequest, "Agent 尚未上报受支持的架构，暂不能自动更新")
+		return
+	}
+	client := &http.Client{Timeout: 45 * time.Second}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest", nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建官方 Release 请求失败")
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "S5M-Master")
+	resp, err := client.Do(req)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "查询 Mihomo 官方稳定版本失败: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("Mihomo 官方 Release 返回 HTTP %d", resp.StatusCode))
+		return
+	}
+	var release struct {
+		TagName string               `json:"tag_name"`
+		Assets  []mihomoReleaseAsset `json:"assets"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&release); err != nil {
+		writeErr(w, http.StatusBadGateway, "解析官方 Release 失败")
+		return
+	}
+	if !regexp.MustCompile("^v[0-9]+\\.[0-9]+\\.[0-9]+$").MatchString(release.TagName) {
+		writeErr(w, http.StatusBadGateway, "官方 Release 版本标签格式无效")
+		return
+	}
+	assetURL, assetName := "", ""
+	for _, asset := range release.Assets {
+		if strings.HasPrefix(asset.Name, assetPattern) && strings.HasSuffix(asset.Name, ".gz") &&
+			!strings.HasSuffix(asset.Name, ".tar.gz") && strings.HasPrefix(asset.BrowserDownloadURL, "https://github.com/MetaCubeX/mihomo/releases/download/") {
+			assetURL, assetName = asset.BrowserDownloadURL, asset.Name
+			break
+		}
+	}
+	if assetURL == "" {
+		writeErr(w, http.StatusBadGateway, "官方 Release 中没有找到匹配 Agent 架构的压缩包")
+		return
+	}
+	assetReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, assetURL, nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建内核下载请求失败")
+		return
+	}
+	assetReq.Header.Set("User-Agent", "S5M-Master")
+	assetResp, err := client.Do(assetReq)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "下载官方内核以计算 SHA-256 失败: "+err.Error())
+		return
+	}
+	defer assetResp.Body.Close()
+	if assetResp.StatusCode != http.StatusOK {
+		writeErr(w, http.StatusBadGateway, fmt.Sprintf("官方内核下载返回 HTTP %d", assetResp.StatusCode))
+		return
+	}
+	hash := sha256.New()
+	limited := io.LimitReader(assetResp.Body, 128<<20)
+	n, err := io.Copy(hash, limited)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, "读取官方内核文件失败")
+		return
+	}
+	if n == 0 || n >= 128<<20 {
+		writeErr(w, http.StatusBadGateway, "官方内核文件为空或超过 128 MiB 安全限制")
+		return
+	}
+	currentVersion, _ := status["mihomo_version"].(string)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"machine_code": code, "arch": arch, "current_version": currentVersion,
+		"latest_version": release.TagName, "asset_name": assetName,
+		"sha256": fmt.Sprintf("%x", hash.Sum(nil)),
+	})
+}
+
 func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	if u == nil || u.Role != "admin" {

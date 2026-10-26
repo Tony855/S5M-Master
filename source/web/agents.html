@@ -206,19 +206,16 @@
 
 
         async function queueMihomoUpdate(code) {
-            const version = window.prompt('输入目标 Mihomo 版本标签，例如 v1.19.31。必须先确认该版本支持当前 Agent 架构：' + code, 'v1.19.31');
-            if (!version) return;
-            const checksum = window.prompt('输入官方 GitHub Release 对应架构的 .gz 压缩文件 SHA-256（64 位十六进制）。amd64 请选 mihomo-linux-amd64-compatible-' + version + '.gz；arm64 请选 mihomo-linux-arm64-' + version + '.gz。', '');
-            if (!checksum) return;
-            if (!/^v\d+\.\d+\.\d+$/.test(version.trim()) || !/^[a-fA-F0-9]{64}$/.test(checksum.trim())) {
-                alert('版本号或 SHA-256 格式无效，未提交更新。');
-                return;
-            }
-            if (!window.confirm('将为 Agent ' + code + ' 排队更新 Mihomo 到 ' + version + '。Agent 会校验下载文件 SHA-256，并先测试新内核及当前配置。继续？')) return;
             try {
-                const result = await editorAPI('/api/v1/agents/kernel-update', {method:'POST', body:JSON.stringify({machine_code:code, version:version.trim(), sha256:checksum.trim()})});
+                const info = await editorAPI('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(code));
+                const current = info.current_version || '尚未上报';
+                const message = '目标 Agent：' + code + '\\n架构：' + info.arch + '\\n当前版本：' + current + '\\n官方最新稳定版：' + info.latest_version + '\\n发行文件：' + info.asset_name + '\\nSHA-256 已由主控从官方文件自动计算。\\n\\n确认排队一键更新？Agent 会再次校验文件并测试新内核。';
+                if (!window.confirm(message)) return;
+                const result = await editorAPI('/api/v1/agents/kernel-update', {method:'POST', body:JSON.stringify({machine_code:code, version:info.latest_version, sha256:info.sha256})});
                 alert(result.message || '更新命令已排队');
-            } catch (e) { alert('排队失败：' + e.message); }
+            } catch (e) {
+                alert('无法准备更新：' + e.message);
+            }
         }
 
         window.addEventListener('load', loadAgents);
