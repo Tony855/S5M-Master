@@ -640,7 +640,6 @@ func TestHTTPAgentHeartbeatAcceptsCompleteTelemetry(t *testing.T) {
 	}
 }
 
-
 // TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation verifies
 // that deleting an Agent binding invalidates its already-open WebSocket session.
 func TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation(t *testing.T) {
@@ -671,13 +670,13 @@ func TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation(t *tes
 	status := map[string]any{
 		"mihomo_version": "v1.19.3",
 		"mihomo_healthy": true,
-		"upload_total": float64(12),
+		"upload_total":   float64(12),
 		"download_total": float64(34),
-		"upload_speed": float64(1),
+		"upload_speed":   float64(1),
 		"download_speed": float64(2),
-		"connections": float64(3),
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-revoked", "status": status}); err != nil {
 		t.Fatalf("send heartbeat after revocation: %v", err)
@@ -713,13 +712,13 @@ func TestHTTPAgentHeartbeatRejectsRevokedAuthorization(t *testing.T) {
 	status := map[string]any{
 		"mihomo_version": "v1.19.3",
 		"mihomo_healthy": true,
-		"upload_total": float64(12),
+		"upload_total":   float64(12),
 		"download_total": float64(34),
-		"upload_speed": float64(1),
+		"upload_speed":   float64(1),
 		"download_speed": float64(2),
-		"connections": float64(3),
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
 	body, err := json.Marshal(status)
 	if err != nil {
