@@ -256,7 +256,6 @@ func TestSaveGlobalConfigAcceptsValidDraft(t *testing.T) {
 	}
 }
 
-
 func TestRemovedContainerManagementEndpointsReturnNotFound(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "removed-container-api.db"))
 	if err != nil {
