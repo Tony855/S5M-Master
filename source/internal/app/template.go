@@ -314,6 +314,10 @@ func (a *App) handleApplyMihomoTemplate(w http.ResponseWriter, r *http.Request) 
 			writeErr(w, 500, "备份原节点配置失败")
 			return
 		}
+		if _, err = tx.Exec("DELETE FROM node_template_history WHERE machine_code=? AND id NOT IN (SELECT id FROM node_template_history WHERE machine_code=? ORDER BY id DESC LIMIT 20)", code, code); err != nil {
+			writeErr(w, 500, "清理旧节点配置备份失败")
+			return
+		}
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	if _, err = tx.Exec("INSERT INTO node_configs(machine_code,yaml_text,updated_at) VALUES(?,?,?) ON CONFLICT(machine_code) DO UPDATE SET yaml_text=excluded.yaml_text,updated_at=excluded.updated_at", code, template, now); err != nil {
@@ -389,6 +393,10 @@ func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request)
 	if strings.TrimSpace(currentYAML) != "" {
 		if _, err := tx.Exec("INSERT INTO node_template_history(machine_code,previous_yaml,previous_template_version,previous_source,created_at) VALUES(?,?,?,?,?)", code, currentYAML, currentVersion, currentSource, now); err != nil {
 			writeErr(w, 500, "备份当前节点配置失败")
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM node_template_history WHERE machine_code=? AND id NOT IN (SELECT id FROM node_template_history WHERE machine_code=? ORDER BY id DESC LIMIT 20)", code, code); err != nil {
+			writeErr(w, 500, "清理旧节点配置备份失败")
 			return
 		}
 	}
