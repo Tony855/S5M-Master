@@ -419,7 +419,6 @@ func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, map[string]any{"message": "已恢复节点最近一次配置备份；恢复前配置也已备份，可再次恢复", "machine_code": code, "template_version": previousVersion, "history_id": historyID})
 }
 
-
 // handleValidateMihomoTemplate validates YAML structure first, then asks the
 // installed Mihomo binary to parse the candidate without restarting the service.
 func (a *App) handleValidateMihomoTemplate(w http.ResponseWriter, r *http.Request) {
@@ -475,15 +474,15 @@ func (a *App) handleValidateMihomoTemplate(w http.ResponseWriter, r *http.Reques
 			detail = runErr.Error()
 		}
 		writeJSON(w, http.StatusBadRequest, map[string]any{
-			"error": "Mihomo 内核拒绝此配置",
-			"detail": detail,
+			"error":        "Mihomo 内核拒绝此配置",
+			"detail":       detail,
 			"validated_by": "local-mihomo-binary",
 		})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"message": "Mihomo 内核配置校验通过；未重启或修改正在运行的服务",
+		"message":      "Mihomo 内核配置校验通过；未重启或修改正在运行的服务",
 		"validated_by": "local-mihomo-binary",
-		"output": strings.TrimSpace(string(output)),
+		"output":       strings.TrimSpace(string(output)),
 	})
 }
