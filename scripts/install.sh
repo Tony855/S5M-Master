@@ -172,6 +172,25 @@ if [[ -e "$DB_DIR/config.yaml" ]]; then cp -a "$DB_DIR/config.yaml" "$BACKUP/con
 [[ -f /etc/systemd/system/s5m-server.service ]] && cp -a /etc/systemd/system/s5m-server.service "$BACKUP/s5m-server.service"
 [[ -f /etc/systemd/system/mihomo.service ]] && cp -a /etc/systemd/system/mihomo.service "$BACKUP/mihomo.service"
 
+# Shared rollback for failures after the snapshot has been created. The database
+# backup is deliberately not copied over a live DB; preserve it for controlled recovery.
+rollback_install() {
+  local reason="${1:-unknown failure}"
+  echo "❌ 安装失败：${reason}，正在恢复安装前的文件和服务配置..." >&2
+  systemctl stop "$UNIT" 2>/dev/null || true
+  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
+    install -o root -g root -m 0755 "$BACKUP/S5M-Server.bin" "$BIN"
+    setcap cap_net_bind_service=+ep "$BIN" 2>/dev/null || true
+  fi
+  if [[ -f "$BACKUP/s5m-server.service" ]]; then cp -a "$BACKUP/s5m-server.service" /etc/systemd/system/s5m-server.service; fi
+  if [[ -f "$BACKUP/mihomo.service" ]]; then cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service; fi
+  if [[ -f "$BACKUP/s5m-server.env" ]]; then cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"; elif [[ -f "$BACKUP/env-file-absent" ]]; then rm -f "$ENV_FILE"; fi
+  if [[ -f "$BACKUP/legacy-server.env" ]]; then install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"; cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"; elif [[ -f "$BACKUP/legacy-env-absent" ]]; then rm -f "$OLD_ENV_FILE"; fi
+  if [[ -f "$BACKUP/config.yaml" ]]; then cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"; elif [[ -f "$BACKUP/config-file-absent" ]]; then rm -f "$DB_DIR/config.yaml"; fi
+  systemctl daemon-reload
+  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then systemctl start "$UNIT" || echo "❌ 旧版 S5M-Server 启动失败，请检查 journalctl -u $UNIT" >&2; fi
+}
+
 if [[ -f "$OLD_ENV_FILE" && ! -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$ENV_FILE"
 elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_ENV_FILE.unused.$STAMP"; fi
 
@@ -347,12 +366,14 @@ systemctl enable mihomo
 if ! systemctl restart mihomo; then
   echo "❌ 主控 Mihomo 服务启动失败。请检查：journalctl -u mihomo -n 100 --no-pager" >&2
   systemctl status mihomo --no-pager -l >&2 || true
+  rollback_install "主控 Mihomo 启动失败"
   exit 1
 fi
 systemctl enable "$UNIT"
 if ! systemctl restart "$UNIT"; then
   echo "❌ S5M-Server 服务启动失败。请检查：journalctl -u $UNIT -n 100 --no-pager" >&2
   systemctl status "$UNIT" --no-pager -l >&2 || true
+  rollback_install "S5M-Server 启动失败"
   exit 1
 fi
 
