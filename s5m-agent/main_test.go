@@ -260,6 +260,86 @@ func TestReplaceFileAtomically(t *testing.T) {
 	})
 }
 
+func TestRestoreMihomoKernelWithRestart(t *testing.T) {
+	restartFailure := errors.New("controller connection refused")
+
+	t.Run("restores old binary before restart", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		backupPath := binaryPath + ".previous"
+		if err := os.WriteFile(binaryPath, []byte("bad-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backupPath, []byte("good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		restartCalled := false
+		err := restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+			restartCalled = true
+			got, readErr := os.ReadFile(binaryPath)
+			if readErr != nil {
+				return readErr
+			}
+			if string(got) != "good-old-binary" {
+				return errors.New("old binary was not restored before restart")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("restoreMihomoKernelWithRestart() error = %v", err)
+		}
+		if !restartCalled {
+			t.Fatal("restart callback was not called")
+		}
+	})
+	t.Run("reports restart failure after restoring old binary", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		backupPath := binaryPath + ".previous"
+		if err := os.WriteFile(binaryPath, []byte("bad-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backupPath, []byte("good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		err := restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+			return restartFailure
+		})
+		if !errors.Is(err, restartFailure) {
+			t.Fatalf("error = %v, want wrapped restart failure", err)
+		}
+		got, readErr := os.ReadFile(binaryPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if string(got) != "good-old-binary" {
+			t.Fatalf("binary = %q, want restored old binary", got)
+		}
+	})
+	t.Run("preserves current binary if backup is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		if err := os.WriteFile(binaryPath, []byte("current-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		restartCalled := false
+		err := restoreMihomoKernelWithRestart(binaryPath, binaryPath+".previous", func() error {
+			restartCalled = true
+			return nil
+		})
+		if err == nil {
+			t.Fatal("expected error for missing backup")
+		}
+		if restartCalled {
+			t.Fatal("restart must not be requested if file restoration fails")
+		}
+		got, readErr := os.ReadFile(binaryPath)
+		if readErr != nil || string(got) != "current-binary" {
+			t.Fatalf("current binary not preserved: content=%q error=%v", got, readErr)
+		}
+	})
+}
+
 func TestVerifyKernelUpgrade(t *testing.T) {
 	restartFailure := errors.New("restart connection closed")
 	healthFailure := errors.New("version health check timed out")
