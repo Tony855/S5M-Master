@@ -1,0 +1,90 @@
+# S5M Mihomo TUN + Fake-IP + DoH template
+# Replace the example proxy and secret before deployment.
+# This template is for Linux hosts with TUN support. RouterOS/container networking may need platform-specific routing/firewall setup.
+mode: rule
+mixed-port: 8080
+allow-lan: true
+log-level: info
+external-controller: 127.0.0.1:8088
+secret: "__REPLACE_WITH_RANDOM_SECRET__"
+find-process-mode: "off"
+tcp-concurrent: true
+tcp-fast-open: true
+unified-delay: true
+ipv6: false
+
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80]
+      override-destination: true
+    TLS:
+      ports: [443]
+    QUIC:
+      ports: [443]
+      override-destination: true
+
+tun:
+  enable: true
+  stack: mixed
+  auto-route: true
+  auto-detect-interface: true
+  strict-route: true
+  dns-hijack:
+    - any:53
+    - tcp://any:53
+
+dns:
+  enable: true
+  # For LAN DNS clients, allow only trusted LANs to reach TCP/UDP 5353 in the host firewall.
+  listen: 0.0.0.0:5353
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  cache-algorithm: arc
+  ipv6: false
+  respect-rules: true
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "*.home.arpa"
+    - "*.msftconnecttest.com"
+    - "*.msftncsi.com"
+  # Bootstrap resolvers use ordinary DNS. This is a bootstrap path, not a guarantee of zero cleartext DNS.
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  # Used to resolve proxy endpoint hostnames to avoid a proxy/DNS bootstrap loop.
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  fallback:
+    - https://dns.cloudflare.com/dns-query
+    - https://dns.google/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+
+proxies:
+  # Example only: replace with the real node and required credentials/options.
+  - name: example-socks5
+    type: socks5
+    server: 192.0.2.10
+    port: 1080
+    udp: true
+
+rules:
+  # Send DoH endpoint connections through the proxy to avoid direct DoH egress.
+  - DOMAIN-SUFFIX,dns.alidns.com,example-socks5
+  - DOMAIN-SUFFIX,doh.pub,example-socks5
+  - DOMAIN-SUFFIX,dns.cloudflare.com,example-socks5
+  - DOMAIN-SUFFIX,dns.google,example-socks5
+  # Optional client-specific routing; replace with a real LAN source address.
+  # - SRC-IP-CIDR,192.168.1.88/32,example-socks5
+  # Add reject rules before the final MATCH rule if needed.
+  - MATCH,DIRECT
