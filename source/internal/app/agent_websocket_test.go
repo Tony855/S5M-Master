@@ -290,6 +290,75 @@ func TestHTTPAgentHeartbeatRejectsInvalidTelemetry(t *testing.T) {
 	}
 }
 
+func TestAgentWebSocketHeartbeatRecoversAfterControllerStateReset(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	oldStatus := `{"mihomo_version":"old","mihomo_healthy":true,"upload_total":1,"download_total":2,"upload_speed":0,"download_speed":0,"connections":0,"config_sha256":"","last_error":"","received_at":1}`
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code:   oldStatus,
+		"agent_lastseen_" + code: "1",
+	}); err != nil {
+		t.Fatalf("seed persisted status: %v", err)
+	}
+
+	// Simulate a controller restart: persisted settings survive, but in-memory
+	// connection generations and heartbeat ordering timestamps do not.
+	app.agentHeartbeatAt = nil
+	app.agentWSGeneration = nil
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total":   float64(12),
+		"download_total": float64(34),
+		"upload_speed":   float64(1),
+		"download_speed": float64(2),
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-recovery", "status": status}); err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read heartbeat ack: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" || ack["id"] != "hb-recovery" || ack["ok"] != true {
+		t.Fatalf("unexpected heartbeat ack: %#v", ack)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode persisted status: %v", err)
+	}
+	if persisted["mihomo_version"] != "v1.19.3" {
+		t.Fatalf("persisted status was not recovered after state reset: %#v", persisted)
+	}
+	lastSeen, err := strconv.ParseInt(settings["agent_lastseen_"+code], 10, 64)
+	if err != nil || lastSeen <= 1 {
+		t.Fatalf("lastseen = %q, want fresh timestamp; err=%v", settings["agent_lastseen_"+code], err)
+	}
+}
+
 func TestHTTPAgentHeartbeatAcceptsAfterControllerStateReset(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	oldStatus := `{"mihomo_version":"old","mihomo_healthy":true,"upload_total":1,"download_total":2,"upload_speed":0,"download_speed":0,"connections":0,"config_sha256":"","last_error":"","received_at":1}`
