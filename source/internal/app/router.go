@@ -95,6 +95,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"POST /api/v1/mihomo/template/publish":  a.handlePublishMihomoTemplate,
 		"GET /api/v1/mihomo/template/nodes":     a.handleGetNodeTemplateStatus,
 		"POST /api/v1/mihomo/template/apply":    a.handleApplyMihomoTemplate,
+		"POST /api/v1/mihomo/template/rollback": a.handleRollbackNodeTemplate,
 		"PUT /api/v1/settings":                  a.handleUpdateSettings,
 		"GET /api/v1/nodes/{code}/config":       a.handleGetNodeConfig,
 		"PUT /api/v1/nodes/{code}/config":       a.handleSaveNodeConfig,
