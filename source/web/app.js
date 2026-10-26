@@ -773,6 +773,26 @@ createApp({
       finally { publishingTemplate.value = false; }
     };
 
+    const rollbackMihomoTemplate = async () => {
+      const code = String(selectedTemplateNode.value || '').trim();
+      if (!code) { showMsg('请先选择要恢复的节点', 'warning'); return; }
+      if (!confirm('确定恢复节点 ' + code + ' 最近一次备份？当前配置会先再次备份，以便需要时反向恢复。')) return;
+      if (applyingTemplate.value) return;
+      applyingTemplate.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/template/rollback', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machine_code: code, confirm: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '恢复节点配置失败');
+        showMsg(data.message || '节点配置已恢复', 'success');
+        await loadTemplateNodeStatus();
+        if (selectedConfigNode.value === code) await loadNodeConfig();
+      } catch (e) { showMsg(e.message || '恢复节点配置失败', 'error'); }
+      finally { applyingTemplate.value = false; }
+    };
+
     const applyMihomoTemplate = async () => {
       const code = String(selectedTemplateNode.value || '').trim();
       const version = Number(selectedTemplateVersion.value || 0);
@@ -968,7 +988,7 @@ const safeCopy = async (text) => {
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, publishingTemplate, applyingTemplate,
-      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, publishMihomoTemplate, applyMihomoTemplate,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, publishMihomoTemplate, applyMihomoTemplate, rollbackMihomoTemplate,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
       openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
