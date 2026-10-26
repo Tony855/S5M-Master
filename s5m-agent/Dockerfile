@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 ARG GO_VERSION=1.23
-ARG ALPINE_VERSION=3.21
+ARG ALPINE_VERSION=3.24
 ARG MIHOMO_VERSION=v1.19.31
 ARG S6_OVERLAY_VERSION=3.2.3.2
 # SHA-256 digests published by the official MetaCubeX/mihomo v1.19.31 release.
