@@ -301,7 +301,8 @@
               <div v-if="item.runtimeReported" class="instance-token">
                 主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
               </div>
-              <div v-else class="instance-token">运行状态：尚未上报（请检查 Agent 版本、网络连接和主控地址）</div>
+              <div v-else class="instance-token">运行状态：{{ item.runtimeMessage || '尚未收到有效运行状态' }}</div>
+              <div v-if="item.lastError && item.runtimeReported" class="instance-token">Agent 上报错误：{{ item.lastError }}</div>
               <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-token">
                 Mihomo 更新：<el-tag type="warning" size="small">待 Agent 确认</el-tag> · 目标版本 {{ item.pendingCommand.version || '未知' }}
               </div>
