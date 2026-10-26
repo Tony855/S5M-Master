@@ -755,6 +755,37 @@ func TestReportHeartbeatFallsBackToHTTPWhenWebSocketFails(t *testing.T) {
 	}
 }
 
+func TestReportHeartbeatFallsBackWhenWebSocketIsUnauthorized(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+	var httpCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agent/ws":
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("WebSocket Authorization header = %q", r.Header.Get("Authorization"))
+			}
+			http.Error(w, "websocket endpoint not enabled", http.StatusUnauthorized)
+		case "/api/v1/agent/heartbeat":
+			httpCalled = true
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
+	if err != nil {
+		t.Fatalf("reportHeartbeat() fallback error = %v", err)
+	}
+	if !httpCalled {
+		t.Fatal("HTTP fallback was not called after WebSocket authorization failure")
+	}
+}
+
 func TestReportHeartbeatFallsBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
 	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
