@@ -1803,11 +1803,21 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// Revoke the credential and atomically clear node status and invalidate live tasks.
+	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
+	// cannot restore status after the binding has been deleted.
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
+	if a.agentWSGeneration == nil {
+		a.agentWSGeneration = make(map[string]uint64)
+	}
+	// Force any existing WebSocket connection to fail its generation check
+	// before it can persist another heartbeat.
+	a.agentWSGeneration[code]++
+	delete(a.agentHeartbeatAt, code)
 	writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
 
