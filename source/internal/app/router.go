@@ -92,6 +92,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/settings":                  a.handleGetSettings,
 		"GET /api/v1/mihomo/template":           a.handleGetMihomoTemplate,
 		"PUT /api/v1/mihomo/template":           a.handleSaveMihomoTemplateDraft,
+		"POST /api/v1/mihomo/template/validate": a.handleValidateMihomoTemplate,
 		"POST /api/v1/mihomo/template/publish":  a.handlePublishMihomoTemplate,
 		"GET /api/v1/mihomo/template/nodes":     a.handleGetNodeTemplateStatus,
 		"POST /api/v1/mihomo/template/apply":    a.handleApplyMihomoTemplate,
