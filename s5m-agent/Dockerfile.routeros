@@ -60,12 +60,13 @@ WORKDIR /app
 COPY --from=agent-builder /out/s5m-agent /app/s5m-agent
 COPY --from=mihomo-fetch /out/mihomo /usr/local/bin/mihomo.initial
 COPY s5m-agent/index.html /app/index.html
+COPY s5m-agent/healthcheck.sh /healthcheck.sh
 COPY s5m-agent/default-config.yaml /app/default-config.yaml
 COPY s5m-agent/routeros/cont-init.d/ /etc/cont-init.d/
 COPY s5m-agent/routeros/services/ /etc/s6-overlay/s6-rc.d/
 RUN chmod 0755 /etc/cont-init.d/10-mihomo-config \
     /etc/s6-overlay/s6-rc.d/mihomo/run \
-    /etc/s6-overlay/s6-rc.d/agent/run \
+    /etc/s6-overlay/s6-rc.d/agent/run /healthcheck.sh \
     && chmod 0644 /etc/s6-overlay/s6-rc.d/mihomo/type \
     /etc/s6-overlay/s6-rc.d/agent/type
 ENV S6_KEEP_ENV=1 \
@@ -78,4 +79,5 @@ ENV S6_KEEP_ENV=1 \
     MIHOMO_API=127.0.0.1:8088
 VOLUME ["/data"]
 EXPOSE 80 7890
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/healthcheck.sh"]
 ENTRYPOINT ["/init"]
