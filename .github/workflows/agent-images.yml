@@ -185,6 +185,74 @@ jobs:
             echo "容器重建后机器标识发生变化" >&2
             exit 1
           }
+      - name: Test persistent machine ID fallback without system ID
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          data_dir="$(mktemp -d)"
+          empty_id_file="$(mktemp)"
+          container="s5m-agent-fallback-test"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            rm -rf "$data_dir"
+            rm -f "$empty_id_file"
+          }
+          trap cleanup EXIT
+
+          # Simulate a host/container environment with no usable system machine-id.
+          : > "$empty_id_file"
+          chmod 0444 "$empty_id_file"
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -v "$data_dir:/data" \
+            -v "$empty_id_file:/etc/machine-id:ro" \
+            s5m-agent:amd64-test >/dev/null
+
+          for attempt in $(seq 1 60); do
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            if [[ "$state" == "running" && "$health" == "healthy" ]]; then break; fi
+            [[ "$state" == "running" ]] || { docker logs "$container" >&2; exit 1; }
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          first_id="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/machine-id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["machine_id"])')"
+          [[ "${#first_id}" -eq 11 ]]
+          [[ -s "$data_dir/machine-id" ]] || { echo "Fallback machine ID was not persisted in /data" >&2; exit 1; }
+          sudo chmod 0644 "$data_dir/machine-id"
+          python3 - "$data_dir/machine-id" "$first_id" <<'PY'
+          import pathlib, re, sys
+          data = pathlib.Path(sys.argv[1]).read_text().strip()
+          api_id = sys.argv[2]
+          if not re.fullmatch(r"[0-9a-f]{32}", data) or data == "0" * 32:
+              raise SystemExit("Persisted fallback machine-id is not a valid 32-character hex ID")
+          if data[:11] != api_id:
+              raise SystemExit("API machine-id does not match persisted fallback ID")
+          PY
+
+          # Recreate without changing either /data or the empty system-id mount.
+          docker rm -f "$container" >/dev/null
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -v "$data_dir:/data" \
+            -v "$empty_id_file:/etc/machine-id:ro" \
+            s5m-agent:amd64-test >/dev/null
+          for attempt in $(seq 1 60); do
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            [[ "$health" == "healthy" ]] && break
+            [[ "$(docker inspect --format '{{.State.Status}}' "$container")" == "running" ]] || { docker logs "$container" >&2; exit 1; }
+            sleep 2
+          done
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          second_id="$(curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/machine-id" | python3 -c 'import json,sys; print(json.load(sys.stdin)["machine_id"])')"
+          [[ "$second_id" == "$first_id" ]] || {
+            echo "Fallback machine ID changed after container recreation with /data preserved" >&2
+            exit 1
+          }
+
       - name: Export amd64 archive
         run: |
           mkdir -p dist
