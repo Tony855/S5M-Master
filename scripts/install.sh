@@ -168,9 +168,17 @@ install -d -m 0700 "$BACKUP"
 if [[ -e "$ENV_FILE" ]]; then cp -a "$ENV_FILE" "$BACKUP/s5m-server.env"; else : > "$BACKUP/env-file-absent"; fi
 if [[ -e "$OLD_ENV_FILE" ]]; then cp -a "$OLD_ENV_FILE" "$BACKUP/legacy-server.env"; else : > "$BACKUP/legacy-env-absent"; fi
 if [[ -e "$DB_DIR/config.yaml" ]]; then cp -a "$DB_DIR/config.yaml" "$BACKUP/config.yaml"; else : > "$BACKUP/config-file-absent"; fi
-[[ -f "$BIN" ]] && cp -a "$BIN" "$BACKUP/S5M-Server.bin"
-[[ -f /etc/systemd/system/s5m-server.service ]] && cp -a /etc/systemd/system/s5m-server.service "$BACKUP/s5m-server.service"
-[[ -f /etc/systemd/system/mihomo.service ]] && cp -a /etc/systemd/system/mihomo.service "$BACKUP/mihomo.service"
+if [[ -f "$BIN" ]]; then cp -a "$BIN" "$BACKUP/S5M-Server.bin"; else : > "$BACKUP/server-bin-absent"; fi
+if [[ -f /etc/systemd/system/s5m-server.service ]]; then
+  cp -a /etc/systemd/system/s5m-server.service "$BACKUP/s5m-server.service"
+else
+  : > "$BACKUP/server-service-absent"
+fi
+if [[ -f /etc/systemd/system/mihomo.service ]]; then
+  cp -a /etc/systemd/system/mihomo.service "$BACKUP/mihomo.service"
+else
+  : > "$BACKUP/mihomo-service-absent"
+fi
 
 # Shared rollback for failures after the snapshot has been created. The database
 # backup is deliberately not copied over a live DB; preserve it for controlled recovery.
@@ -181,14 +189,33 @@ rollback_install() {
   if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
     install -o root -g root -m 0755 "$BACKUP/S5M-Server.bin" "$BIN"
     setcap cap_net_bind_service=+ep "$BIN" 2>/dev/null || true
+  elif [[ -f "$BACKUP/server-bin-absent" ]]; then
+    rm -f "$BIN"
   fi
-  if [[ -f "$BACKUP/s5m-server.service" ]]; then cp -a "$BACKUP/s5m-server.service" /etc/systemd/system/s5m-server.service; fi
-  if [[ -f "$BACKUP/mihomo.service" ]]; then cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service; fi
+  if [[ -f "$BACKUP/s5m-server.service" ]]; then
+    cp -a "$BACKUP/s5m-server.service" /etc/systemd/system/s5m-server.service
+  elif [[ -f "$BACKUP/server-service-absent" ]]; then
+    rm -f /etc/systemd/system/s5m-server.service
+  fi
+  if [[ -f "$BACKUP/mihomo.service" ]]; then
+    cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service
+  elif [[ -f "$BACKUP/mihomo-service-absent" ]]; then
+    rm -f /etc/systemd/system/mihomo.service
+  fi
   if [[ -f "$BACKUP/s5m-server.env" ]]; then cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"; elif [[ -f "$BACKUP/env-file-absent" ]]; then rm -f "$ENV_FILE"; fi
   if [[ -f "$BACKUP/legacy-server.env" ]]; then install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"; cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"; elif [[ -f "$BACKUP/legacy-env-absent" ]]; then rm -f "$OLD_ENV_FILE"; fi
   if [[ -f "$BACKUP/config.yaml" ]]; then cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"; elif [[ -f "$BACKUP/config-file-absent" ]]; then rm -f "$DB_DIR/config.yaml"; fi
   systemctl daemon-reload
-  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then systemctl start "$UNIT" || echo "❌ 旧版 S5M-Server 启动失败，请检查 journalctl -u $UNIT" >&2; fi
+  if [[ -f "$BACKUP/mihomo.service" ]]; then
+    systemctl restart mihomo || echo "❌ Mihomo 回滚启动失败，请检查 journalctl -u mihomo" >&2
+  else
+    systemctl stop mihomo 2>/dev/null || true
+  fi
+  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
+    systemctl start "$UNIT" || echo "❌ 旧版 S5M-Server 启动失败，请检查 journalctl -u $UNIT" >&2
+  else
+    systemctl stop "$UNIT" 2>/dev/null || true
+  fi
 }
 
 if [[ -f "$OLD_ENV_FILE" && ! -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$ENV_FILE"
@@ -388,43 +415,8 @@ for _ in $(seq 1 20); do
 done
 
 if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.json 2>/dev/null; then
-  echo "❌ 健康检查失败（端口 $PORT），正在回滚二进制..." >&2
-  systemctl stop "$UNIT" || true
-  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
-    install -o root -g root -m 0755 "$BACKUP/S5M-Server.bin" "$BIN"
-    setcap cap_net_bind_service=+ep "$BIN" 2>/dev/null || true
-  fi
-  # Restore prior unit definitions so rollback does not pair the old binary
-  # with a new service configuration.
-  if [[ -f "$BACKUP/s5m-server.service" ]]; then
-    cp -a "$BACKUP/s5m-server.service" /etc/systemd/system/s5m-server.service
-  fi
-  if [[ -f "$BACKUP/mihomo.service" ]]; then
-    cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service
-  fi
-  # Restore mutable settings alongside the binary/unit rollback.
-  if [[ -f "$BACKUP/s5m-server.env" ]]; then
-    cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"
-  elif [[ -f "$BACKUP/env-file-absent" ]]; then
-    rm -f "$ENV_FILE"
-  fi
-  if [[ -f "$BACKUP/legacy-server.env" ]]; then
-    install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"
-    cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"
-  elif [[ -f "$BACKUP/legacy-env-absent" ]]; then
-    rm -f "$OLD_ENV_FILE"
-  fi
-  if [[ -f "$BACKUP/config.yaml" ]]; then
-    cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"
-  elif [[ -f "$BACKUP/config-file-absent" ]]; then
-    rm -f "$DB_DIR/config.yaml"
-  fi
-  systemctl daemon-reload
-  if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
-    systemctl start "$UNIT" || {
-      echo "❌ 旧版 S5M-Server 回滚启动失败，请检查：journalctl -u $UNIT -n 100 --no-pager" >&2
-    }
-  fi
+  echo "❌ 健康检查失败（端口 $PORT），正在恢复安装前状态..." >&2
+  rollback_install "健康检查失败（端口 $PORT）"
   exit 1
 fi
 
