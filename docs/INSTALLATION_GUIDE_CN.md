@@ -6,7 +6,7 @@
 
 - **主控（S5M-Server）**：Web/API、节点管理、Agent 注册与授权、配置下发。原生安装到 `/opt/S5M-Server`，systemd 服务名 `s5m-server`。
 - **主控 Mihomo**：运行在主控机上，服务名 `mihomo`；安装脚本不会覆盖一个已存在且能正常运行的 `/opt/mihomo/mihomo`。
-- **Agent**：运行在每个受管节点上；提供绑定页面/API（容器内 81），运行 Mihomo（混合代理端口 7890，控制 API 8088）。`/data` 必须使用持久化卷，里面有 `config.yaml` 和绑定凭据 `agent.json`。
+- **Agent**：运行在每个受管节点上；容器内 Agent Web/API 端口为 80，宿主机可映射为 81；Mihomo 混合代理端口为 7890，控制 API 为 8088。只有需要为其他客户端提供代理服务时才映射 7890；仓库默认 `allow-lan: false`，映射端口后仍需按安全要求配置监听与防火墙。生产升级应持久化 `/data`；彻底重装时可按部署教程删除该 Agent 专用目录。
 - **网络方向**：Agent 必须能访问主控 HTTP(S) 地址；主控不应直接暴露 Agent 的 Mihomo 控制端口 8088。8088 默认只供容器内部本机使用。
 
 | 组件 | 默认端口 | 说明 |
