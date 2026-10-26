@@ -475,4 +475,3 @@ func TestMihomoBinaryPathForRouterOS(t *testing.T) {
 		t.Fatalf("default mihomoBinaryPath() = %q, want %q", got, want)
 	}
 }
-
