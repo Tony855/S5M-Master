@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"gopkg.in/yaml.v3"
 )
 
@@ -397,7 +398,78 @@ func collectMihomoStatus() map[string]any {
 	return status
 }
 
+// reportHeartbeat prefers the opt-in WebSocket telemetry path. HTTP remains the
+// compatibility fallback so config polling and command processing are unchanged.
 func reportHeartbeat(cfg Config, status map[string]any) error {
+	if strings.TrimSpace(os.Getenv("S5M_AGENT_WEBSOCKET")) == "1" {
+		if err := reportHeartbeatWebSocket(cfg, status); err == nil {
+			return nil
+		} else {
+			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\\n", err)
+		}
+	}
+	return reportHeartbeatHTTP(cfg, status)
+}
+
+func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
+	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
+	if err != nil || base.Host == "" {
+		return fmt.Errorf("主控地址无效")
+	}
+	switch strings.ToLower(base.Scheme) {
+	case "http":
+		base.Scheme = "ws"
+	case "https":
+		base.Scheme = "wss"
+	default:
+		return fmt.Errorf("主控地址协议不支持")
+	}
+	base.Path = "/api/v1/agent/ws"
+	base.RawPath = ""
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+cfg.Token)
+	dialer := websocket.Dialer{HandshakeTimeout: 8 * time.Second}
+	conn, response, err := dialer.Dial(base.String(), header)
+	if err != nil {
+		if response != nil {
+			return fmt.Errorf("WebSocket 握手失败：HTTP %d：%w", response.StatusCode, err)
+		}
+		return fmt.Errorf("WebSocket 连接失败：%w", err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(8 * time.Second)); err != nil {
+		return err
+	}
+	var welcome struct {
+		Type string `json:"type"`
+	}
+	if err := conn.ReadJSON(&welcome); err != nil {
+		return fmt.Errorf("读取 WebSocket 欢迎消息失败：%w", err)
+	}
+	if welcome.Type != "welcome" {
+		return fmt.Errorf("WebSocket 欢迎消息类型无效")
+	}
+	if err := conn.WriteJSON(map[string]any{
+		"type": "heartbeat",
+		"id": fmt.Sprintf("hb-%d", time.Now().UnixNano()),
+		"status": status,
+	}); err != nil {
+		return fmt.Errorf("发送 WebSocket 心跳失败：%w", err)
+	}
+	var ack struct {
+		Type string `json:"type"`
+		OK bool `json:"ok"`
+	}
+	if err := conn.ReadJSON(&ack); err != nil {
+		return fmt.Errorf("读取 WebSocket 心跳确认失败：%w", err)
+	}
+	if ack.Type != "heartbeat.ack" || !ack.OK {
+		return fmt.Errorf("主控端未确认 WebSocket 心跳")
+	}
+	return nil
+}
+
+func reportHeartbeatHTTP(cfg Config, status map[string]any) error {
 	body, err := json.Marshal(status)
 	if err != nil {
 		return err
