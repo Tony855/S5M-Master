@@ -656,3 +656,59 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 		t.Fatalf("node telemetry missing version or update timestamp: %#v", node)
 	}
 }
+
+func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "unsupported architecture is rejected without legacy table",
+			status:     `{"os":"linux","arch":"mips"}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "尚未上报受支持的架构",
+		},
+		{
+			name:       "missing architecture is rejected without legacy table",
+			status:     `{"os":"linux"}`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "尚未上报受支持的架构",
+		},
+		{
+			name:       "malformed heartbeat JSON is rejected",
+			status:     `{"os":`,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   "状态数据格式无效",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store, err := OpenStore(filepath.Join(t.TempDir(), "agent-mihomo-update.db"))
+			if err != nil {
+				t.Fatalf("OpenStore: %v", err)
+			}
+			defer store.db.Close()
+
+			const code = "node_update_test"
+			if err := store.UpdateSettings(map[string]string{
+				"agent_machine_" + code: "dedicated-secret",
+				"agent_status_" + code:  tt.status,
+			}); err != nil {
+				t.Fatalf("UpdateSettings: %v", err)
+			}
+			app := &App{store: store}
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/mihomo/update?machine_code="+code, nil)
+			rec := httptest.NewRecorder()
+			app.handleAgentMihomoUpdateInfo(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Fatalf("body = %q, want substring %q", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
