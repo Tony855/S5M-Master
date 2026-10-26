@@ -1,6 +1,6 @@
 # S5M RouterOS Agent deployment guide
 
-This first implementation uses the existing S5M per-machine registration and container-task queue. The RouterOS agent initiates HTTPS requests to S5M; S5M never needs the router's current public IP. It is suitable for changing public IPv4 and CGNAT when outbound HTTPS is allowed.
+This implementation uses S5M per-machine registration and the shared Agent command queue (`GET /api/v1/agent/command`, `POST /api/v1/agent/command/ack`). RouterOS container commands are queued by an administrator through `POST /api/v1/agents/routeros-command`; the API accepts only `list`, `start`, `stop`, and `restart`, validates RouterOS internal IDs, requires a dedicated authorized machine code, and refuses targets that have not reported `os=routeros`. The RouterOS agent initiates HTTPS requests to S5M; S5M never needs the router's current public IP. It is suitable for changing public IPv4 and CGNAT when outbound HTTPS is allowed.
 
 Official references:
 - RouterOS Container: https://help.mikrotik.com/docs/spaces/ROS/pages/84901929/Container
@@ -10,7 +10,7 @@ Official references:
 ## 1. S5M registration
 
 1. In S5M, generate a dedicated Agent token for a new machine code, reserved for one RouterOS device.
-2. Do not reuse the machine code currently used by a Docker/Mihomo agent. The task queue is scoped to machine code.
+2. Do not reuse the machine code currently used by a Docker/Mihomo agent. The command queue is scoped to machine code.
 3. Keep the generated token private. It becomes S5M_AGENT_SECRET for the RouterOS agent and is exchanged for the per-device Agent JWT at startup.
 
 ## 2. Prepare RouterOS API-SSL
