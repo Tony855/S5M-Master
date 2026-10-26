@@ -405,7 +405,7 @@ func reportHeartbeat(cfg Config, status map[string]any) error {
 		if err := reportHeartbeatWebSocket(cfg, status); err == nil {
 			return nil
 		} else {
-			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\\n", err)
+			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\n", err)
 		}
 	}
 	return reportHeartbeatHTTP(cfg, status)
