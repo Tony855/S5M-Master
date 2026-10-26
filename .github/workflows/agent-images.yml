@@ -392,16 +392,17 @@ jobs:
           start_and_check
           test -x "$data_dir/bin/mihomo"
           test -s "$data_dir/config.yaml"
-          kernel_hash="$(sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')"
-          config_hash="$(sha256sum "$data_dir/config.yaml" | awk '{print $1}')"
+          # Files are created by the root user inside the container; read hashes with sudo.
+          kernel_hash="$(sudo sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')"
+          config_hash="$(sudo sha256sum "$data_dir/config.yaml" | awk '{print $1}')"
           # Recreate the container while keeping RouterOS's persistent /data mount.
           docker rm -f "$container" >/dev/null
           start_and_check
-          [[ "$(sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')" == "$kernel_hash" ]] || {
+          [[ "$(sudo sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')" == "$kernel_hash" ]] || {
             echo "Persistent Mihomo kernel changed after container recreation" >&2
             exit 1
           }
-          [[ "$(sha256sum "$data_dir/config.yaml" | awk '{print $1}')" == "$config_hash" ]] || {
+          [[ "$(sudo sha256sum "$data_dir/config.yaml" | awk '{print $1}')" == "$config_hash" ]] || {
             echo "Persistent Mihomo configuration changed after container recreation" >&2
             exit 1
           }
