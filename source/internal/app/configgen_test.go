@@ -181,3 +181,39 @@ func TestGetOrCreateMihomoSecretReusesConfiguredSecret(t *testing.T) {
 		t.Fatalf("persisted secret = %q, want configured secret", settings["mihomo_secret_controller"])
 	}
 }
+
+func TestBuildConfigRoutesConfiguredDoHThroughProxy(t *testing.T) {
+	proxies := []Proxy{{
+		Name: "proxy-a", Mode: "proxy", Type: "socks5",
+		Server: "192.0.2.10", Port: 1080, Enabled: true,
+	}}
+	got, err := buildConfigFromProxies(proxies, "", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	for _, want := range []string{
+		"respect-rules: true",
+		"proxy-server-nameserver:",
+		"DOMAIN-SUFFIX,dns.alidns.com,proxy-a",
+		"DOMAIN-SUFFIX,doh.pub,proxy-a",
+		"DOMAIN-SUFFIX,dns.cloudflare.com,proxy-a",
+		"DOMAIN-SUFFIX,dns.google,proxy-a",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated config missing %q:\\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildConfigWithoutProxyKeepsDNSBootstrapValid(t *testing.T) {
+	got, err := buildConfigFromProxies(nil, "", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	if !strings.Contains(got, "proxy-server-nameserver:") || !strings.Contains(got, "respect-rules: true") {
+		t.Fatalf("DNS bootstrap options should exist even without enabled proxies:\\n%s", got)
+	}
+	if strings.Contains(got, "DOMAIN-SUFFIX,doh.pub,") {
+		t.Fatalf("must not generate DNS proxy rules without an enabled proxy:\\n%s", got)
+	}
+}

@@ -62,6 +62,12 @@ dns:
     default-nameserver:
         - 223.5.5.5
         - 119.29.29.29
+    # DNS 请求遵循 Mihomo 路由规则；DoH 服务器规则会把查询送入节点代理。
+    respect-rules: true
+    # 仅用于解析代理服务器自身的域名，避免代理启动与 DNS 代理之间形成循环。
+    proxy-server-nameserver:
+        - 223.5.5.5
+        - 119.29.29.29
     nameserver:
         - https://dns.alidns.com/dns-query
         - https://doh.pub/dns-query
@@ -298,11 +304,20 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{
+	rules := []string{}
+	// Send configured DoH endpoint traffic through the first enabled proxy. The
+	// proxy-server-nameserver list above remains the direct bootstrap resolver,
+	// preventing a DNS/proxy dependency loop when resolving proxy server names.
+	if len(outs) > 0 {
+		for _, domain := range []string{"dns.alidns.com", "doh.pub", "dns.cloudflare.com", "dns.google"} {
+			rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", domain, outs[0].Name))
+		}
+	}
+	rules = append(rules,
 		"DOMAIN-KEYWORD,221111cdn,REJECT",
 		"DOMAIN-SUFFIX,221111cdn,REJECT",
 		"DOMAIN-REGEX,^abc.*2222com,REJECT",
-	}
+	)
 	seenCIDR := map[string]string{}
 
 	for _, p := range proxies {
