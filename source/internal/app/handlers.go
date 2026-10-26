@@ -477,8 +477,13 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 			online := lastSeen > 0 && now-lastSeen < 90
 			healthy, _ := status["mihomo_healthy"].(bool)
 			apiOnline := healthy
+			updatedAt := ""
+			if lastSeen > 0 {
+				updatedAt = time.Unix(lastSeen, 0).Format(time.RFC3339)
+			}
 			remoteNodes = append(remoteNodes, map[string]any{
 				"machine_code":      code,
+				"hostname":          status["hostname"],
 				"online":            online,
 				"healthy":           online && healthy,
 				"mihomo_api_online": online && apiOnline,
@@ -489,6 +494,7 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 				"downloadTotal":     status["download_total"],
 				"uploadTotal":       status["upload_total"],
 				"last_seen":         lastSeen,
+				"updated_at":        updatedAt,
 				"last_error":        status["last_error"],
 			})
 		}
@@ -506,6 +512,10 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 		"agent_total":    len(remoteNodes),
 		"agent_online":   countRemoteAgentOnline(remoteNodes),
 		"mihomo_healthy": countRemoteMihomoHealthy(remoteNodes),
+		// Keep dashboard counter names aligned with the frontend's overview contract.
+		"remote_node_total":     len(remoteNodes),
+		"remote_online":         countRemoteAgentOnline(remoteNodes),
+		"remote_mihomo_healthy": countRemoteMihomoHealthy(remoteNodes),
 	})
 }
 
