@@ -57,9 +57,9 @@ func BenchmarkAgentHTTPHeartbeatEndToEnd(b *testing.B) {
 				"mihomo_version": "benchmark", "mihomo_healthy": true,
 				"upload_total": 12, "download_total": 34,
 				"upload_speed": 1, "download_speed": 2,
-				"connections": 3,
+				"connections":   3,
 				"config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				"last_error": "",
+				"last_error":    "",
 			})
 			if err != nil {
 				b.Fatalf("marshal heartbeat: %v", err)
