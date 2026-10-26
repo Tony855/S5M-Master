@@ -452,22 +452,24 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 	if welcome.Type != "welcome" {
 		return fmt.Errorf("WebSocket 欢迎消息类型无效")
 	}
+	heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
 	if err := conn.WriteJSON(map[string]any{
 		"type":   "heartbeat",
-		"id":     fmt.Sprintf("hb-%d", time.Now().UnixNano()),
+		"id":     heartbeatID,
 		"status": status,
 	}); err != nil {
 		return fmt.Errorf("发送 WebSocket 心跳失败：%w", err)
 	}
 	var ack struct {
 		Type string `json:"type"`
+		ID   string `json:"id"`
 		OK   bool   `json:"ok"`
 	}
 	if err := conn.ReadJSON(&ack); err != nil {
 		return fmt.Errorf("读取 WebSocket 心跳确认失败：%w", err)
 	}
-	if ack.Type != "heartbeat.ack" || !ack.OK {
-		return fmt.Errorf("主控端未确认 WebSocket 心跳")
+	if ack.Type != "heartbeat.ack" || ack.ID != heartbeatID || !ack.OK {
+		return fmt.Errorf("主控端心跳确认无效")
 	}
 	return nil
 }
