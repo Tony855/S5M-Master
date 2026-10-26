@@ -1513,6 +1513,15 @@ func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, "目标 Agent 未注册")
 		return
 	}
+	// RouterOS Agent reports the RouterOS device architecture, not the Linux
+	// runtime architecture of a Mihomo-enabled S5M Agent. Never offer a Mihomo
+	// binary update to a RouterOS-only node, even when its CPU is arm64/x86_64.
+	var agentOS string
+	if queryErr := a.store.db.QueryRow("SELECT os FROM agent_status WHERE machine_code=?", code).Scan(&agentOS); queryErr == nil &&
+		strings.ToLower(strings.TrimSpace(agentOS)) == "routeros" {
+		writeErr(w, http.StatusBadRequest, "该节点是 RouterOS Agent，不支持 Mihomo 内核更新")
+		return
+	}
 	var status map[string]any
 	if raw := settings["agent_status_"+code]; raw != "" {
 		_ = json.Unmarshal([]byte(raw), &status)
