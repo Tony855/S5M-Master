@@ -361,6 +361,7 @@
           <el-input v-model="templateYaml" type="textarea" :rows="12" placeholder="在这里编辑 Mihomo 模板 YAML；校验通过后保存草稿并发布版本。"></el-input>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
             <el-input v-model="templateNote" placeholder="版本说明（例如：调整 DNS 与 TUN）" style="flex:1;min-width:220px;"></el-input>
+            <el-button :loading="validatingTemplate" @click="validateMihomoTemplateRuntime">真实 Mihomo 内核校验</el-button>
             <el-button :loading="savingTemplate" @click="saveMihomoTemplate">校验并保存草稿</el-button>
             <el-button type="primary" :loading="publishingTemplate" @click="publishMihomoTemplate">发布新版本</el-button>
           </div>

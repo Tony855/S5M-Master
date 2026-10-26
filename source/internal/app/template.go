@@ -1,12 +1,16 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -413,4 +417,72 @@ func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, 200, map[string]any{"message": "已恢复节点最近一次配置备份；恢复前配置也已备份，可再次恢复", "machine_code": code, "template_version": previousVersion, "history_id": historyID})
+}
+
+// handleValidateMihomoTemplate validates YAML structure first, then asks the
+// installed Mihomo binary to parse the candidate without restarting the service.
+func (a *App) handleValidateMihomoTemplate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		YAML string `json:"yaml"`
+	}
+	if err := decodeLimited(r, 2<<20, "2 MiB", &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "请求 JSON 无效或超过 2 MiB")
+		return
+	}
+	if err := validateMihomoTemplate(in.YAML); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	const binaryPath = "/opt/mihomo/mihomo"
+	info, err := os.Stat(binaryPath)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&0111 == 0 {
+		writeErr(w, http.StatusServiceUnavailable, "未找到可执行的主控 Mihomo 内核，无法进行真实内核校验；当前仅完成 YAML 基础校验")
+		return
+	}
+	file, err := os.CreateTemp("", "s5m-mihomo-validate-*.yaml")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "创建临时校验文件失败")
+		return
+	}
+	path := filepath.Clean(file.Name())
+	defer os.Remove(path)
+	if _, err := file.WriteString(in.YAML); err != nil {
+		_ = file.Close()
+		writeErr(w, http.StatusInternalServerError, "写入临时校验文件失败")
+		return
+	}
+	if err := file.Close(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "关闭临时校验文件失败")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binaryPath, "-t", "-f", path)
+	output, runErr := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		writeErr(w, http.StatusGatewayTimeout, "Mihomo 配置校验超过 10 秒，已终止校验进程")
+		return
+	}
+	if runErr != nil {
+		detail := strings.TrimSpace(string(output))
+		if len(detail) > 3000 {
+			detail = detail[:3000]
+		}
+		if detail == "" {
+			detail = runErr.Error()
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":        "Mihomo 内核拒绝此配置",
+			"detail":       detail,
+			"validated_by": "local-mihomo-binary",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"message":      "Mihomo 内核配置校验通过；未重启或修改正在运行的服务",
+		"validated_by": "local-mihomo-binary",
+		"output":       strings.TrimSpace(string(output)),
+	})
 }
