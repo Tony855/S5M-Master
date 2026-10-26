@@ -334,11 +334,10 @@ func (a *App) handleApplyMihomoTemplate(w http.ResponseWriter, r *http.Request) 
 // Ensure the file's JSON contract stays explicit for future API evolution.
 var _ = json.Valid
 
-
 func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		Confirm bool `json:"confirm"`
+		Confirm     bool   `json:"confirm"`
 	}
 	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil {
 		writeErr(w, 400, "请求 JSON 无效")
@@ -405,5 +404,5 @@ func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 500, "提交节点配置恢复失败")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"message":"已恢复节点最近一次配置备份；恢复前配置也已备份，可再次恢复", "machine_code":code, "template_version":previousVersion, "history_id":historyID})
+	writeJSON(w, 200, map[string]any{"message": "已恢复节点最近一次配置备份；恢复前配置也已备份，可再次恢复", "machine_code": code, "template_version": previousVersion, "history_id": historyID})
 }
