@@ -574,7 +574,6 @@ func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 	}
 }
 
-
 func TestHTTPAgentHeartbeatRejectsMissingRequiredFields(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	body := strings.NewReader(`{"mihomo_version":"v1.19.3","mihomo_healthy":true}`)
@@ -602,18 +601,18 @@ func TestHTTPAgentHeartbeatRejectsMissingRequiredFields(t *testing.T) {
 func TestHTTPAgentHeartbeatAcceptsCompleteTelemetry(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	status := map[string]any{
-		"hostname": "edge-node-01",
-		"os": "linux",
-		"arch": "amd64",
+		"hostname":       "edge-node-01",
+		"os":             "linux",
+		"arch":           "amd64",
 		"mihomo_version": "v1.19.3",
 		"mihomo_healthy": true,
-		"upload_total": float64(12),
+		"upload_total":   float64(12),
 		"download_total": float64(34),
-		"upload_speed": float64(1),
+		"upload_speed":   float64(1),
 		"download_speed": float64(2),
-		"connections": float64(3),
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
 	body, err := json.Marshal(status)
 	if err != nil {
