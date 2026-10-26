@@ -639,3 +639,103 @@ func TestHTTPAgentHeartbeatAcceptsCompleteTelemetry(t *testing.T) {
 		t.Fatalf("complete heartbeat not persisted correctly: %#v", persisted)
 	}
 }
+
+// TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation verifies
+// that deleting an Agent binding invalidates its already-open WebSocket session.
+func TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total":   float64(12),
+		"download_total": float64(34),
+		"upload_speed":   float64(1),
+		"download_speed": float64(2),
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-revoked", "status": status}); err != nil {
+		t.Fatalf("send heartbeat after revocation: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read revoked connection response: %v", err)
+	}
+	if response["type"] != "error" {
+		t.Fatalf("revoked WebSocket should be rejected, got %#v", response)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatalf("revoked Agent heartbeat was persisted: %#v", settings)
+	}
+}
+
+// TestHTTPAgentHeartbeatRejectsRevokedAuthorization verifies that a previously
+// issued token cannot continue writing telemetry after its machine binding is removed.
+func TestHTTPAgentHeartbeatRejectsRevokedAuthorization(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total":   float64(12),
+		"download_total": float64(34),
+		"upload_speed":   float64(1),
+		"download_speed": float64(2),
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("heartbeat status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatalf("revoked HTTP heartbeat was persisted: %#v", settings)
+	}
+}
