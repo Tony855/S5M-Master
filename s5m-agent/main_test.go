@@ -478,7 +478,6 @@ func TestMihomoBinaryPathForRouterOS(t *testing.T) {
 	}
 }
 
-
 func TestReportHeartbeatWebSocketSuccess(t *testing.T) {
 	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpFallbackCalled bool
