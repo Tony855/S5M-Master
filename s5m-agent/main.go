@@ -795,9 +795,9 @@ func waitForMihomoVersion(secret, expected string, timeout time.Duration) error 
 
 // restoreMihomoKernel reinstalls the backup and requests a restart.
 func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
-	if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("删除异常内核失败: %w", err)
-	}
+	// On the Linux targets, rename replaces the destination atomically on the
+	// same filesystem. Do not remove the new binary first: if the subsequent
+	// rename failed, the Agent would be left without any Mihomo executable.
 	if err := os.Rename(backupPath, binaryPath); err != nil {
 		return fmt.Errorf("恢复旧内核文件失败: %w", err)
 	}
