@@ -217,3 +217,28 @@ func TestBuildConfigWithoutProxyKeepsDNSBootstrapValid(t *testing.T) {
 		t.Fatalf("must not generate DNS proxy rules without an enabled proxy:\\n%s", got)
 	}
 }
+
+func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
+	got, err := buildConfigFromProxies(nil, "", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	for _, want := range []string{
+		"enable: true",
+		"strict-route: true",
+		"any:53",
+		"tcp://any:53",
+		"enhanced-mode: fake-ip",
+		"cache-algorithm: arc",
+		"listen: 0.0.0.0:5353",
+		"fallback:",
+		"https://dns.cloudflare.com/dns-query",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("generated TUN/DNS config missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(got, "Bootstrap DNS is plain DNS") {
+		t.Errorf("generated config should document bootstrap DNS limitation:\n%s", got)
+	}
+}
