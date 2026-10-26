@@ -4,10 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"strings"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,19 +147,18 @@ func TestAgentWebSocketRejectsHeartbeatMissingRequiredFields(t *testing.T) {
 	}
 }
 
-
 func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 	valid := func() map[string]any {
 		return map[string]any{
 			"mihomo_version": "v1.19.3",
 			"mihomo_healthy": true,
-			"upload_total": float64(12),
+			"upload_total":   float64(12),
 			"download_total": float64(34),
-			"upload_speed": float64(1),
+			"upload_speed":   float64(1),
 			"download_speed": float64(2),
-			"connections": float64(3),
-			"config_sha256": strings.Repeat("a", 64),
-			"last_error": "",
+			"connections":    float64(3),
+			"config_sha256":  strings.Repeat("a", 64),
+			"last_error":     "",
 		}
 	}
 	tests := []struct {
@@ -214,7 +213,7 @@ func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 		"download_total": float64(34),
 		"upload_speed": float64(1),
 		"download_speed": float64(2),
-		"connections": "many",
+		"connections":    "many",
 		"config_sha256": strings.Repeat("a", 64),
 		"last_error": "",
 	}
