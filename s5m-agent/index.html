@@ -56,9 +56,13 @@
   }
   window.onload = async () => {
     try {
-      const hostRes = await fetchWithTimeout('/api/hostname');
-      const hostData = await hostRes.json();
-      document.getElementById('hostname').innerText = hostRes.ok && hostData.hostname ? hostData.hostname : '未知';
+      try {
+        const hostRes = await fetchWithTimeout('/api/hostname');
+        const hostData = await hostRes.json();
+        document.getElementById('hostname').innerText = hostRes.ok && hostData.hostname ? hostData.hostname : '未知';
+      } catch (_) {
+        document.getElementById('hostname').innerText = '暂不可用';
+      }
 
       const idRes = await fetchWithTimeout('/api/machine-id');
       const idData = await idRes.json();
