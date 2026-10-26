@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -334,7 +334,7 @@ func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
 	const code = "node_json"
 	if err := store.UpdateSettings(map[string]string{
 		"agent_token":           "global-secret",
-		"agent_machine_" + code: "dedicated-secret",
+		"agent_machine_" + code:  "dedicated-secret",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
