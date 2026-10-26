@@ -70,7 +70,7 @@ func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request)
 	}
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		Action string `json:"action"`
+		Action      string `json:"action"`
 		ContainerID string `json:"container_id"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
@@ -85,9 +85,9 @@ func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	commandType := map[string]string{
-		"list": "routeros_container_list",
-		"start": "routeros_container_start",
-		"stop": "routeros_container_stop",
+		"list":    "routeros_container_list",
+		"start":   "routeros_container_start",
+		"stop":    "routeros_container_stop",
 		"restart": "routeros_container_restart",
 	}[in.Action]
 	if commandType == "" {
@@ -117,7 +117,7 @@ func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	command := map[string]string{
-		"id": fmt.Sprintf("%d", time.Now().UnixNano()),
+		"id":   fmt.Sprintf("%d", time.Now().UnixNano()),
 		"type": commandType,
 	}
 	if in.ContainerID != "" {
@@ -138,19 +138,31 @@ func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{
-		"message": "RouterOS 命令已排队；节点在线时将执行并回传结果",
+		"message":    "RouterOS 命令已排队；节点在线时将执行并回传结果",
 		"command_id": command["id"],
 	})
 }
 func (a *App) handleRouterOSCommandResult(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.URL.Query().Get("machine_code"))
-	if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) { writeErr(w, http.StatusBadRequest, "机器码格式无效"); return }
+	if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) {
+		writeErr(w, http.StatusBadRequest, "机器码格式无效")
+		return
+	}
 	settings, err := a.store.GetSettings()
-	if err != nil { writeErr(w, http.StatusInternalServerError, "读取命令结果失败"); return }
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取命令结果失败")
+		return
+	}
 	raw := settings["agent_command_result_"+code]
-	if raw == "" { writeJSON(w, http.StatusOK, map[string]any{"result": nil}); return }
+	if raw == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"result": nil})
+		return
+	}
 	var result map[string]any
-	if err := json.Unmarshal([]byte(raw), &result); err != nil { writeErr(w, http.StatusInternalServerError, "命令结果数据损坏"); return }
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		writeErr(w, http.StatusInternalServerError, "命令结果数据损坏")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": result})
 }
 func (a *App) handleContainerNodes(w http.ResponseWriter, r *http.Request) {
