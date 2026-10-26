@@ -150,13 +150,13 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 	status := map[string]any{
 		"mihomo_version": "stale-connection",
 		"mihomo_healthy": true,
-		"upload_total": float64(12),
+		"upload_total":   float64(12),
 		"download_total": float64(34),
-		"upload_speed": float64(1),
+		"upload_speed":   float64(1),
 		"download_speed": float64(2),
-		"connections": float64(3),
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
 	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": status}); err != nil {
 		t.Fatalf("send heartbeat on superseded connection: %v", err)
