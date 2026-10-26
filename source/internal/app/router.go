@@ -27,6 +27,10 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{cfg: cfg, store: st, jwtKey: []byte(cfg.JWTSecret)}
+	if err := a.ensureTemplateSchema(); err != nil {
+		_ = st.db.Close()
+		return nil, fmt.Errorf("初始化 Mihomo 模板版本表失败: %w", err)
+	}
 	if err := a.ensureAdmin(); err != nil {
 		_ = st.db.Close()
 		return nil, err
