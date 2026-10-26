@@ -352,39 +352,7 @@
           </div>
           <p style="color:var(--sub);font-size:12px;margin-top:10px;">每个机器码独立保存。保存后只有对应节点会获取这份 YAML；未保存配置的节点不会回退到全局 YAML。</p>
         </div>
-        <div class="card-panel">
-          <div class="card-title">全局配置与版本发布</div>
-          <p class="import-note">此处编辑的是全局 Mihomo YAML，与下方每台节点的独立 YAML 分开保存。保存只更新草稿；发布会生成并记录配置版本。回滚会恢复指定版本的全局设置，但代理列表和路由规则始终以当前代理数据库为准。</p>
-          <el-input v-model="globalConfigYaml" type="textarea" :rows="16" placeholder="全局 Mihomo YAML 配置..."></el-input>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
-            <el-button @click="loadGlobalConfig">重新加载全局配置</el-button>
-            <el-button @click="saveGlobalConfig" :loading="savingGlobalConfig">保存草稿</el-button>
-            <el-button type="primary" @click="publishGlobalConfig" :loading="publishingGlobalConfig">保存并发布</el-button>
-          </div>
-          <div class="subsection-heading" style="margin-top:24px;">
-            <span>历史配置版本</span>
-            <el-button size="small" :loading="loadingConfigVersions" @click="loadConfigVersions">刷新版本</el-button>
-          </div>
-          <el-table :data="configVersions" v-loading="loadingConfigVersions" class="desktop-table" empty-text="暂无已发布的配置版本">
-            <el-table-column prop="version" label="版本" width="90">
-              <template #default="scope">v{{ scope.row.version }}</template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="120"></el-table-column>
-            <el-table-column prop="sha256" label="SHA-256" min-width="180" show-overflow-tooltip></el-table-column>
-            <el-table-column prop="created_at" label="创建时间" min-width="170"></el-table-column>
-            <el-table-column label="操作" width="110" fixed="right">
-              <template #default="scope">
-                <el-button size="small" type="warning" @click="rollbackGlobalConfig(scope.row)">回滚</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <div class="proxy-mobile-card" v-for="item in configVersions" :key="item.version">
-            <div class="proxy-mobile-row"><span class="proxy-mobile-label">版本</span><strong class="proxy-mobile-value">v{{ item.version }}</strong></div>
-            <div class="proxy-mobile-row"><span class="proxy-mobile-label">状态</span><span class="proxy-mobile-value">{{ item.status || '—' }}</span></div>
-            <div class="proxy-mobile-row"><span class="proxy-mobile-label">创建时间</span><span class="proxy-mobile-value">{{ item.created_at || '—' }}</span></div>
-            <div class="proxy-mobile-actions"><el-button size="small" type="warning" @click="rollbackGlobalConfig(item)">回滚到此版本</el-button></div>
-          </div>
-        </div>
+        
 
       </div>
 
