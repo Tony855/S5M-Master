@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -14,6 +15,9 @@ type App struct {
 	cfg    Config
 	store  *Store
 	jwtKey []byte
+
+	agentWSMu         sync.Mutex
+	agentWSGeneration map[string]uint64
 }
 
 func New(cfg Config) (*App, error) {
