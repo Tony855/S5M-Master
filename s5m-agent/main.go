@@ -793,7 +793,6 @@ func waitForMihomoVersion(secret, expected string, timeout time.Duration) error 
 	return fmt.Errorf("Mihomo 在 %s 内未通过版本健康检查: %w", timeout, lastErr)
 }
 
-// restoreMihomoKernel reinstalls the backup and requests a restart.
 func replaceFileAtomically(sourcePath, destinationPath string) error {
 	// The source and destination must be on the same filesystem for rename to
 	// replace the destination atomically. All Mihomo update files are created
@@ -803,12 +802,20 @@ func replaceFileAtomically(sourcePath, destinationPath string) error {
 
 // restoreMihomoKernel reinstalls the backup and requests a restart.
 func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
+	return restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+		return restartMihomo(secret)
+	})
+}
+
+// restoreMihomoKernelWithRestart separates file recovery from the controller
+// request so both failure modes can be tested without a live Mihomo API.
+func restoreMihomoKernelWithRestart(binaryPath, backupPath string, restart func() error) error {
 	// Never remove the new binary before attempting replacement: if the rename
 	// fails, keep the currently installed executable available for recovery.
 	if err := replaceFileAtomically(backupPath, binaryPath); err != nil {
 		return fmt.Errorf("恢复旧内核文件失败: %w", err)
 	}
-	if err := restartMihomo(secret); err != nil {
+	if err := restart(); err != nil {
 		return fmt.Errorf("旧内核文件已恢复，但请求重启失败: %w", err)
 	}
 	return nil
