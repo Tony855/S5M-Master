@@ -328,6 +328,56 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
+func TestRollbackConfigAfterReloadFailure(t *testing.T) {
+	t.Run("restores previous config atomically", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("MIHOMO_HOME", home)
+		mainPath := filepath.Join(home, "config.yaml")
+		previousPath := mainPath + ".previous"
+		current := []byte("secret: new-secret\ntun: {}\ndns: {}\n")
+		previous := []byte("secret: old-secret\ntun: {}\ndns: {}\n")
+		if err := os.WriteFile(mainPath, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(previousPath, previous, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigAfterReloadFailure(); err != nil {
+			t.Fatalf("rollbackConfigAfterReloadFailure() error = %v", err)
+		}
+		got, err := os.ReadFile(mainPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(previous) {
+			t.Fatalf("restored config = %q, want %q", got, previous)
+		}
+		if _, err := os.Stat(mainPath + ".restore"); !os.IsNotExist(err) {
+			t.Fatalf("restore temporary file should be removed, stat error = %v", err)
+		}
+	})
+
+	t.Run("reports missing backup and preserves current config", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("MIHOMO_HOME", home)
+		mainPath := filepath.Join(home, "config.yaml")
+		current := []byte("secret: new-secret\ntun: {}\ndns: {}\n")
+		if err := os.WriteFile(mainPath, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigAfterReloadFailure(); err == nil {
+			t.Fatal("expected error when previous config backup is missing")
+		}
+		got, err := os.ReadFile(mainPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(current) {
+			t.Fatalf("current config changed after failed rollback: %q", got)
+		}
+	})
+}
+
 func TestPreserveMihomoSecret(t *testing.T) {
 	incoming := map[string]interface{}{"secret": "controller-supplied", "mode": "rule"}
 	current := map[string]interface{}{"secret": "local-secret"}
