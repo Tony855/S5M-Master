@@ -116,6 +116,94 @@ func TestAgentWebSocketAcceptsHeartbeatAndPersistsStatus(t *testing.T) {
 	}
 }
 
+func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	dial := func() *websocket.Conn {
+		t.Helper()
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil {
+			t.Fatalf("dial authenticated WebSocket: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var welcome map[string]any
+		if err := conn.ReadJSON(&welcome); err != nil {
+			conn.Close()
+			t.Fatalf("read welcome: %v", err)
+		}
+		if welcome["type"] != "welcome" {
+			conn.Close()
+			t.Fatalf("welcome type = %#v", welcome["type"])
+		}
+		return conn
+	}
+
+	oldConn := dial()
+	defer oldConn.Close()
+	newConn := dial()
+	defer newConn.Close()
+
+	status := map[string]any{
+		"mihomo_version": "stale-connection",
+		"mihomo_healthy": true,
+		"upload_total": float64(12),
+		"download_total": float64(34),
+		"upload_speed": float64(1),
+		"download_speed": float64(2),
+		"connections": float64(3),
+		"config_sha256": strings.Repeat("a", 64),
+		"last_error": "",
+	}
+	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": status}); err != nil {
+		t.Fatalf("send heartbeat on superseded connection: %v", err)
+	}
+	var response map[string]any
+	if err := oldConn.ReadJSON(&response); err != nil {
+		t.Fatalf("read superseded connection response: %v", err)
+	}
+	if response["type"] != "error" || !strings.Contains(response["message"].(string), "取代") {
+		t.Fatalf("unexpected superseded connection response: %#v", response)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatalf("superseded connection persisted status: %#v", settings)
+	}
+
+	freshStatus := map[string]any{}
+	for k, v := range status {
+		freshStatus[k] = v
+	}
+	freshStatus["mihomo_version"] = "current-connection"
+	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": freshStatus}); err != nil {
+		t.Fatalf("send heartbeat on current connection: %v", err)
+	}
+	if err := newConn.ReadJSON(&response); err != nil {
+		t.Fatalf("read current connection ACK: %v", err)
+	}
+	if response["type"] != "heartbeat.ack" || response["id"] != "hb-new" {
+		t.Fatalf("unexpected current connection response: %#v", response)
+	}
+	settings, err = app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after current heartbeat: %v", err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &saved); err != nil {
+		t.Fatalf("decode current status: %v", err)
+	}
+	if saved["mihomo_version"] != "current-connection" {
+		t.Fatalf("status overwritten by stale connection: %#v", saved)
+	}
+}
+
 func TestAgentWebSocketRejectsHeartbeatMissingRequiredFields(t *testing.T) {
 	app, _, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
