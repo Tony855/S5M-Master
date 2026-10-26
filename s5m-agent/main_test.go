@@ -556,3 +556,47 @@ func TestReportHeartbeatFallsBackToHTTPWhenWebSocketFails(t *testing.T) {
 		t.Fatal("HTTP fallback was not called after WebSocket handshake failure")
 	}
 }
+
+
+func TestReportHeartbeatFallsBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+	var httpCalled bool
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agent/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Errorf("upgrade websocket: %v", err)
+				return
+			}
+			defer conn.Close()
+			if err := conn.WriteJSON(map[string]any{"type": "welcome"}); err != nil {
+				t.Errorf("write welcome: %v", err)
+				return
+			}
+			var msg map[string]any
+			if err := conn.ReadJSON(&msg); err != nil {
+				t.Errorf("read heartbeat: %v", err)
+				return
+			}
+			if err := conn.WriteJSON(map[string]any{"type": "heartbeat.ack", "id": "wrong-id", "ok": true}); err != nil {
+				t.Errorf("write ack: %v", err)
+			}
+		case "/api/v1/agent/heartbeat":
+			httpCalled = true
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
+	if err != nil {
+		t.Fatalf("reportHeartbeat() fallback error = %v", err)
+	}
+	if !httpCalled {
+		t.Fatal("HTTP fallback was not called after mismatched WebSocket ACK ID")
+	}
+}
