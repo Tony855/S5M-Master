@@ -215,6 +215,51 @@ func TestMihomoVersionMatches(t *testing.T) {
 	}
 }
 
+func TestReplaceFileAtomically(t *testing.T) {
+	t.Run("replaces destination with backup", func(t *testing.T) {
+		dir := t.TempDir()
+		destination := filepath.Join(dir, "mihomo")
+		source := filepath.Join(dir, "mihomo.previous")
+		if err := os.WriteFile(destination, []byte("broken-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("known-good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := replaceFileAtomically(source, destination); err != nil {
+			t.Fatalf("replaceFileAtomically() error = %v", err)
+		}
+		got, err := os.ReadFile(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "known-good-old-binary" {
+			t.Fatalf("destination = %q, want old backup content", got)
+		}
+		if _, err := os.Stat(source); !os.IsNotExist(err) {
+			t.Fatalf("backup source should be moved, stat error = %v", err)
+		}
+	})
+	t.Run("keeps destination when backup is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		destination := filepath.Join(dir, "mihomo")
+		if err := os.WriteFile(destination, []byte("current-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		err := replaceFileAtomically(filepath.Join(dir, "missing.previous"), destination)
+		if err == nil {
+			t.Fatal("expected error for missing backup")
+		}
+		got, readErr := os.ReadFile(destination)
+		if readErr != nil {
+			t.Fatalf("destination was lost after failed replacement: %v", readErr)
+		}
+		if string(got) != "current-binary" {
+			t.Fatalf("destination = %q, want current binary unchanged", got)
+		}
+	})
+}
+
 func TestVerifyKernelUpgrade(t *testing.T) {
 	restartFailure := errors.New("restart connection closed")
 	healthFailure := errors.New("version health check timed out")
