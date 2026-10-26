@@ -79,7 +79,8 @@
                 const now = Date.now() / 1000;
                 tbody.innerHTML = entries.map(([code, info]) => {
                     const seen = Number(info && info.last_seen || 0);
-                    const online = seen > 0 && now - seen <= 90;
+                    const ageSeconds = now - seen;
+                    const online = seen > 0 && ageSeconds >= 0 && ageSeconds <= 90;
                     const status = info && info.status || {};
                     const healthy = status.mihomo_healthy === true;
                     const version = status.mihomo_version || '未知';
