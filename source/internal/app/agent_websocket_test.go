@@ -289,6 +289,59 @@ func TestHTTPAgentHeartbeatRejectsInvalidTelemetry(t *testing.T) {
 	}
 }
 
+func TestHTTPAgentHeartbeatAcceptsAfterControllerStateReset(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	oldStatus := `{"mihomo_version":"old","mihomo_healthy":true,"upload_total":1,"download_total":2,"upload_speed":0,"download_speed":0,"connections":0,"config_sha256":"","last_error":"","received_at":1}`
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code:   oldStatus,
+		"agent_lastseen_" + code: "1",
+	}); err != nil {
+		t.Fatalf("seed persisted status: %v", err)
+	}
+
+	// A controller restart clears in-memory heartbeat ordering state while the
+	// persisted node status remains. The first valid heartbeat must recover it.
+	app.agentHeartbeatAt = nil
+	app.agentWSGeneration = nil
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total":   float64(12),
+		"download_total": float64(34),
+		"upload_speed":   float64(1),
+		"download_speed": float64(2),
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode persisted status: %v", err)
+	}
+	if persisted["mihomo_version"] != "v1.19.3" {
+		t.Fatalf("persisted status was not recovered after state reset: %#v", persisted)
+	}
+	lastSeen, err := strconv.ParseInt(settings["agent_lastseen_"+code], 10, 64)
+	if err != nil || lastSeen <= 1 {
+		t.Fatalf("lastseen = %q, want fresh timestamp; err=%v", settings["agent_lastseen_"+code], err)
+	}
+}
+
 func TestHTTPAgentHeartbeatDoesNotOverwriteNewerHeartbeat(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	newerStatus := `{"mihomo_version":"newer","mihomo_healthy":true,"upload_total":12,"download_total":34,"upload_speed":1,"download_speed":2,"connections":3,"config_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","last_error":"","received_at":123}`
