@@ -1,5 +1,4 @@
 # syntax=docker/dockerfile:1
-ARG GO_VERSION=1.24
 ARG ALPINE_VERSION=3.24
 ARG MIHOMO_VERSION=v1.19.31
 ARG S6_OVERLAY_VERSION=3.2.3.2
@@ -7,9 +6,10 @@ ARG S6_OVERLAY_VERSION=3.2.3.2
 ARG MIHOMO_AMD64_SHA256=04cf9f09671704f839ddbee2e93069dc831a4123a75281e725d1d96ab9ac1afc
 ARG MIHOMO_ARM64_SHA256=9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4
 
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine${ALPINE_VERSION} AS agent-builder
+FROM --platform=$BUILDPLATFORM alpine:${ALPINE_VERSION} AS agent-builder
 ARG TARGETOS
 ARG TARGETARCH
+RUN apk add --no-cache go git
 WORKDIR /src
 COPY s5m-agent/go.mod s5m-agent/go.sum ./
 RUN go mod download
