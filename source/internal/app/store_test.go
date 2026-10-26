@@ -161,3 +161,49 @@ func TestGetSettingsReturnsAllStoredValues(t *testing.T) {
 		}
 	}
 }
+
+
+func TestFreshStoreDoesNotCreateLegacyAgentTasksTable(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "fresh-store.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_tasks'`).Scan(&count); err != nil {
+		t.Fatalf("check legacy table: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("fresh database unexpectedly created retired agent_tasks table")
+	}
+}
+
+func TestStoreMigrationPreservesExistingLegacyAgentTasksTable(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy-store.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("initial OpenStore: %v", err)
+	}
+	if _, err := store.db.Exec(`CREATE TABLE agent_tasks (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'pending')`); err != nil {
+		store.db.Close()
+		t.Fatalf("create legacy table fixture: %v", err)
+	}
+	if err := store.db.Close(); err != nil {
+		t.Fatalf("close initial store: %v", err)
+	}
+
+	reopened, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("reopen legacy database: %v", err)
+	}
+	defer reopened.db.Close()
+
+	var count int
+	if err := reopened.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_tasks'`).Scan(&count); err != nil {
+		t.Fatalf("check legacy table after migration: %v", err)
+	}
+	if count != 1 {
+		t.Fatal("migration removed the existing legacy agent_tasks table")
+	}
+}
