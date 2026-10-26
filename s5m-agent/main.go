@@ -1226,9 +1226,8 @@ func main() {
 			continue
 		}
 
-		if err := processContainerTask(cfg); err != nil {
-			fmt.Printf("容器任务处理失败: %v\n", err)
-		}
+		// Container task management has been removed from the Agent.
+		// Do not poll the retired /api/v1/agent/container/tasks/next endpoint.
 		if err := reportContainerStatus(cfg); err != nil {
 			fmt.Printf("容器节点状态上报失败: %v\n", err)
 		}
