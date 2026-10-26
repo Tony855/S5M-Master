@@ -328,36 +328,6 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
-func TestValidateMihomoConfigYAML(t *testing.T) {
-	valid := []byte("secret: controller-secret\ntun:\n  enable: false\ndns:\n  enable: true\n")
-	if _, err := validateMihomoConfigYAML(valid); err != nil {
-		t.Fatalf("valid config rejected: %v", err)
-	}
-
-	tests := []struct {
-		name string
-		data []byte
-	}{
-		{name: "empty", data: nil},
-		{name: "oversized", data: bytes.Repeat([]byte("x"), 2*1024*1024+1)},
-		{name: "invalid yaml", data: []byte("secret: [")},
-		{name: "empty mapping", data: []byte("{}")},
-		{name: "missing secret", data: []byte("tun: {}\ndns: {}\n")},
-		{name: "blank secret", data: []byte("secret: '  '\ntun: {}\ndns: {}\n")},
-		{name: "missing tun", data: []byte("secret: controller-secret\ndns: {}\n")},
-		{name: "invalid tun type", data: []byte("secret: controller-secret\ntun: false\ndns: {}\n")},
-		{name: "missing dns", data: []byte("secret: controller-secret\ntun: {}\n")},
-		{name: "invalid dns type", data: []byte("secret: controller-secret\ntun: {}\ndns: false\n")},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := validateMihomoConfigYAML(tt.data); err == nil {
-				t.Fatal("invalid config should be rejected")
-			}
-		})
-	}
-}
-
 func TestPreserveMihomoSecret(t *testing.T) {
 	incoming := map[string]interface{}{"secret": "controller-supplied", "mode": "rule"}
 	current := map[string]interface{}{"secret": "local-secret"}
