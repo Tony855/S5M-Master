@@ -557,7 +557,6 @@ func TestReportHeartbeatFallsBackToHTTPWhenWebSocketFails(t *testing.T) {
 	}
 }
 
-
 func TestReportHeartbeatFallsBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
 	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
