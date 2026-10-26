@@ -153,6 +153,17 @@ func (a *App) handleRouterOSCommandResult(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusInternalServerError, "读取命令结果失败")
 		return
 	}
+	token := strings.TrimSpace(settings["agent_machine_"+code])
+	if token == "" || token == strings.TrimSpace(settings["agent_token"]) {
+		writeErr(w, http.StatusNotFound, "目标 Agent 未授权")
+		return
+	}
+	var osName string
+	if err := a.store.db.QueryRow("SELECT os FROM agent_status WHERE machine_code=?", code).Scan(&osName); err != nil ||
+		strings.ToLower(strings.TrimSpace(osName)) != "routeros" {
+		writeErr(w, http.StatusBadRequest, "目标 Agent 未报告为 RouterOS 节点")
+		return
+	}
 	raw := settings["agent_command_result_"+code]
 	if raw == "" {
 		writeJSON(w, http.StatusOK, map[string]any{"result": nil})
