@@ -255,3 +255,35 @@ func TestSaveGlobalConfigAcceptsValidDraft(t *testing.T) {
 		t.Fatalf("saved draft missing expected setting: %q", settings["config_yaml"])
 	}
 }
+
+
+func TestRemovedContainerManagementEndpointsReturnNotFound(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "removed-container-api.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store, jwtKey: []byte("test-signing-key")}
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/container/nodes"},
+		{http.MethodPost, "/api/v1/agent/container/status"},
+		{http.MethodGet, "/api/v1/agent/container/tasks/next"},
+		{http.MethodPost, "/api/v1/agents/routeros-command"},
+		{http.MethodGet, "/api/v1/agents/routeros-command-result"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("removed endpoint returned HTTP %d, want 404", response.Code)
+			}
+		})
+	}
+}
