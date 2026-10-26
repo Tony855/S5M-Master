@@ -424,7 +424,7 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 	default:
 		return fmt.Errorf("主控地址协议不支持")
 	}
-	base.Path = "/api/v1/agent/ws"
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/agent/ws"
 	base.RawPath = ""
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+cfg.Token)
