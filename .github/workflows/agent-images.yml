@@ -344,11 +344,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sh -n s5m-agent/routeros-entrypoint.sh
           docker run --rm --platform ${{ matrix.platform }} --entrypoint /bin/sh s5m-agent:routeros-${{ matrix.arch }}-test -ec '
+            test -x /init
             test -x /app/s5m-agent
-            test -x /app/routeros-entrypoint.sh
             test -x /usr/local/bin/mihomo.initial
+            test -x /etc/cont-init.d/10-mihomo-config
+            test -x /etc/s6-overlay/s6-rc.d/mihomo/run
+            test -x /etc/s6-overlay/s6-rc.d/agent/run
+            test -f /etc/s6-overlay/s6-rc.d/user/contents.d/mihomo
+            test -f /etc/s6-overlay/s6-rc.d/user/contents.d/agent
             test -s /app/default-config.yaml
             /usr/local/bin/mihomo.initial -v
           '
