@@ -80,11 +80,6 @@ createApp({
     });
 
     const subUrl = ref('');
-    const globalConfigYaml = ref('');
-    const savingGlobalConfig = ref(false);
-    const publishingGlobalConfig = ref(false);
-    const loadingConfigVersions = ref(false);
-    const configVersions = ref([]);
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
     const selectedConfigNode = ref('');
@@ -267,7 +262,7 @@ createApp({
         if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) dockerMachineCode.value = '';
         loadAgentsData(); routerosContainers.value = []; routerosStatus.value = '';
       }
-      if (v === 'config') { loadAgentsData(); loadSettings(); loadGlobalConfig(); loadConfigVersions(); }
+      if (v === 'config') { loadAgentsData(); loadSettings(); }
       if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }
     };
 
@@ -1192,36 +1187,6 @@ const safeCopy = async (text) => {
       }
     };
 
-    const loadGlobalConfig = async () => {
-      try {
-        const res = await api('/api/v1/config/preview?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取全局配置失败');
-        globalConfigYaml.value = data.config_yaml || data.yaml || data.yaml_text || '';
-      } catch (e) {
-        showMsg(e.message || '读取全局配置失败', 'error');
-      }
-    };
-
-    const saveGlobalConfig = async () => {
-      if (!globalConfigYaml.value.trim()) return showMsg('全局配置不能为空', 'warning');
-      savingGlobalConfig.value = true;
-      try {
-        const res = await api('/api/v1/config/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config_yaml: globalConfigYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '保存全局配置失败');
-        showMsg(data.message || '全局配置草稿已保存', 'success');
-      } catch (e) {
-        showMsg(e.message || '保存全局配置失败', 'error');
-      } finally {
-        savingGlobalConfig.value = false;
-      }
-    };
-
     const retryNodeConfigSync = async () => {
       if (retryingNodeConfigSync.value) return;
       retryingNodeConfigSync.value = true;
@@ -1248,63 +1213,6 @@ const safeCopy = async (text) => {
         showMsg(e.message || '读取配置版本失败', 'error');
       } finally {
         loadingConfigVersions.value = false;
-      }
-    };
-
-    const publishGlobalConfig = async () => {
-      if (!globalConfigYaml.value.trim()) return showMsg('全局配置不能为空', 'warning');
-      publishingGlobalConfig.value = true;
-      try {
-        const saveRes = await api('/api/v1/config/save', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config_yaml: globalConfigYaml.value })
-        });
-        const saveData = await saveRes.json().catch(() => ({}));
-        if (!saveRes.ok) throw new Error(saveData.error || saveData.message || '保存全局配置失败');
-        const res = await api('/api/v1/config/publish', { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) throw new Error(data.message || data.error || '发布全局配置失败');
-        showMsg(data.message || '全局配置已发布', 'success');
-        await loadConfigVersions();
-      } catch (e) {
-        showMsg(e.message || '发布全局配置失败', 'error');
-      } finally {
-        publishingGlobalConfig.value = false;
-      }
-    };
-
-    const rollbackGlobalConfig = async (row) => {
-      if (!row || !Number(row.version)) return;
-      try {
-        await ElementPlus.ElMessageBox.confirm(
-          '确定回滚到配置版本 v' + row.version + '？将恢复该版本的全局设置；代理列表和路由规则仍以当前代理数据库为准。',
-          '确认回滚配置',
-          { type: 'warning', confirmButtonText: '确认回滚', cancelButtonText: '取消' }
-        );
-      } catch (_) {
-        return;
-      }
-      try {
-        const res = await api('/api/v1/config/rollback', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ version: Number(row.version) })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) {
-          const message = data.message || data.error || '回滚失败';
-          if (String(message).includes('回滚已完成，但全局配置草稿同步失败')) {
-            await loadConfigVersions();
-            showMsg(message, 'warning');
-            return;
-          }
-          throw new Error(message);
-        }
-        showMsg(data.message || ('已回滚到 v' + row.version), 'success');
-        await Promise.all([loadGlobalConfig(), loadConfigVersions()]);
-      } catch (e) {
-        showMsg(e.message || '回滚配置失败', 'error');
       }
     };
 
@@ -1351,9 +1259,7 @@ const safeCopy = async (text) => {
       dockerMachineCode, dockerLoading, dockerContainers, selectedDockerIDs, bulkDockerProgress, isDockerSelected, toggleDockerSelection, onDockerSelectionChange, clearDockerSelection, runBulkDockerAction, dockerStatus, dockerOutput, dockerOutputVisible, refreshDocker, inspectDocker, logsDocker, dockerAction,
       routerOSAgentEntries, routerosLoading, routerosContainers, routerosStatus, refreshRouterOS, routerOSAction,
       containerTasks, containerTasksLoading, containerTaskSearch, containerTaskStatusFilter, containerTaskMachineFilter, containerTaskMachineOptions, containerTaskStartDate, containerTaskEndDate, containerTaskDuration, containerTaskPage, containerTaskTotal, changeContainerTaskPage, selectedFailedContainerTasks, bulkRetryLoading, isRetryableContainerTask, onContainerTaskSelectionChange, retryFailedContainerTasks, filteredContainerTasks, loadContainerTasks, cancelContainerTask, showContainerTask, retryContainerTask, taskStatusLabel, taskStatusType,
-      subUrl, globalConfigYaml, savingGlobalConfig, publishingGlobalConfig, loadingConfigVersions, configVersions,
       retryingNodeConfigSync, retryNodeConfigSync,
-      saveGlobalConfig, publishGlobalConfig, loadGlobalConfig, loadConfigVersions, rollbackGlobalConfig,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
       openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
