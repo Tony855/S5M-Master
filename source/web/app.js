@@ -1203,11 +1203,19 @@ const safeCopy = async (text) => {
     };
 
     const loadSettings = async () => {
+      // Always show a usable absolute subscription URL. Older servers may omit
+      // subscribe_url, and some settings records may contain an empty/whitespace value.
+      const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
+      subUrl.value = fallback;
       try {
         const res = await api('/api/v1/settings?t=' + Date.now());
-        if (res.ok) { const s = await res.json().catch(() => ({})); subUrl.value = s.subscribe_url || s.sub_url || (location.origin + '/api/v1/subscribe'); }
-        else { subUrl.value = location.origin + '/api/v1/subscribe'; }
-      } catch (e) { subUrl.value = location.origin + '/api/v1/subscribe'; }
+        if (!res.ok) return;
+        const s = await res.json().catch(() => ({}));
+        const configured = String(s.subscribe_url || s.sub_url || '').trim();
+        subUrl.value = configured || fallback;
+      } catch (e) {
+        subUrl.value = fallback;
+      }
     };
 
     onMounted(() => {
