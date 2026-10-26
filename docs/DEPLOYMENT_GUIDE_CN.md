@@ -134,6 +134,16 @@ sudo docker run -d \
   s5m-agent:local
 ```
 
+如果使用仓库内的 `s5m-agent/docker-compose.yml` 而不是上面的 `docker run` 命令，启动前先在同一个 Shell 中导出宿主机名，否则 Compose 中的 `S5M_HOSTNAME` 可能为空：
+
+```bash
+export S5M_HOSTNAME="$(hostname)"
+cd s5m-agent
+docker compose up -d
+```
+
+如果用 systemd、面板或其他自动化工具启动 Compose，请在其环境配置中显式设置 `S5M_HOSTNAME` 为宿主机的真实 hostname。
+
 注意：
 
 - `/data` 是持久化目录，保存 `config.yaml`、绑定凭据等；不要在普通升级时删除。
