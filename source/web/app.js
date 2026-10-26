@@ -42,6 +42,16 @@ createApp({
     const configYaml = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    const templateYaml = ref('');
+    const templateNote = ref('');
+    const templateVersions = ref([]);
+    const templateCurrentVersion = ref(0);
+    const templateNodes = ref([]);
+    const selectedTemplateNode = ref('');
+    const selectedTemplateVersion = ref(null);
+    const savingTemplate = ref(false);
+    const publishingTemplate = ref(false);
+    const applyingTemplate = ref(false);
     const publishing = ref(false);
     const updatingKernel = ref(false);
     const kernelUpdateDialog = ref(false);
@@ -705,6 +715,85 @@ createApp({
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
+    const loadMihomoTemplate = async () => {
+      try {
+        const res = await api('/api/v1/mihomo/template?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '读取模板失败');
+        templateYaml.value = data.draft_yaml || '';
+        templateVersions.value = Array.isArray(data.versions) ? data.versions : [];
+        templateCurrentVersion.value = Number(data.current_version || 0);
+        if (!selectedTemplateVersion.value && templateCurrentVersion.value) selectedTemplateVersion.value = templateCurrentVersion.value;
+      } catch (e) { showMsg(e.message || '读取模板失败', 'error'); }
+    };
+
+    const loadTemplateNodeStatus = async () => {
+      try {
+        const res = await api('/api/v1/mihomo/template/nodes?t=' + Date.now());
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '读取节点版本状态失败');
+        templateNodes.value = Array.isArray(data.nodes) ? data.nodes : [];
+        if (!selectedTemplateNode.value && templateNodes.value.length) selectedTemplateNode.value = templateNodes.value[0].machine_code;
+      } catch (e) { showMsg(e.message || '读取节点版本状态失败', 'error'); }
+    };
+
+    const saveMihomoTemplate = async () => {
+      if (!String(templateYaml.value || '').trim()) { showMsg('模板 YAML 不能为空', 'warning'); return; }
+      if (savingTemplate.value) return;
+      savingTemplate.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/template', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml: templateYaml.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '保存模板草稿失败');
+        showMsg(data.message || '模板草稿已保存', 'success');
+        await loadMihomoTemplate();
+      } catch (e) { showMsg(e.message || '保存模板草稿失败', 'error'); }
+      finally { savingTemplate.value = false; }
+    };
+
+    const publishMihomoTemplate = async () => {
+      if (!confirm('发布新的模板版本？发布只创建版本，不会自动覆盖任何节点。')) return;
+      if (publishingTemplate.value) return;
+      publishingTemplate.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/template/publish', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ note: templateNote.value || '' })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '发布模板失败');
+        templateNote.value = '';
+        showMsg((data.message || '模板已发布') + '（v' + data.version + '）', 'success');
+        await loadMihomoTemplate();
+        await loadTemplateNodeStatus();
+      } catch (e) { showMsg(e.message || '发布模板失败', 'error'); }
+      finally { publishingTemplate.value = false; }
+    };
+
+    const applyMihomoTemplate = async () => {
+      const code = String(selectedTemplateNode.value || '').trim();
+      const version = Number(selectedTemplateVersion.value || 0);
+      if (!code || !version) { showMsg('请选择目标节点和模板版本', 'warning'); return; }
+      if (!confirm('警告：这将替换节点 ' + code + ' 的完整 Mihomo YAML，并在应用前备份现有配置。确认应用模板 v' + version + '？')) return;
+      if (applyingTemplate.value) return;
+      applyingTemplate.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/template/apply', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ machine_code: code, version, confirm: true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '应用模板失败');
+        showMsg(data.message || '模板已应用到节点', 'success');
+        await loadTemplateNodeStatus();
+        if (selectedConfigNode.value === code) await loadNodeConfig();
+      } catch (e) { showMsg(e.message || '应用模板失败', 'error'); }
+      finally { applyingTemplate.value = false; }
+    };
+
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
@@ -877,6 +966,9 @@ const safeCopy = async (text) => {
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, publishingTemplate, applyingTemplate,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, publishMihomoTemplate, applyMihomoTemplate,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
       openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
