@@ -33,4 +33,4 @@ The agent must reach the S5M HTTPS endpoint outbound. Dynamic public IPv4 and CG
 
 Run go test -race ./..., go vet ./..., and go build -trimpath -o s5m-routeros-agent . from this directory.
 
-The agent uses the existing S5M task queue. Assign a dedicated machine code/token; do not run this and the Docker/Mihomo agent concurrently with the same machine code.
+The agent uses S5M's shared Agent command queue (`GET /api/v1/agent/command` and `POST /api/v1/agent/command/ack`). An administrator queues RouterOS-only actions through `POST /api/v1/agents/routeros-command` with `machine_code`, `action` (`list`, `start`, `stop`, or `restart`), and `container_id` for all actions except `list`. Only an Agent whose reported OS is `routeros` can receive these commands. Assign a dedicated machine code/token; do not run this and the Docker/Mihomo agent concurrently with the same machine code because commands are queued per machine.
