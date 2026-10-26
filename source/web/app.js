@@ -34,7 +34,7 @@ createApp({
         const matchesStatus = agentStatusFilter.value === 'all'
           || (agentStatusFilter.value === 'online' && item.online)
           || (agentStatusFilter.value === 'offline' && !item.online)
-          || (agentStatusFilter.value === 'docker' && item.runtimeReported && item.dockerAvailable);
+          ;
         return matchesQuery && matchesStatus;
       });
     });
@@ -563,7 +563,7 @@ createApp({
         Object.keys(data || {}).forEach(code => {
           const item = data[code] || {};
           const last = Number(item.last_seen) || 0;
-          // Agent connectivity comes from the authenticated Agent heartbeat; container runtime reports may be stale or absent.
+          // Agent connectivity comes from the authenticated Agent heartbeat.
           const online = last > 0 && (now - last) < 90;
           list.push({
             code: code,
