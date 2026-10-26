@@ -7,7 +7,7 @@
 - RouterOS 目标版本：7.21.5（必须在实际设备验证）。
 - CPU：AMD64/x86_64 或 ARM64/aarch64。
 - 存储：内部存储；容器 root-dir 和持久化 `/data` 挂载都必须位于可写的内部存储路径。
-- Linux 用户态：Alpine Linux 3.21 amd64/arm64；使用 s6-overlay v3（当前固定版本 3.2.3.2）作为 PID 1 和进程监督器。这不是 RouterOS 原生二进制，而是 RouterOS 容器中的 Linux 用户态。
+- Linux 用户态：Alpine Linux 3.24 amd64/arm64；使用 s6-overlay v3（当前固定版本 3.2.3.2）作为 PID 1 和进程监督器。这不是 RouterOS 原生二进制，而是 RouterOS 容器中的 Linux 用户态。
 - Mihomo 更新：amd64 和 arm64 使用官方 Linux 发布资产，主控下发的版本和 SHA-256 校验仍有效；更新后的内核写入持久化 `/data/bin/mihomo`，重建容器后仍保留。只有保持同一 `/data` 挂载且目标内核可在设备上运行时才保证持久化。
 - TUN：默认关闭。RouterOS 容器环境对 TUN、NET_ADMIN、设备访问和策略路由的支持受设备/版本限制；不要默认认为 Linux TUN 能在 RouterOS 容器中可用。基础代理和节点注册/心跳应先在不启用 TUN 的配置下验证。
 
