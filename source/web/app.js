@@ -554,7 +554,8 @@ createApp({
           const detail = await res.text().catch(() => '');
           agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
           console.error('读取实例失败', res.status, detail);
-          agentEntries.value = []; return;
+          agentEntries.value = [];
+          return;
         }
         const data = await res.json();
         const now = Math.floor(Date.now() / 1000);
@@ -562,25 +563,43 @@ createApp({
         Object.keys(data || {}).forEach(code => {
           const item = data[code] || {};
           const last = Number(item.last_seen) || 0;
-          // A future timestamp is invalid and must not keep an Agent online.
           const ageSeconds = now - last;
           const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;
+          const status = item.status && typeof item.status === 'object' ? item.status : {};
+          const reportedAt = Number(status.received_at) || 0;
+          const hostname = String(status.hostname || '');
+          const os = String(status.os || '');
+          const arch = String(status.arch || '');
+          const mihomoVersion = String(status.mihomo_version || '');
+          const runtimeReported = reportedAt > 0 || Boolean(hostname || os || arch || mihomoVersion);
+          const lastError = String(status.last_error || '');
+
+          let runtimeMessage = '';
+          if (!runtimeReported) {
+            runtimeMessage = last > 0
+              ? '有认证通信记录，但没有有效运行状态；请检查 Agent 心跳上报日志、版本和主控地址'
+              : '尚无通信记录；请检查 Agent 是否启动、绑定 Token 和主控地址';
+          } else if (!online) {
+            runtimeMessage = '运行状态已记录，但心跳已超时；请检查 Agent 进程和网络连接';
+          } else if (!status.mihomo_healthy) {
+            runtimeMessage = lastError || 'Agent 已上报，但 Mihomo API 未通过健康检查';
+          }
+
           list.push({
-            code: code,
+            code,
             tokenConfigured: item.token_configured === true,
-            online: online,
+            online,
             last_seen: last,
-            hostname: item.status && item.status.hostname || '',
-            os: item.status && item.status.os || '',
-            arch: item.status && item.status.arch || '',
-            mihomoRunning: Boolean(item.status && item.status.mihomo_healthy),
-            mihomoVersion: item.status && item.status.mihomo_version || '',
-            runtimeReported: Boolean(item.status && (
-              item.status.mihomo_version || item.status.hostname || item.status.os ||
-              item.status.arch || item.status.received_at
-            )),
-            updated_at: item.status && Number(item.status.received_at) > 0
-              ? new Date(Number(item.status.received_at) * 1000).toLocaleString()
+            hostname,
+            os,
+            arch,
+            mihomoRunning: status.mihomo_healthy === true,
+            mihomoVersion,
+            runtimeReported,
+            runtimeMessage,
+            lastError,
+            updated_at: reportedAt > 0 && Number.isFinite(reportedAt)
+              ? new Date(reportedAt * 1000).toLocaleString()
               : '',
             pendingCommand: item.pending_command && typeof item.pending_command === 'object' ? item.pending_command : null,
             commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
@@ -588,8 +607,13 @@ createApp({
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         agentEntries.value = list;
-      } catch (e) { agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。'; console.error('读取实例失败', e); agentEntries.value = []; }
-      finally { agentLoading.value = false; }
+      } catch (e) {
+        agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。';
+        console.error('读取实例失败', e);
+        agentEntries.value = [];
+      } finally {
+        agentLoading.value = false;
+      }
     };
 
     const generateAgentToken = async () => {
