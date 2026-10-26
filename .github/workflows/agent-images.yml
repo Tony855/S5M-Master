@@ -332,7 +332,19 @@ jobs:
           name: s5m-agent-linux-arm64
           path: dist/arm64
 
-      - name: Download RouterOS amd64 archive\n        uses: actions/download-artifact@v4\n        with:\n          name: s5m-agent-routeros-amd64\n          path: dist/routeros-amd64\n\n      - name: Download RouterOS arm64 archive\n        uses: actions/download-artifact@v4\n        with:\n          name: s5m-agent-routeros-arm64\n          path: dist/routeros-arm64\n\n      - name: Publish release and attach archives
+      - name: Download RouterOS amd64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-routeros-amd64
+          path: dist/routeros-amd64
+
+      - name: Download RouterOS arm64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: s5m-agent-routeros-arm64
+          path: dist/routeros-arm64
+
+      - name: Publish release and attach archives
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/s5m-agent-v') && github.ref_name || format('s5m-agent-v{0}', inputs.release_version) }}
@@ -344,4 +356,8 @@ jobs:
             dist/amd64/s5m-agent-linux-amd64.tar
             dist/amd64/s5m-agent-linux-amd64.tar.sha256
             dist/arm64/s5m-agent-linux-arm64.tar
-            dist/arm64/s5m-agent-linux-arm64.tar.sha256\n            dist/routeros-amd64/s5m-agent-routeros-amd64.tar\n            dist/routeros-amd64/s5m-agent-routeros-amd64.tar.sha256\n            dist/routeros-arm64/s5m-agent-routeros-arm64.tar\n            dist/routeros-arm64/s5m-agent-routeros-arm64.tar.sha256
+            dist/arm64/s5m-agent-linux-arm64.tar.sha256
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar.sha256
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar.sha256
