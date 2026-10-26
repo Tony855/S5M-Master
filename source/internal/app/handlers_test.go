@@ -604,7 +604,7 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 
 	const code = "node_overview"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_" + code: "dedicated-secret",
+		"agent_machine_" + code:  "dedicated-secret",
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
 		"agent_status_" + code:   `{"mihomo_version":"v1.19.3","mihomo_healthy":true,"connections":4,"download_speed":100,"upload_speed":50,"download_total":1000,"upload_total":2000}`,
 	}); err != nil {
