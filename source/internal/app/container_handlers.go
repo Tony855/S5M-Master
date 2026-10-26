@@ -142,6 +142,17 @@ func (a *App) handleQueueRouterOSCommand(w http.ResponseWriter, r *http.Request)
 		"command_id": command["id"],
 	})
 }
+func (a *App) handleRouterOSCommandResult(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) { writeErr(w, http.StatusBadRequest, "机器码格式无效"); return }
+	settings, err := a.store.GetSettings()
+	if err != nil { writeErr(w, http.StatusInternalServerError, "读取命令结果失败"); return }
+	raw := settings["agent_command_result_"+code]
+	if raw == "" { writeJSON(w, http.StatusOK, map[string]any{"result": nil}); return }
+	var result map[string]any
+	if err := json.Unmarshal([]byte(raw), &result); err != nil { writeErr(w, http.StatusInternalServerError, "命令结果数据损坏"); return }
+	writeJSON(w, http.StatusOK, map[string]any{"result": result})
+}
 func (a *App) handleContainerNodes(w http.ResponseWriter, r *http.Request) {
 	if !a.requireContainerAdmin(w, r) {
 		return
