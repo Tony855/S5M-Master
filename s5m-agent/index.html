@@ -24,6 +24,8 @@
     .dot.error { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
     .machine-box { display: flex; flex-direction: column; align-items: stretch; gap: 10px; background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.05); }
     .machine-text { font-size: 13px; color: #94a3b8; font-family: monospace; word-break: break-all; max-height: 120px; overflow-y: auto; line-height: 1.4; text-align: left; }
+    .hostname-text { font-size: 14px; color: #e2e8f0; line-height: 1.5; text-align: left; overflow-wrap: anywhere; }
+    .machine-label { color: #64748b; font-size: 11px; margin-bottom: 4px; text-align: left; }
     .btn-copy { width: 100%; padding: 10px; font-size: 14px; background: rgba(76,201,240,0.15); color: #4cc9f0; border: 1px solid rgba(76,201,240,0.3); border-radius: 6px; cursor: pointer; white-space: nowrap; }
   </style>
 </head>
@@ -32,7 +34,8 @@
   <div class="logo">S5</div>
   <h2>节点设备注册</h2>
   <div class="machine-box">
-    <div class="machine-text" id="machineId">获取机器码中...</div>
+    <div><div class="machine-label">主机名</div><div class="hostname-text" id="hostname">读取主机名中...</div></div>
+    <div><div class="machine-label">机器码</div><div class="machine-text" id="machineId">获取机器码中...</div></div>
     <button class="btn-copy" onclick="copyMachineId()">复制</button>
   </div>
   <label>控制台服务器地址</label>
@@ -53,6 +56,10 @@
   }
   window.onload = async () => {
     try {
+      const hostRes = await fetchWithTimeout('/api/hostname');
+      const hostData = await hostRes.json();
+      document.getElementById('hostname').innerText = hostRes.ok && hostData.hostname ? hostData.hostname : '未知';
+
       const idRes = await fetchWithTimeout('/api/machine-id');
       const idData = await idRes.json();
       if (!idRes.ok || !idData.machine_id) throw new Error(idData.error || '机器标识不可用');
@@ -73,7 +80,7 @@
       } else {
         setStatus('', '等待绑定');
       }
-    } catch(e) { document.getElementById('machineId').innerText = '获取超时'; setStatus('error', 'Agent 后端无响应'); }
+    } catch(e) { document.getElementById('machineId').innerText = '获取失败'; if (!document.getElementById('hostname').innerText || document.getElementById('hostname').innerText === '读取主机名中...') document.getElementById('hostname').innerText = '读取失败'; setStatus('error', 'Agent 后端无响应'); }
   };
   function copyMachineId() {
     if (!currentMachineID) return;
