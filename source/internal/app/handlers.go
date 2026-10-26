@@ -1519,6 +1519,14 @@ func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request
 	}
 	arch, _ := status["arch"].(string)
 	arch = strings.ToLower(strings.TrimSpace(arch))
+	// Older Agents may have a valid architecture in the normalized status table
+	// before their heartbeat JSON includes arch. Use that report as a safe fallback.
+	if arch != "amd64" && arch != "x86_64" && arch != "arm64" && arch != "aarch64" {
+		var reportedArch string
+		if queryErr := a.store.db.QueryRow("SELECT arch FROM agent_status WHERE machine_code=?", code).Scan(&reportedArch); queryErr == nil {
+			arch = strings.ToLower(strings.TrimSpace(reportedArch))
+		}
+	}
 	var assetPattern string
 	switch arch {
 	case "amd64", "x86_64":
