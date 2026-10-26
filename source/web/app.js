@@ -630,7 +630,8 @@ createApp({
           const item = data[code] || {};
           const node = nodeByCode[code] || {};
           const last = Number(item.last_seen) || 0;
-          const online = typeof node.online === 'boolean' ? node.online : last > 0 && (now - last) < 90;
+          // Agent connectivity comes from the authenticated Agent heartbeat; container runtime reports may be stale or absent.
+          const online = last > 0 && (now - last) < 90;
           list.push({
             code: code,
             tokenConfigured: item.token_configured === true,
