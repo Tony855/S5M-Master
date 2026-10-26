@@ -95,10 +95,6 @@ for match in __import__("re").finditer(
 ):
     method = match.group(4) or "GET"
     path = match.group(2).split("?", 1)[0]
-    # Legacy task helpers remain temporarily in app.js but are no longer
-    # reachable from the UI; their server routes are intentionally disabled.
-    if "/container/tasks" in path:
-        continue
     ui_api_calls.append((method, path))
 
 missing_api_routes = []
