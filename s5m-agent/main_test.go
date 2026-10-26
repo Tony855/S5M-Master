@@ -369,8 +369,8 @@ func TestPreserveMihomoSecret(t *testing.T) {
 	}
 
 	for name, config := range map[string]map[string]interface{}{
-		"missing": {},
-		"blank":   {"secret": "  "},
+		"missing":    {},
+		"blank":      {"secret": "  "},
 		"wrong type": {"secret": true},
 	} {
 		t.Run(name, func(t *testing.T) {
