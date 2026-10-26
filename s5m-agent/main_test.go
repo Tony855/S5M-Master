@@ -215,6 +215,131 @@ func TestMihomoVersionMatches(t *testing.T) {
 	}
 }
 
+func TestReplaceFileAtomically(t *testing.T) {
+	t.Run("replaces destination with backup", func(t *testing.T) {
+		dir := t.TempDir()
+		destination := filepath.Join(dir, "mihomo")
+		source := filepath.Join(dir, "mihomo.previous")
+		if err := os.WriteFile(destination, []byte("broken-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("known-good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := replaceFileAtomically(source, destination); err != nil {
+			t.Fatalf("replaceFileAtomically() error = %v", err)
+		}
+		got, err := os.ReadFile(destination)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "known-good-old-binary" {
+			t.Fatalf("destination = %q, want old backup content", got)
+		}
+		if _, err := os.Stat(source); !os.IsNotExist(err) {
+			t.Fatalf("backup source should be moved, stat error = %v", err)
+		}
+	})
+	t.Run("keeps destination when backup is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		destination := filepath.Join(dir, "mihomo")
+		if err := os.WriteFile(destination, []byte("current-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		err := replaceFileAtomically(filepath.Join(dir, "missing.previous"), destination)
+		if err == nil {
+			t.Fatal("expected error for missing backup")
+		}
+		got, readErr := os.ReadFile(destination)
+		if readErr != nil {
+			t.Fatalf("destination was lost after failed replacement: %v", readErr)
+		}
+		if string(got) != "current-binary" {
+			t.Fatalf("destination = %q, want current binary unchanged", got)
+		}
+	})
+}
+
+func TestRestoreMihomoKernelWithRestart(t *testing.T) {
+	restartFailure := errors.New("controller connection refused")
+
+	t.Run("restores old binary before restart", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		backupPath := binaryPath + ".previous"
+		if err := os.WriteFile(binaryPath, []byte("bad-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backupPath, []byte("good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		restartCalled := false
+		err := restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+			restartCalled = true
+			got, readErr := os.ReadFile(binaryPath)
+			if readErr != nil {
+				return readErr
+			}
+			if string(got) != "good-old-binary" {
+				return errors.New("old binary was not restored before restart")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("restoreMihomoKernelWithRestart() error = %v", err)
+		}
+		if !restartCalled {
+			t.Fatal("restart callback was not called")
+		}
+	})
+	t.Run("reports restart failure after restoring old binary", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		backupPath := binaryPath + ".previous"
+		if err := os.WriteFile(binaryPath, []byte("bad-new-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(backupPath, []byte("good-old-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		err := restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+			return restartFailure
+		})
+		if !errors.Is(err, restartFailure) {
+			t.Fatalf("error = %v, want wrapped restart failure", err)
+		}
+		got, readErr := os.ReadFile(binaryPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if string(got) != "good-old-binary" {
+			t.Fatalf("binary = %q, want restored old binary", got)
+		}
+	})
+	t.Run("preserves current binary if backup is missing", func(t *testing.T) {
+		dir := t.TempDir()
+		binaryPath := filepath.Join(dir, "mihomo")
+		if err := os.WriteFile(binaryPath, []byte("current-binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		restartCalled := false
+		err := restoreMihomoKernelWithRestart(binaryPath, binaryPath+".previous", func() error {
+			restartCalled = true
+			return nil
+		})
+		if err == nil {
+			t.Fatal("expected error for missing backup")
+		}
+		if restartCalled {
+			t.Fatal("restart must not be requested if file restoration fails")
+		}
+		got, readErr := os.ReadFile(binaryPath)
+		if readErr != nil || string(got) != "current-binary" {
+			t.Fatalf("current binary not preserved: content=%q error=%v", got, readErr)
+		}
+	})
+}
+
 func TestVerifyKernelUpgrade(t *testing.T) {
 	restartFailure := errors.New("restart connection closed")
 	healthFailure := errors.New("version health check timed out")
@@ -328,6 +453,79 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
+func TestRollbackConfigAfterReloadFailure(t *testing.T) {
+	t.Run("restores previous config atomically", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("MIHOMO_HOME", home)
+		mainPath := filepath.Join(home, "config.yaml")
+		previousPath := mainPath + ".previous"
+		current := []byte("secret: new-secret\ntun: {}\ndns: {}\n")
+		previous := []byte("secret: old-secret\ntun: {}\ndns: {}\n")
+		if err := os.WriteFile(mainPath, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(previousPath, previous, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigAfterReloadFailure(); err != nil {
+			t.Fatalf("rollbackConfigAfterReloadFailure() error = %v", err)
+		}
+		got, err := os.ReadFile(mainPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(previous) {
+			t.Fatalf("restored config = %q, want %q", got, previous)
+		}
+		if _, err := os.Stat(mainPath + ".restore"); !os.IsNotExist(err) {
+			t.Fatalf("restore temporary file should be removed, stat error = %v", err)
+		}
+	})
+
+	t.Run("reports missing backup and preserves current config", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("MIHOMO_HOME", home)
+		mainPath := filepath.Join(home, "config.yaml")
+		current := []byte("secret: new-secret\ntun: {}\ndns: {}\n")
+		if err := os.WriteFile(mainPath, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigAfterReloadFailure(); err == nil {
+			t.Fatal("expected error when previous config backup is missing")
+		}
+		got, err := os.ReadFile(mainPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(current) {
+			t.Fatalf("current config changed after failed rollback: %q", got)
+		}
+	})
+}
+
+func TestPreserveMihomoSecret(t *testing.T) {
+	incoming := map[string]interface{}{"secret": "controller-supplied", "mode": "rule"}
+	current := map[string]interface{}{"secret": "local-secret"}
+	if err := preserveMihomoSecret(current, incoming); err != nil {
+		t.Fatalf("preserveMihomoSecret() error = %v", err)
+	}
+	if incoming["secret"] != "local-secret" {
+		t.Fatalf("incoming secret = %#v, want local secret", incoming["secret"])
+	}
+
+	for name, config := range map[string]map[string]interface{}{
+		"missing":    {},
+		"blank":      {"secret": "  "},
+		"wrong type": {"secret": true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := preserveMihomoSecret(config, map[string]interface{}{}); err == nil {
+				t.Fatal("missing or invalid local secret should be rejected")
+			}
+		})
+	}
+}
+
 func TestNormalizeMachineID(t *testing.T) {
 	tests := []struct {
 		name string
@@ -557,6 +755,37 @@ func TestReportHeartbeatFallsBackToHTTPWhenWebSocketFails(t *testing.T) {
 	}
 }
 
+func TestReportHeartbeatFallsBackWhenWebSocketIsUnauthorized(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+	var httpCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/agent/ws":
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("WebSocket Authorization header = %q", r.Header.Get("Authorization"))
+			}
+			http.Error(w, "websocket endpoint not enabled", http.StatusUnauthorized)
+		case "/api/v1/agent/heartbeat":
+			httpCalled = true
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
+	if err != nil {
+		t.Fatalf("reportHeartbeat() fallback error = %v", err)
+	}
+	if !httpCalled {
+		t.Fatal("HTTP fallback was not called after WebSocket authorization failure")
+	}
+}
+
 func TestReportHeartbeatFallsBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
 	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
@@ -597,6 +826,66 @@ func TestReportHeartbeatFallsBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
 	}
 	if !httpCalled {
 		t.Fatal("HTTP fallback was not called after mismatched WebSocket ACK ID")
+	}
+}
+
+func TestReportHeartbeatFallsBackWhenWebSocketAckIsInvalid(t *testing.T) {
+	for _, ack := range []struct {
+		name string
+		msg  map[string]any
+	}{
+		{name: "wrong message type", msg: map[string]any{"type": "welcome", "id": "ignored", "ok": true}},
+		{name: "negative acknowledgement", msg: map[string]any{"type": "heartbeat.ack", "id": "matching-id", "ok": false}},
+	} {
+		t.Run(ack.name, func(t *testing.T) {
+			t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+			httpCalled := false
+			upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v1/agent/ws":
+					conn, err := upgrader.Upgrade(w, r, nil)
+					if err != nil {
+						t.Errorf("upgrade websocket: %v", err)
+						return
+					}
+					defer conn.Close()
+					if err := conn.WriteJSON(map[string]any{"type": "welcome"}); err != nil {
+						t.Errorf("write welcome: %v", err)
+						return
+					}
+					var heartbeat map[string]any
+					if err := conn.ReadJSON(&heartbeat); err != nil {
+						t.Errorf("read heartbeat: %v", err)
+						return
+					}
+					response := map[string]any{}
+					for k, v := range ack.msg {
+						response[k] = v
+					}
+					if ack.name == "negative acknowledgement" {
+						response["id"] = heartbeat["id"]
+					}
+					if err := conn.WriteJSON(response); err != nil {
+						t.Errorf("write ack: %v", err)
+					}
+				case "/api/v1/agent/heartbeat":
+					httpCalled = true
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
+			if err != nil {
+				t.Fatalf("reportHeartbeat() fallback error = %v", err)
+			}
+			if !httpCalled {
+				t.Fatal("HTTP fallback was not called after invalid WebSocket ACK")
+			}
+		})
 	}
 }
 

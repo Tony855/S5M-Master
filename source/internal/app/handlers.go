@@ -1754,11 +1754,9 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
 		return
 	}
-	for _, key := range []string{"mihomo_version", "mihomo_healthy", "upload_total", "download_total", "upload_speed", "download_speed", "connections", "config_sha256", "last_error"} {
-		if _, ok := in[key]; !ok {
-			writeErr(w, http.StatusBadRequest, "缺少心跳字段: "+key)
-			return
-		}
+	if err := validateAgentWSStatus(in); err != nil {
+		writeErr(w, http.StatusBadRequest, "心跳数据无效: "+err.Error())
+		return
 	}
 	code, authErr := a.agentMachineFromRequest(r)
 	if authErr != nil {
@@ -1769,19 +1767,32 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, authErr.Error())
 		return
 	}
-	in["received_at"] = time.Now().Unix()
+	receivedAt := time.Now()
+	in["received_at"] = receivedAt.Unix()
 	payload, err := json.Marshal(in)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "心跳字段无法序列化")
 		return
 	}
+	a.agentWSMu.Lock()
+	if a.agentHeartbeatAt == nil {
+		a.agentHeartbeatAt = make(map[string]int64)
+	}
+	if receivedAt.UnixNano() < a.agentHeartbeatAt[code] {
+		a.agentWSMu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "已忽略较旧的 Agent 心跳"})
+		return
+	}
 	if err := a.store.UpdateSettings(map[string]string{
-		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_lastseen_" + code: strconv.FormatInt(receivedAt.Unix(), 10),
 		"agent_status_" + code:   string(payload),
 	}); err != nil {
+		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
 		return
 	}
+	a.agentHeartbeatAt[code] = receivedAt.UnixNano()
+	a.agentWSMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "received_at": time.Now().Unix()})
 }
 

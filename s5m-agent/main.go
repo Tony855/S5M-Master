@@ -405,7 +405,7 @@ func reportHeartbeat(cfg Config, status map[string]any) error {
 		if err := reportHeartbeatWebSocket(cfg, status); err == nil {
 			return nil
 		} else {
-			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\\n", err)
+			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\n", err)
 		}
 	}
 	return reportHeartbeatHTTP(cfg, status)
@@ -793,15 +793,29 @@ func waitForMihomoVersion(secret, expected string, timeout time.Duration) error 
 	return fmt.Errorf("Mihomo 在 %s 内未通过版本健康检查: %w", timeout, lastErr)
 }
 
+func replaceFileAtomically(sourcePath, destinationPath string) error {
+	// The source and destination must be on the same filesystem for rename to
+	// replace the destination atomically. All Mihomo update files are created
+	// beside the installed binary, so this holds for supported Linux targets.
+	return os.Rename(sourcePath, destinationPath)
+}
+
 // restoreMihomoKernel reinstalls the backup and requests a restart.
 func restoreMihomoKernel(binaryPath, backupPath, secret string) error {
-	if err := os.Remove(binaryPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("删除异常内核失败: %w", err)
-	}
-	if err := os.Rename(backupPath, binaryPath); err != nil {
+	return restoreMihomoKernelWithRestart(binaryPath, backupPath, func() error {
+		return restartMihomo(secret)
+	})
+}
+
+// restoreMihomoKernelWithRestart separates file recovery from the controller
+// request so both failure modes can be tested without a live Mihomo API.
+func restoreMihomoKernelWithRestart(binaryPath, backupPath string, restart func() error) error {
+	// Never remove the new binary before attempting replacement: if the rename
+	// fails, keep the currently installed executable available for recovery.
+	if err := replaceFileAtomically(backupPath, binaryPath); err != nil {
 		return fmt.Errorf("恢复旧内核文件失败: %w", err)
 	}
-	if err := restartMihomo(secret); err != nil {
+	if err := restart(); err != nil {
 		return fmt.Errorf("旧内核文件已恢复，但请求重启失败: %w", err)
 	}
 	return nil
@@ -1166,6 +1180,9 @@ func main() {
 				continue
 			}
 			fmt.Println("已恢复旧配置并重新加载")
+			if err := os.Remove(mihomoConfigPath() + ".previous"); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("旧配置备份清理失败（不影响已恢复的运行配置）: %v\n", err)
+			}
 			continue
 		}
 		_ = os.Remove(mihomoConfigPath() + ".previous")
