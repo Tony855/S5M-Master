@@ -98,7 +98,7 @@ jobs:
           container="s5m-agent-runtime-test"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$data_dir"
+            sudo rm -rf "$data_dir"
             rm -f "$fake_id_file"
           }
           trap cleanup EXIT
@@ -196,7 +196,7 @@ jobs:
           container="s5m-agent-fallback-test"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$data_dir"
+            sudo rm -rf "$data_dir"
             rm -f "$empty_id_file"
           }
           trap cleanup EXIT
@@ -367,7 +367,7 @@ jobs:
           container="s5m-routeros-runtime-${{ matrix.arch }}"
           cleanup() {
             docker rm -f "$container" >/dev/null 2>&1 || true
-            rm -rf "$data_dir"
+            sudo rm -rf "$data_dir"
           }
           trap cleanup EXIT
           docker run -d --name "$container" --platform ${{ matrix.platform }} \
