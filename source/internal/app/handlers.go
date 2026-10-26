@@ -1520,11 +1520,6 @@ func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	agentOS, _ := status["os"].(string)
-	if strings.EqualFold(strings.TrimSpace(agentOS), "routeros") {
-		writeErr(w, http.StatusBadRequest, "该节点是 RouterOS Agent，不支持 Mihomo 内核更新")
-		return
-	}
 	arch, _ := status["arch"].(string)
 	arch = strings.ToLower(strings.TrimSpace(arch))
 	var assetPattern string
