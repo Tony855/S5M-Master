@@ -370,25 +370,41 @@ jobs:
             sudo rm -rf "$data_dir"
           }
           trap cleanup EXIT
-          docker run -d --name "$container" --platform ${{ matrix.platform }} \
-            -p 127.0.0.1::80/tcp -v "$data_dir:/data" \
-            s5m-agent:routeros-${{ matrix.arch }}-test >/dev/null
-          for attempt in $(seq 1 60); do
-            state="$(docker inspect --format '{{.State.Status}}' "$container")"
-            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
-            if [[ "$state" != "running" ]]; then docker logs "$container" >&2; exit 1; fi
-            if [[ "$health" == "healthy" ]]; then break; fi
-            sleep 2
-          done
-          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]] || {
-            docker logs "$container" >&2
-            docker inspect --format '{{json .State.Health}}' "$container" >&2
-            exit 1
+          start_and_check() {
+            docker run -d --name "$container" --platform ${{ matrix.platform }} \
+              -p 127.0.0.1::80/tcp -v "$data_dir:/data" \
+              s5m-agent:routeros-${{ matrix.arch }}-test >/dev/null
+            for attempt in $(seq 1 60); do
+              state="$(docker inspect --format '{{.State.Status}}' "$container")"
+              health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+              if [[ "$state" != "running" ]]; then docker logs "$container" >&2; exit 1; fi
+              if [[ "$health" == "healthy" ]]; then break; fi
+              sleep 2
+            done
+            [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]] || {
+              docker logs "$container" >&2
+              docker inspect --format '{{json .State.Health}}' "$container" >&2
+              exit 1
+            }
+            port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+            curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${port}/api/config" >/dev/null
           }
-          port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
-          curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${port}/api/config" >/dev/null
+          start_and_check
           test -x "$data_dir/bin/mihomo"
           test -s "$data_dir/config.yaml"
+          kernel_hash="$(sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')"
+          config_hash="$(sha256sum "$data_dir/config.yaml" | awk '{print $1}')"
+          # Recreate the container while keeping RouterOS's persistent /data mount.
+          docker rm -f "$container" >/dev/null
+          start_and_check
+          [[ "$(sha256sum "$data_dir/bin/mihomo" | awk '{print $1}')" == "$kernel_hash" ]] || {
+            echo "Persistent Mihomo kernel changed after container recreation" >&2
+            exit 1
+          }
+          [[ "$(sha256sum "$data_dir/config.yaml" | awk '{print $1}')" == "$config_hash" ]] || {
+            echo "Persistent Mihomo configuration changed after container recreation" >&2
+            exit 1
+          }
 
       - name: Export RouterOS image archive
         shell: bash
