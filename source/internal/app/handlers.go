@@ -1754,11 +1754,9 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
 		return
 	}
-	for _, key := range []string{"mihomo_version", "mihomo_healthy", "upload_total", "download_total", "upload_speed", "download_speed", "connections", "config_sha256", "last_error"} {
-		if _, ok := in[key]; !ok {
-			writeErr(w, http.StatusBadRequest, "缺少心跳字段: "+key)
-			return
-		}
+	if err := validateAgentWSStatus(in); err != nil {
+		writeErr(w, http.StatusBadRequest, "心跳数据无效: "+err.Error())
+		return
 	}
 	code, authErr := a.agentMachineFromRequest(r)
 	if authErr != nil {
