@@ -1000,7 +1000,6 @@ func main() {
 			continue
 		}
 
-
 		if err := processAgentCommand(cfg); err != nil {
 			fmt.Printf("Agent 命令处理失败: %v\n", err)
 		}
