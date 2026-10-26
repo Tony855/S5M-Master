@@ -1026,9 +1026,6 @@ func (a *App) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, snapshotPath)
 }
 func (a *App) handleRestoreBackup(w http.ResponseWriter, r *http.Request) {
-	if !a.requireContainerAdmin(w, r) {
-		return
-	}
 	const maxBackupSize = int64(128 << 20)
 	if strings.TrimSpace(a.cfg.DBPath) == "" || a.cfg.DBPath == ":memory:" {
 		writeErr(w, http.StatusBadRequest, "当前数据库路径不支持文件恢复")

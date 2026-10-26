@@ -120,22 +120,15 @@ CREATE TABLE IF NOT EXISTS settings(
  key TEXT PRIMARY KEY,
  value TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS agent_status(
- machine_code TEXT PRIMARY KEY,
- hostname TEXT NOT NULL DEFAULT '',
- os TEXT NOT NULL DEFAULT '',
- arch TEXT NOT NULL DEFAULT '',
- docker_available INTEGER NOT NULL DEFAULT 0,
- mihomo_running INTEGER NOT NULL DEFAULT 0,
- mihomo_version TEXT NOT NULL DEFAULT '',
- status_json TEXT NOT NULL DEFAULT '{}',
- updated_at TEXT NOT NULL
-);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
 	_, err := s.db.Exec(schema)
 	if err != nil {
 		return err
+	}
+	// Remove the obsolete table used only by the deleted container-management telemetry.
+	if _, err := s.db.Exec(`DROP TABLE IF EXISTS agent_status`); err != nil {
+		return fmt.Errorf("清理已废弃的 Agent 状态表失败: %w", err)
 	}
 	// 安全补全旧表字段
 	var count int
@@ -407,9 +400,6 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 		if _, err := tx.Exec(`DELETE FROM settings WHERE key=?`, key); err != nil {
 			return err
 		}
-	}
-	if _, err := tx.Exec(`DELETE FROM agent_status WHERE machine_code=?`, machineCode); err != nil {
-		return err
 	}
 	return tx.Commit()
 }

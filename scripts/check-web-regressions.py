@@ -12,7 +12,8 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
-    "Agent online state uses authenticated heartbeat rather than container runtime status": "const online = last > 0 && (now - last) < 90;" in app_js and "typeof node.online === 'boolean' ? node.online" not in app_js,
+    "Agent online state uses authenticated heartbeat without container runtime API": "const online = last > 0 && (now - last) < 90;" in app_js and "/api/v1/container/" not in app_js and "dockerTask" not in app_js and "routerOSCommand" not in app_js,
+    "container-management routes, handlers, and Agent task polling remain removed": not Path("source/internal/app/container_handlers.go").exists() and not Path("source/internal/app/container_auth.go").exists() and "/api/v1/container/" not in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "processContainerTask" not in Path("s5m-agent/main.go").read_text(encoding="utf-8") and "reportContainerStatus" not in Path("s5m-agent/main.go").read_text(encoding="utf-8"),
     "mobile instance grid rule is not duplicated": Path("source/web/app.css").read_text(encoding="utf-8").count(".instance-list{grid-template-columns:minmax(0,1fr)}") == 1,
     "installer snapshots and restores env and node Mihomo YAML during failed health-check rollback": 'cp -a "$ENV_FILE" "$BACKUP/s5m-server.env"' in Path("scripts/install.sh").read_text(encoding="utf-8") and 'cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"' in Path("scripts/install.sh").read_text(encoding="utf-8") and 'cp -a "$DB_DIR/config.yaml" "$BACKUP/config.yaml"' in Path("scripts/install.sh").read_text(encoding="utf-8") and 'cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"' in Path("scripts/install.sh").read_text(encoding="utf-8"),
     "Mihomo API settings are detected only at YAML top level and controller stays loopback-only": "s/^secret:[[:space:]]*" in Path("scripts/install.sh").read_text(encoding="utf-8") and "s/^external-controller:[[:space:]]*" in Path("scripts/install.sh").read_text(encoding="utf-8") and "grep -qE '^secret[[:space:]]*:'" in Path("scripts/install.sh").read_text(encoding="utf-8") and "grep -qE '^external-controller[[:space:]]*:'" in Path("scripts/install.sh").read_text(encoding="utf-8") and "127.0.0.1:%s" in Path("scripts/install.sh").read_text(encoding="utf-8"),
@@ -20,7 +21,6 @@ checks = {
     "legacy unused frontend helpers remain removed": all(not __import__("re").search(r"\b" + name + r"\b", app_js) for name in ("parseProxyLine", "loadConfig", "saveConfig", "publishConfig")),
     "system logs query current and legacy service units and report journal read errors": 'exec.Command("journalctl", "-u", "s5m-server", "-u", "s5m-next"' in handlers and "读取 S5M systemd 日志失败" in handlers and "SupplementaryGroups=systemd-journal" in Path("scripts/install.sh").read_text(encoding="utf-8"),
     "shared JSON decoder bounds request bodies and rejects trailing JSON values": "const maxJSONRequestBody = 2 << 20" in handlers and "func decodeLimited(r *http.Request, maxBytes int64, sizeLabel string, v any) error" in handlers and "io.LimitReader(r.Body, maxBytes+1)" in handlers and "decodeLimited(r, maxJSONRequestBody, \"2 MiB\", v)" in handlers and "TestDecodeBoundsJSONRequestBody" in handlers_test,
-    "container Agent status uses shared bounded decoder and returns 413 for oversized JSON": "decodeLimited(r, 32<<10, \"32 KiB\", &in)" in Path("source/internal/app/container_handlers.go").read_text(encoding="utf-8") and "writeErr(w, decodeErrorStatus(err), \"状态数据格式错误\")" in Path("source/internal/app/container_handlers.go").read_text(encoding="utf-8"),
     "bulk proxy import bounds request body and uses validated structured parser": "http.MaxBytesReader(w, r.Body, 1<<20)" in handlers and "parseProxyImportContent(in.Content)" in import_handler and "func parseProxyImportContent(content string)" in handlers,
     "proxy validation rejects unsupported protocols and normalizes supported protocol": "代理类型无效" in handlers and '"socks5", "http", "ss", "vmess", "vless", "trojan"' in handlers and "TestValidateProxyRejectsUnsupportedProtocol" in handlers_test,
     "instance creation trims and validates name, machine code, and HTTP API URL": "func validateInstance(in *Instance) string" in handlers and "url.ParseRequestURI(in.APIURL)" in handlers and "TestValidateInstance" in handlers_test,
@@ -96,10 +96,6 @@ for match in __import__("re").finditer(
 ):
     method = match.group(4) or "GET"
     path = match.group(2).split("?", 1)[0]
-    # Legacy task helpers remain temporarily in app.js but are no longer
-    # reachable from the UI; their server routes are intentionally disabled.
-    if "/container/tasks" in path:
-        continue
     ui_api_calls.append((method, path))
 
 missing_api_routes = []
