@@ -293,7 +293,7 @@ func TestHTTPAgentHeartbeatDoesNotOverwriteNewerHeartbeat(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	newerStatus := `{"mihomo_version":"newer","mihomo_healthy":true,"upload_total":12,"download_total":34,"upload_speed":1,"download_speed":2,"connections":3,"config_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","last_error":"","received_at":123}`
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_status_" + code: newerStatus,
+		"agent_status_" + code:   newerStatus,
 		"agent_lastseen_" + code: "123",
 	}); err != nil {
 		t.Fatalf("seed newer status: %v", err)
