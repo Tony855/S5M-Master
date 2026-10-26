@@ -127,6 +127,7 @@ sudo docker run -d \
   --name s5m-agent \
   --restart unless-stopped \
   --init \
+  -e S5M_HOSTNAME="$(hostname)" \
   -p 80:80 \
   -p 7890:7890 \
   -v /opt/s5m-agent/data:/data \
@@ -149,6 +150,7 @@ sudo docker logs --tail 200 s5m-agent
 sudo docker inspect s5m-agent --format '{{json .State.Health}}'
 sudo docker exec s5m-agent /usr/local/bin/mihomo -v
 curl -fsS http://127.0.0.1:80/api/machine-id
+curl -fsS http://127.0.0.1:80/api/hostname
 curl -fsS http://127.0.0.1:80/api/config
 ```
 
@@ -206,7 +208,7 @@ RouterOS 设备 CPU/内存和闪存资源差异很大。Mihomo 规则集和配�
 
 1. 登录 S5M 主控管理界面，进入 Agent/节点管理，创建或查看该节点的注册授权密钥。
 2. 在浏览器打开 Agent 地址：`http://节点IP:80/`（若自定义宿主端口，请使用对应端口）。
-3. 在绑定页面填写主控完整地址，例如 `http://主控IP` 或配置 TLS 后的 `https://主控域名`，以及节点注册授权密钥，然后提交。
+3. 注册页面会在机器码上方显示主机名。Linux/Docker 部署请传入宿主机的 `S5M_HOSTNAME` 环境变量（见第 5.3 节）；否则默认值可能是容器自身的 hostname/容器 ID。\n4. 在绑定页面填写主控完整地址，例如 `http://主控IP` 或配置 TLS 后的 `https://主控域名`，以及节点注册授权密钥，然后提交。
 4. 回到主控节点列表，确认该节点已出现。
 5. 等待至少一个心跳周期（约 30 秒），查看主控在线状态与 Agent 日志，确认心跳和状态上报持续正常。
 
@@ -233,6 +235,7 @@ sudo docker run -d \
   --name s5m-agent \
   --restart unless-stopped \
   --init \
+  -e S5M_HOSTNAME="$(hostname)" \
   -p 80:80 \
   -p 7890:7890 \
   -v /opt/s5m-agent/data:/data \
