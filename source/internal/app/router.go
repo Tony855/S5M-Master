@@ -97,7 +97,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/proxies":                   a.handleListProxies,
 		"POST /api/v1/proxies":                  a.handleCreateProxy,
 		"POST /api/v1/proxies/import":           a.handleImportProxies,
-		"PUT /api/v1/proxies/{id}":            a.handleUpdateProxy,
+		"PUT /api/v1/proxies/{id}":              a.handleUpdateProxy,
 		"DELETE /api/v1/proxies/{id}":           a.handleDeleteProxy,
 		"GET /api/v1/config/preview":            a.handlePreview,
 		"POST /api/v1/config/save":              a.handleSaveConfig,
@@ -113,7 +113,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/container/nodes":           a.handleContainerNodes,
 		"POST /api/v1/container/tasks":          a.handleCreateContainerTask,
 		"GET /api/v1/container/tasks":           a.handleListContainerTasks,
-		"DELETE /api/v1/container/tasks/{id}": a.handleCancelContainerTask,
+		"DELETE /api/v1/container/tasks/{id}":   a.handleCancelContainerTask,
 	}
 	// Only explicitly read-only/user-scoped endpoints are available to any
 	// authenticated account. Mutating and infrastructure-wide endpoints require admin.
