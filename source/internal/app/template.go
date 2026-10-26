@@ -333,3 +333,77 @@ func (a *App) handleApplyMihomoTemplate(w http.ResponseWriter, r *http.Request) 
 
 // Ensure the file's JSON contract stays explicit for future API evolution.
 var _ = json.Valid
+
+
+func (a *App) handleRollbackNodeTemplate(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		Confirm bool `json:"confirm"`
+	}
+	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil {
+		writeErr(w, 400, "请求 JSON 无效")
+		return
+	}
+	code := strings.TrimSpace(in.MachineCode)
+	if code == "" || !in.Confirm {
+		writeErr(w, 400, "必须选择节点并明确确认恢复")
+		return
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		writeErr(w, 500, "读取节点授权状态失败")
+		return
+	}
+	mt := settings["agent_machine_"+code]
+	if mt == "" || mt == settings["agent_token"] {
+		writeErr(w, 404, "节点未授权")
+		return
+	}
+	tx, err := a.store.db.Begin()
+	if err != nil {
+		writeErr(w, 500, "开始恢复事务失败")
+		return
+	}
+	defer tx.Rollback()
+
+	var historyID int64
+	var previousYAML, previousSource string
+	var previousVersion int
+	err = tx.QueryRow("SELECT id, previous_yaml, previous_template_version, previous_source FROM node_template_history WHERE machine_code=? ORDER BY id DESC LIMIT 1", code).Scan(&historyID, &previousYAML, &previousVersion, &previousSource)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			writeErr(w, 404, "该节点没有可恢复的配置备份")
+		} else {
+			writeErr(w, 500, "读取节点配置备份失败")
+		}
+		return
+	}
+	var currentYAML string
+	_ = tx.QueryRow("SELECT yaml_text FROM node_configs WHERE machine_code=?", code).Scan(&currentYAML)
+	var currentVersion int
+	var currentSource string
+	_ = tx.QueryRow("SELECT template_version, source FROM node_template_bindings WHERE machine_code=?", code).Scan(&currentVersion, &currentSource)
+	if strings.TrimSpace(currentSource) == "" {
+		currentSource = "independent"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if strings.TrimSpace(currentYAML) != "" {
+		if _, err := tx.Exec("INSERT INTO node_template_history(machine_code,previous_yaml,previous_template_version,previous_source,created_at) VALUES(?,?,?,?,?)", code, currentYAML, currentVersion, currentSource, now); err != nil {
+			writeErr(w, 500, "备份当前节点配置失败")
+			return
+		}
+	}
+	if _, err := tx.Exec("UPDATE node_configs SET yaml_text=?, updated_at=? WHERE machine_code=?", previousYAML, now, code); err != nil {
+		writeErr(w, 500, "恢复节点配置失败")
+		return
+	}
+	if _, err := tx.Exec("INSERT INTO node_template_bindings(machine_code,template_version,config_sha256,source,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(machine_code) DO UPDATE SET template_version=excluded.template_version,config_sha256=excluded.config_sha256,source=excluded.source,updated_at=excluded.updated_at", code, previousVersion, hashConfig(previousYAML), previousSource, now); err != nil {
+		writeErr(w, 500, "恢复节点模板版本信息失败")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, 500, "提交节点配置恢复失败")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"message":"已恢复节点最近一次配置备份；恢复前配置也已备份，可再次恢复", "machine_code":code, "template_version":previousVersion, "history_id":historyID})
+}
