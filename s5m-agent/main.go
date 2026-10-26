@@ -450,15 +450,15 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 		return fmt.Errorf("WebSocket 欢迎消息类型无效")
 	}
 	if err := conn.WriteJSON(map[string]any{
-		"type": "heartbeat",
-		"id": fmt.Sprintf("hb-%d", time.Now().UnixNano()),
+		"type":   "heartbeat",
+		"id":     fmt.Sprintf("hb-%d", time.Now().UnixNano()),
 		"status": status,
 	}); err != nil {
 		return fmt.Errorf("发送 WebSocket 心跳失败：%w", err)
 	}
 	var ack struct {
 		Type string `json:"type"`
-		OK bool `json:"ok"`
+		OK   bool   `json:"ok"`
 	}
 	if err := conn.ReadJSON(&ack); err != nil {
 		return fmt.Errorf("读取 WebSocket 心跳确认失败：%w", err)
