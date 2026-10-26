@@ -12,6 +12,7 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "Agent online state uses authenticated heartbeat rather than container runtime status": "const online = last > 0 && (now - last) < 90;" in app_js and "typeof node.online === 'boolean' ? node.online" not in app_js,
     "mobile instance grid rule is not duplicated": Path("source/web/app.css").read_text(encoding="utf-8").count(".instance-list{grid-template-columns:minmax(0,1fr)}") == 1,
     "Mihomo API settings are detected only at YAML top level and controller stays loopback-only": "s/^secret:[[:space:]]*" in Path("scripts/install.sh").read_text(encoding="utf-8") and "s/^external-controller:[[:space:]]*" in Path("scripts/install.sh").read_text(encoding="utf-8") and "grep -qE '^secret[[:space:]]*:'" in Path("scripts/install.sh").read_text(encoding="utf-8") and "grep -qE '^external-controller[[:space:]]*:'" in Path("scripts/install.sh").read_text(encoding="utf-8") and "127.0.0.1:%s" in Path("scripts/install.sh").read_text(encoding="utf-8"),
     "Mihomo systemd unit includes required config-file DAC capability": "CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_DAC_OVERRIDE" in Path("scripts/install.sh").read_text(encoding="utf-8") and "AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_DAC_OVERRIDE" in Path("scripts/install.sh").read_text(encoding="utf-8"),
