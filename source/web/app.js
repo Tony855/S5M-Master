@@ -1202,20 +1202,6 @@ const safeCopy = async (text) => {
       }
     };
 
-    const loadConfigVersions = async () => {
-      loadingConfigVersions.value = true;
-      try {
-        const res = await api('/api/v1/config/versions?t=' + Date.now());
-        const data = await res.json().catch(() => []);
-        if (!res.ok) throw new Error(data.error || data.message || '读取配置版本失败');
-        configVersions.value = Array.isArray(data) ? data : [];
-      } catch (e) {
-        showMsg(e.message || '读取配置版本失败', 'error');
-      } finally {
-        loadingConfigVersions.value = false;
-      }
-    };
-
     const loadSettings = async () => {
       try {
         const res = await api('/api/v1/settings?t=' + Date.now());
