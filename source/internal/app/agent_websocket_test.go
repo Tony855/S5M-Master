@@ -289,6 +289,48 @@ func TestHTTPAgentHeartbeatRejectsInvalidTelemetry(t *testing.T) {
 	}
 }
 
+func TestHTTPAgentHeartbeatDoesNotOverwriteNewerHeartbeat(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	newerStatus := `{"mihomo_version":"newer","mihomo_healthy":true,"upload_total":12,"download_total":34,"upload_speed":1,"download_speed":2,"connections":3,"config_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","last_error":"","received_at":123}`
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code: newerStatus,
+		"agent_lastseen_" + code: "123",
+	}); err != nil {
+		t.Fatalf("seed newer status: %v", err)
+	}
+	app.agentHeartbeatAt = map[string]int64{code: time.Now().Add(time.Minute).UnixNano()}
+
+	status := map[string]any{
+		"mihomo_version": "older",
+		"mihomo_healthy": true,
+		"upload_total":   float64(1),
+		"download_total": float64(2),
+		"upload_speed":   float64(3),
+		"download_speed": float64(4),
+		"connections":    float64(1),
+		"config_sha256":  strings.Repeat("b", 64),
+		"last_error":     "",
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != newerStatus || settings["agent_lastseen_"+code] != "123" {
+		t.Fatalf("stale heartbeat overwrote newer status: %#v", settings)
+	}
+}
+
 func TestAgentWebSocketRejectsHeartbeatMissingRequiredFields(t *testing.T) {
 	app, _, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
