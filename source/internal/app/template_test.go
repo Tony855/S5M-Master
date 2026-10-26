@@ -4,8 +4,8 @@ import "testing"
 
 func TestValidateMihomoTemplate(t *testing.T) {
 	tests := []struct {
-		name string
-		yaml string
+		name    string
+		yaml    string
 		wantErr bool
 	}{
 		{name: "valid mapping", yaml: "mixed-port: 7890\nmode: rule\n"},
