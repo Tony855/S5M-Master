@@ -133,8 +133,33 @@ func run()error{
 	c,err:=loadConfig();if err!=nil{return err};client:=&http.Client{Timeout:20*time.Second};token,err:=register(client,c);if err!=nil{return fmt.Errorf("register with S5M: %w",err)}
 	fmt.Printf("S5M RouterOS Agent registered as %s; API-SSL %s\n",c.MachineCode,c.RouterOSAddr)
 	for{
-		_,probeErr:=c.command("/system/resource/print","=.proplist=version,board-name,architecture-name,uptime")
-		statusPayload,_:=json.Marshal(map[string]any{"hostname":"routeros-"+c.MachineCode,"os":"routeros","arch":"unknown","docker_available":false,"mihomo_running":false,"mihomo_version":"","status_json":map[string]any{"routeros_available":probeErr==nil,"routeros_api_addr":c.RouterOSAddr,"last_error":errorString(probeErr)}})
+		resourceRows, probeErr := c.command("/system/resource/print", "=.proplist=version,board-name,architecture-name,uptime")
+		hostname := "routeros-" + c.MachineCode
+		arch := "unknown"
+		resource := map[string]string{}
+		if len(resourceRows) > 0 {
+			resource = resourceRows[0]
+			if value := strings.TrimSpace(resource["architecture-name"]); value != "" {
+				arch = value
+			}
+		}
+		if identityRows, identityErr := c.command("/system/identity/print", "=.proplist=name"); identityErr == nil && len(identityRows) > 0 {
+			if name := strings.TrimSpace(identityRows[0]["name"]); name != "" {
+				hostname = name
+			}
+		} else if probeErr == nil && identityErr != nil {
+			probeErr = fmt.Errorf("read RouterOS identity: %w", identityErr)
+		}
+		statusPayload, _ := json.Marshal(map[string]any{
+			"hostname": hostname, "os": "routeros", "arch": arch,
+			"docker_available": false, "mihomo_running": false, "mihomo_version": "",
+			"status_json": map[string]any{
+				"routeros_available": probeErr == nil, "routeros_api_addr": c.RouterOSAddr,
+				"routeros_version": resource["version"], "board_name": resource["board-name"],
+				"architecture_name": resource["architecture-name"], "uptime": resource["uptime"],
+				"last_error": errorString(probeErr),
+			},
+		})
 		resp,reqErr:=request(client,http.MethodPost,c.CentralURL+"/api/v1/agent/container/status",token,statusPayload);if reqErr==nil{io.Copy(io.Discard,io.LimitReader(resp.Body,1024));resp.Body.Close()}else{fmt.Printf("status report failed: %v\n",reqErr)}
 		if err := processAgentCommand(client, c, token); err != nil { fmt.Printf("RouterOS command processing failed: %v\n", err) }
 		time.Sleep(5*time.Second)
