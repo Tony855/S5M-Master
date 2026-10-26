@@ -3,6 +3,9 @@ services:
     image: ghcr.io/tony855/s5m-agent:dev
     container_name: s5m-agent
     restart: unless-stopped
+    environment:
+      # Pass the host OS hostname; otherwise Docker may expose the container ID.
+      S5M_HOSTNAME: ${S5M_HOSTNAME:-}
     ports:
       - "80:80"
       - "7890:7890"
