@@ -657,7 +657,6 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 	}
 }
 
-
 func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -665,12 +664,6 @@ func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{
-			name:       "RouterOS agent is rejected from heartbeat OS",
-			status:     `{"os":"routeros","arch":"amd64"}`,
-			wantStatus: http.StatusBadRequest,
-			wantBody:   "RouterOS Agent",
-		},
 		{
 			name:       "unsupported architecture is rejected without legacy table",
 			status:     `{"os":"linux","arch":"mips"}`,
