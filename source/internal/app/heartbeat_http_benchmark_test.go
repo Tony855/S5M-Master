@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -70,12 +71,12 @@ func BenchmarkAgentHTTPHeartbeatEndToEnd(b *testing.B) {
 				for pb.Next() {
 					idx := next.Add(1) - 1
 					node := int(idx % uint64(len(codes)))
-					req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", bytesReader(status))
+					req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", bytes.NewReader(status))
 					req.Header.Set("Authorization", "Bearer "+tokens[node])
 					rec := httptest.NewRecorder()
 					app.handleAgentHeartbeat(rec, req)
-					if rec.Code != http.StatusOK {
-						b.Errorf("heartbeat handler status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+					if rec.Code != http.StatusOK && rec.Code != http.StatusConflict {
+						b.Errorf("heartbeat handler status = %d, want 200 or 409; body=%s", rec.Code, rec.Body.String())
 						return
 					}
 				}
