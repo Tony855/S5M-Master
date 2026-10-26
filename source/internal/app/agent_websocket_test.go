@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -137,4 +138,93 @@ func TestAgentWebSocketRejectsHeartbeatMissingRequiredFields(t *testing.T) {
 	var response map[string]any
 	if err := conn.ReadJSON(&response); err != nil { t.Fatalf("read validation response: %v", err) }
 	if response["type"] != "error" || response["id"] != "hb-bad" { t.Fatalf("unexpected validation response: %#v", response) }
+}
+
+
+func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
+	valid := func() map[string]any {
+		return map[string]any{
+			"mihomo_version": "v1.19.3",
+			"mihomo_healthy": true,
+			"upload_total": float64(12),
+			"download_total": float64(34),
+			"upload_speed": float64(1),
+			"download_speed": float64(2),
+			"connections": float64(3),
+			"config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"last_error": "",
+		}
+	}
+	tests := []struct {
+		name string
+		mutate func(map[string]any)
+		wantErr bool
+	}{
+		{name: "valid", mutate: func(map[string]any) {}},
+		{name: "empty hash allowed", mutate: func(s map[string]any) { s["config_sha256"] = "" }},
+		{name: "healthy without version", mutate: func(s map[string]any) { s["mihomo_version"] = "" }, wantErr: true},
+		{name: "wrong healthy type", mutate: func(s map[string]any) { s["mihomo_healthy"] = "true" }, wantErr: true},
+		{name: "negative counter", mutate: func(s map[string]any) { s["upload_total"] = float64(-1) }, wantErr: true},
+		{name: "fractional counter", mutate: func(s map[string]any) { s["download_total"] = float64(1.5) }, wantErr: true},
+		{name: "wrong connections type", mutate: func(s map[string]any) { s["connections"] = "many" }, wantErr: true},
+		{name: "invalid hash", mutate: func(s map[string]any) { s["config_sha256"] = "abc" }, wantErr: true},
+		{name: "oversized error", mutate: func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }, wantErr: true},
+		{name: "missing field", mutate: func(s map[string]any) { delete(s, "connections") }, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := valid()
+			tt.mutate(status)
+			err := validateAgentWSStatus(status)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateAgentWSStatus() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total": float64(12),
+		"download_total": float64(34),
+		"upload_speed": float64(1),
+		"download_speed": float64(2),
+		"connections": "many",
+		"config_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"last_error": "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-invalid", "status": status}); err != nil {
+		t.Fatalf("send invalid heartbeat: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read validation response: %v", err)
+	}
+	if response["type"] != "error" || response["id"] != "hb-invalid" {
+		t.Fatalf("unexpected validation response: %#v", response)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatal("invalid heartbeat must not be persisted")
+	}
 }
