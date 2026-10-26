@@ -62,7 +62,9 @@ jobs:
           sh -n cont-init.d/10-mihomo-config
           sh -n services/mihomo/run
           sh -n services/agent/run
-          sh -n routeros-entrypoint.sh
+          sh -n routeros/cont-init.d/10-mihomo-config
+          sh -n routeros/services/mihomo/run
+          sh -n routeros/services/agent/run
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -92,11 +94,13 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
-          entry = Path("s5m-agent/routeros-entrypoint.sh").read_text(encoding="utf-8")
+          init = Path("s5m-agent/routeros/cont-init.d/10-mihomo-config").read_text(encoding="utf-8")
           dockerfile = Path("s5m-agent/Dockerfile.routeros").read_text(encoding="utf-8")
           assert 'filepath.Join(mihomoHome(), "bin", "mihomo")' in main
           assert 'S5M_ROUTEROS=1' in dockerfile
-          assert 'MIHOMO_HOME}/bin/mihomo' in entry
+          assert 'MIHOMO_HOME}/bin/mihomo' in init
+          assert 'ENTRYPOINT ["/init"]' in dockerfile
+          assert 's6-overlay' in dockerfile
           assert 'processContainerTask' not in main
           assert 'reportContainerStatus' not in main
           print("RouterOS persistent kernel profile verified; remote container task handlers remain absent")
