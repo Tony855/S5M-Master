@@ -50,6 +50,7 @@ createApp({
     const selectedTemplateNode = ref('');
     const selectedTemplateVersion = ref(null);
     const savingTemplate = ref(false);
+    const validatingTemplate = ref(false);
     const publishingTemplate = ref(false);
     const applyingTemplate = ref(false);
     const publishing = ref(false);
@@ -737,6 +738,22 @@ createApp({
       } catch (e) { showMsg(e.message || '读取节点版本状态失败', 'error'); }
     };
 
+    const validateMihomoTemplateRuntime = async () => {
+      if (!String(templateYaml.value || '').trim()) { showMsg('模板 YAML 不能为空', 'warning'); return; }
+      if (validatingTemplate.value) return;
+      validatingTemplate.value = true;
+      try {
+        const res = await api('/api/v1/mihomo/template/validate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml: templateYaml.value })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error([data.error || data.message || 'Mihomo 内核校验失败', data.detail].filter(Boolean).join('：'));
+        showMsg(data.message || 'Mihomo 内核校验通过', 'success');
+      } catch (e) { showMsg(e.message || 'Mihomo 内核校验失败', 'error'); }
+      finally { validatingTemplate.value = false; }
+    };
+
     const saveMihomoTemplate = async () => {
       if (!String(templateYaml.value || '').trim()) { showMsg('模板 YAML 不能为空', 'warning'); return; }
       if (savingTemplate.value) return;
@@ -987,8 +1004,8 @@ const safeCopy = async (text) => {
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
-      selectedTemplateNode, selectedTemplateVersion, savingTemplate, publishingTemplate, applyingTemplate,
-      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, publishMihomoTemplate, applyMihomoTemplate, rollbackMihomoTemplate,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, applyMihomoTemplate, rollbackMihomoTemplate,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
       openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
