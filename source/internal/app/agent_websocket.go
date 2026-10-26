@@ -105,6 +105,25 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		return // The upgrader has already written the HTTP error response.
 	}
 	defer conn.Close()
+
+	// A newly authenticated connection supersedes any older connection for the
+	// same Agent. Older sockets may still be blocked in ReadJSON, so every
+	// heartbeat must verify its generation before it can mutate persisted state.
+	a.agentWSMu.Lock()
+	if a.agentWSGeneration == nil {
+		a.agentWSGeneration = make(map[string]uint64)
+	}
+	a.agentWSGeneration[machineCode]++
+	generation := a.agentWSGeneration[machineCode]
+	a.agentWSMu.Unlock()
+	defer func() {
+		a.agentWSMu.Lock()
+		if a.agentWSGeneration[machineCode] == generation {
+			delete(a.agentWSGeneration, machineCode)
+		}
+		a.agentWSMu.Unlock()
+	}()
+
 	conn.SetReadLimit(agentWSMaxMessageBytes)
 	_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 	conn.SetPongHandler(func(string) error {
@@ -145,10 +164,21 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		now := strconv.FormatInt(time.Now().Unix(), 10)
+		a.agentWSMu.Lock()
+		if a.agentWSGeneration[machineCode] != generation {
+			a.agentWSMu.Unlock()
+			_ = conn.WriteJSON(map[string]string{
+				"type":    "error",
+				"id":      msg.ID,
+				"message": "Agent WebSocket 连接已被更新连接取代",
+			})
+			return
+		}
 		if err := a.store.UpdateSettings(map[string]string{
 			"agent_lastseen_" + machineCode: now,
 			"agent_status_" + machineCode:   string(payload),
 		}); err != nil {
+			a.agentWSMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -156,6 +186,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
+		a.agentWSMu.Unlock()
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := conn.WriteJSON(map[string]any{
 			"type": "heartbeat.ack",
