@@ -33,8 +33,7 @@ createApp({
         const matchesQuery = !query || [item.code, item.hostname, item.os, item.arch].some(value => String(value || '').toLowerCase().includes(query));
         const matchesStatus = agentStatusFilter.value === 'all'
           || (agentStatusFilter.value === 'online' && item.online)
-          || (agentStatusFilter.value === 'offline' && !item.online)
-          ;
+          || (agentStatusFilter.value === 'offline' && !item.online);
         return matchesQuery && matchesStatus;
       });
     });
