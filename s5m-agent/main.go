@@ -398,15 +398,14 @@ func collectMihomoStatus() map[string]any {
 	return status
 }
 
-// reportHeartbeat prefers the opt-in WebSocket telemetry path. HTTP remains the
-// compatibility fallback so config polling and command processing are unchanged.
+// reportHeartbeat uses WebSocket as the primary telemetry channel.
+// HTTP is retained only as a compatibility fallback if the WebSocket handshake,
+// heartbeat exchange, or acknowledgement fails.
 func reportHeartbeat(cfg Config, status map[string]any) error {
-	if strings.TrimSpace(os.Getenv("S5M_AGENT_WEBSOCKET")) == "1" {
-		if err := reportHeartbeatWebSocket(cfg, status); err == nil {
-			return nil
-		} else {
-			fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\n", err)
-		}
+	if err := reportHeartbeatWebSocket(cfg, status); err == nil {
+		return nil
+	} else {
+		fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\n", err)
 	}
 	return reportHeartbeatHTTP(cfg, status)
 }
