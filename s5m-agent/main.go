@@ -1052,16 +1052,33 @@ func getMachineID() (string, error) {
 	return loadOrCreateMachineID("/etc/machine-id", machineIDPath())
 }
 
+func agentHostname() (string, error) {
+	// Docker containers normally have their own hostname (often the container ID).
+	// Deployments should pass the host OS hostname via S5M_HOSTNAME.
+	if hostname := strings.TrimSpace(os.Getenv("S5M_HOSTNAME")); hostname != "" {
+		return hostname, nil
+	}
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		return "", fmt.Errorf("hostname is empty")
+	}
+	return hostname, nil
+}
+
 func hostnameHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		http.Error(w, "仅允许 GET", http.StatusMethodNotAllowed)
 		return
 	}
-	hostname, err := os.Hostname()
+	hostname, err := agentHostname()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if err != nil || strings.TrimSpace(hostname) == "" {
+	if err != nil {
 		http.Error(w, "无法读取主机名", http.StatusInternalServerError)
 		return
 	}
