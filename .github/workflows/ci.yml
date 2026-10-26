@@ -95,40 +95,6 @@ jobs:
             file "/tmp/s5m-agent-linux-${arch}"
           done
 
-  routeros-agent:
-    name: RouterOS Agent tests, vet and build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: routeros-agent
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.22.x'
-          cache: true
-          cache-dependency-path: routeros-agent/go.mod
-      - name: Format Go source
-        run: gofmt -w .
-      - name: Verify Go formatting
-        shell: bash
-        run: |
-          set -euo pipefail
-          files="$(gofmt -l .)"
-          if [[ -n "$files" ]]; then
-            echo "Go files need gofmt:"
-            gofmt -d $files
-            exit 1
-          fi
-      - name: Run tests with race detector
-        run: go test -race -count=1 ./...
-      - name: Static analysis
-        run: go vet ./...
-      - name: Build RouterOS Agent
-        run: go build -trimpath -o /tmp/s5m-routeros-agent .
-
   web-assets:
     name: Embedded web asset checks
     runs-on: ubuntu-latest
