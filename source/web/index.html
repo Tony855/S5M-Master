@@ -402,6 +402,7 @@
               <el-option v-for="version in templateVersions" :key="version.version" :label="'模板 v' + version.version" :value="version.version"></el-option>
             </el-select>
             <el-button type="danger" :loading="applyingTemplate" :disabled="!selectedTemplateNode || !selectedTemplateVersion" @click="applyMihomoTemplate">确认应用到所选节点</el-button>
+            <el-button type="warning" :loading="applyingTemplate" :disabled="!selectedTemplateNode" @click="rollbackMihomoTemplate">恢复最近备份</el-button>
           </div>
         </div>
         <div class="card-panel">
