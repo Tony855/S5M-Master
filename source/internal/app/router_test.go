@@ -159,7 +159,6 @@ func TestOperatorCannotAccessAdministrativeRouteMatrix(t *testing.T) {
 		{http.MethodPost, "/api/v1/config/rollback"},
 		{http.MethodGet, "/api/v1/logs"},
 		{http.MethodPost, "/api/v1/restore"},
-		{http.MethodPost, "/api/v1/container/tasks"},
 		{http.MethodDelete, "/api/v1/agents"},
 		{http.MethodPost, "/api/v1/mihomo/update"},
 	}

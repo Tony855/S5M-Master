@@ -70,12 +70,8 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/agent/command", a.handleAgentCommand)
 	mux.HandleFunc("POST /api/v1/agent/command/ack", a.handleAgentCommandAck)
 
-	// Container/host management Agent endpoints. These use the per-machine
-	// Agent credential validator; admin endpoints remain behind the user auth.
+	// Agent status telemetry remains available for instance health reporting.
 	mux.HandleFunc("POST /api/v1/agent/container/status", a.handleContainerAgentStatus)
-	mux.HandleFunc("GET /api/v1/agent/container/tasks/next", a.handleContainerAgentNextTask)
-	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/heartbeat", a.handleContainerAgentTaskHeartbeat)
-	mux.HandleFunc("POST /api/v1/agent/container/tasks/{id}/result", a.handleContainerAgentTaskResult)
 
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/backup":                    a.handleDownloadBackup,
@@ -111,9 +107,6 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/logs":                      a.handleGetLogs,
 		"POST /api/v1/restore":                  a.handleRestoreBackup,
 		"GET /api/v1/container/nodes":           a.handleContainerNodes,
-		"POST /api/v1/container/tasks":          a.handleCreateContainerTask,
-		"GET /api/v1/container/tasks":           a.handleListContainerTasks,
-		"DELETE /api/v1/container/tasks/{id}":   a.handleCancelContainerTask,
 	}
 	// Only explicitly read-only/user-scoped endpoints are available to any
 	// authenticated account. Mutating and infrastructure-wide endpoints require admin.
