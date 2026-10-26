@@ -562,8 +562,9 @@ createApp({
         Object.keys(data || {}).forEach(code => {
           const item = data[code] || {};
           const last = Number(item.last_seen) || 0;
-          // Agent connectivity comes from the authenticated Agent heartbeat.
-          const online = last > 0 && (now - last) < 90;
+          // A future timestamp is invalid and must not keep an Agent online.
+          const ageSeconds = now - last;
+          const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;
           list.push({
             code: code,
             tokenConfigured: item.token_configured === true,
