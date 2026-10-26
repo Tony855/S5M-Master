@@ -573,3 +573,70 @@ func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 		t.Fatal("invalid heartbeat must not be persisted")
 	}
 }
+
+
+func TestHTTPAgentHeartbeatRejectsMissingRequiredFields(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	body := strings.NewReader(`{"mihomo_version":"v1.19.3","mihomo_healthy":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", body)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "心跳缺少必需字段") {
+		t.Fatalf("response should explain missing heartbeat field, got %s", rec.Body.String())
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatal("invalid HTTP heartbeat must not be persisted")
+	}
+}
+
+func TestHTTPAgentHeartbeatAcceptsCompleteTelemetry(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	status := map[string]any{
+		"hostname": "edge-node-01",
+		"os": "linux",
+		"arch": "amd64",
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total": float64(12),
+		"download_total": float64(34),
+		"upload_speed": float64(1),
+		"download_speed": float64(2),
+		"connections": float64(3),
+		"config_sha256": strings.Repeat("a", 64),
+		"last_error": "",
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		t.Fatalf("marshal status: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode persisted status: %v", err)
+	}
+	if persisted["received_at"] == nil || persisted["mihomo_version"] != "v1.19.3" {
+		t.Fatalf("complete heartbeat not persisted correctly: %#v", persisted)
+	}
+}
