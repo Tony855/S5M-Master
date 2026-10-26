@@ -162,8 +162,8 @@ func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 		}
 	}
 	tests := []struct {
-		name string
-		mutate func(map[string]any)
+		name    string
+		mutate  func(map[string]any)
 		wantErr bool
 	}{
 		{name: "valid", mutate: func(map[string]any) {}},
@@ -209,13 +209,13 @@ func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 	status := map[string]any{
 		"mihomo_version": "v1.19.3",
 		"mihomo_healthy": true,
-		"upload_total": float64(12),
+		"upload_total":   float64(12),
 		"download_total": float64(34),
-		"upload_speed": float64(1),
+		"upload_speed":   float64(1),
 		"download_speed": float64(2),
 		"connections":    "many",
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-invalid", "status": status}); err != nil {
 		t.Fatalf("send invalid heartbeat: %v", err)
