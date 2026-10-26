@@ -334,7 +334,7 @@ func TestSaveNodeConfigRejectsTrailingJSON(t *testing.T) {
 	const code = "node_json"
 	if err := store.UpdateSettings(map[string]string{
 		"agent_token":           "global-secret",
-		"agent_machine_" + code: "dedicated-secret",
+		"agent_machine_" + code:  "dedicated-secret",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -594,7 +594,6 @@ func TestDecodeLimitedRejectsTrailingJSONAndOversizedBodies(t *testing.T) {
 		})
 	}
 }
-
 
 func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "overview-agent-fields.db"))
