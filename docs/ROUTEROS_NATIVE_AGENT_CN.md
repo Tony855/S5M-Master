@@ -7,13 +7,13 @@
 - RouterOS 目标版本：7.21.5（必须在实际设备验证）。
 - CPU：AMD64/x86_64 或 ARM64/aarch64。
 - 存储：内部存储；容器 root-dir 和持久化 `/data` 挂载都必须位于可写的内部存储路径。
-- Linux 用户态：Alpine Linux amd64/arm64；这不是 RouterOS 原生二进制，而是 RouterOS 容器中的 Linux 用户态。
+- Linux 用户态：Alpine Linux 3.21 amd64/arm64；使用 s6-overlay v3（当前固定版本 3.2.3.2）作为 PID 1 和进程监督器。这不是 RouterOS 原生二进制，而是 RouterOS 容器中的 Linux 用户态。
 - Mihomo 更新：amd64 和 arm64 使用官方 Linux 发布资产，主控下发的版本和 SHA-256 校验仍有效；更新后的内核写入持久化 `/data/bin/mihomo`，重建容器后仍保留。只有保持同一 `/data` 挂载且目标内核可在设备上运行时才保证持久化。
 - TUN：默认关闭。RouterOS 容器环境对 TUN、NET_ADMIN、设备访问和策略路由的支持受设备/版本限制；不要默认认为 Linux TUN 能在 RouterOS 容器中可用。基础代理和节点注册/心跳应先在不启用 TUN 的配置下验证。
 
 ## 构建与 CI
 
-工作流使用 `s5m-agent/Dockerfile.routeros` 分别构建 amd64、arm64 镜像，并导出 Docker image tar 和 SHA256 文件。工作流 smoke test 检查镜像架构、入口脚本、Agent 与 Mihomo 二进制、默认配置；GitHub-hosted runner 不等于真实 RouterOS，因此 CI 成功不代表设备导入、启动、硬件性能或 TUN 已通过验证。
+工作流使用 `s5m-agent/Dockerfile.routeros` 分别构建 amd64、arm64 镜像，并导出 Docker image tar 和 SHA256 文件。RouterOS 镜像和通用 Linux Agent 镜像统一使用 s6-overlay v3：由 `/init` 作为 PID 1，Mihomo 与 Agent 作为独立的 longrun 服务监督；初始化脚本只负责初始化持久化内核与配置，不承担后台进程循环。CI smoke test 检查镜像架构、`/init`、服务定义、Agent 与 Mihomo 二进制和默认配置；GitHub-hosted runner 不等于真实 RouterOS，因此 CI 成功不代表设备导入、启动、硬件性能或 TUN 已通过验证。
 
 ## RouterOS 设备准备
 
@@ -45,7 +45,7 @@
 
 - 正常重建容器时，必须复用同一内部存储 `/data` 目录；否则授权、机器码、配置和持久化内核都会丢失。
 - Mihomo 更新命令会先下载、校验 SHA-256、执行 `-v` 与当前配置校验，再将旧内核改名备份；健康检查失败时恢复旧内核。
-- 不要删除 `/data/bin/mihomo.previous` 来手工处理异常更新；先查看 Agent 命令结果与容器日志。入口脚本会在启动时恢复残留的旧内核备份。
+- 不要删除 `/data/bin/mihomo.previous` 来手工处理异常更新；先查看 Agent 命令结果与容器日志。s6-overlay 的初始化脚本会在服务启动前检查并恢复残留的旧内核备份。
 - RouterOS 内部闪存写入寿命和空间都有限。持续更新规则集、写日志或频繁更换内核会产生额外写入；确保内部存储剩余空间充足，并先在非生产设备验证重启与回滚。
 
 ## 验收清单
