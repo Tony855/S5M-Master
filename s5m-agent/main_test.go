@@ -677,7 +677,7 @@ func TestMihomoBinaryPathForRouterOS(t *testing.T) {
 }
 
 func TestReportHeartbeatWebSocketSuccess(t *testing.T) {
-	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+	// WebSocket must be selected by default, without an opt-in environment variable.
 	var httpFallbackCalled bool
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
