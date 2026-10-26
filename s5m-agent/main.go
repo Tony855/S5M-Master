@@ -1166,6 +1166,9 @@ func main() {
 				continue
 			}
 			fmt.Println("已恢复旧配置并重新加载")
+			if err := os.Remove(mihomoConfigPath() + ".previous"); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("旧配置备份清理失败（不影响已恢复的运行配置）: %v\\n", err)
+			}
 			continue
 		}
 		_ = os.Remove(mihomoConfigPath() + ".previous")
