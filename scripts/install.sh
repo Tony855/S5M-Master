@@ -163,6 +163,11 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP="/var/backups/s5m-server-install-$STAMP"
 install -d -m 0700 "$BACKUP"
 [[ -f "$DB_DIR/s5m.db" ]] && sqlite3 "$DB_DIR/s5m.db" ".backup '$BACKUP/s5m.db'"
+# Snapshot mutable files before any migration or generated defaults are written.
+# Marker files let rollback distinguish absent files from files that were backed up.
+if [[ -e "$ENV_FILE" ]]; then cp -a "$ENV_FILE" "$BACKUP/s5m-server.env"; else : > "$BACKUP/env-file-absent"; fi
+if [[ -e "$OLD_ENV_FILE" ]]; then cp -a "$OLD_ENV_FILE" "$BACKUP/legacy-server.env"; else : > "$BACKUP/legacy-env-absent"; fi
+if [[ -e "$DB_DIR/config.yaml" ]]; then cp -a "$DB_DIR/config.yaml" "$BACKUP/config.yaml"; else : > "$BACKUP/config-file-absent"; fi
 [[ -f "$BIN" ]] && cp -a "$BIN" "$BACKUP/S5M-Server.bin"
 [[ -f /etc/systemd/system/s5m-server.service ]] && cp -a /etc/systemd/system/s5m-server.service "$BACKUP/s5m-server.service"
 [[ -f /etc/systemd/system/mihomo.service ]] && cp -a /etc/systemd/system/mihomo.service "$BACKUP/mihomo.service"
@@ -375,6 +380,23 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
   fi
   if [[ -f "$BACKUP/mihomo.service" ]]; then
     cp -a "$BACKUP/mihomo.service" /etc/systemd/system/mihomo.service
+  fi
+  # Restore mutable settings alongside the binary/unit rollback.
+  if [[ -f "$BACKUP/s5m-server.env" ]]; then
+    cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"
+  elif [[ -f "$BACKUP/env-file-absent" ]]; then
+    rm -f "$ENV_FILE"
+  fi
+  if [[ -f "$BACKUP/legacy-server.env" ]]; then
+    install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"
+    cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"
+  elif [[ -f "$BACKUP/legacy-env-absent" ]]; then
+    rm -f "$OLD_ENV_FILE"
+  fi
+  if [[ -f "$BACKUP/config.yaml" ]]; then
+    cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"
+  elif [[ -f "$BACKUP/config-file-absent" ]]; then
+    rm -f "$DB_DIR/config.yaml"
   fi
   systemctl daemon-reload
   if [[ -f "$BACKUP/S5M-Server.bin" ]]; then
