@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"strconv"
 	"testing"
 	"time"
 
@@ -591,5 +592,68 @@ func TestDecodeLimitedRejectsTrailingJSONAndOversizedBodies(t *testing.T) {
 				t.Fatalf("decodeLimited() error = %q, want substring %q", err, tc.want)
 			}
 		})
+	}
+}
+
+
+func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "overview-agent-fields.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "node_overview"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + code: "dedicated-secret",
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_status_" + code: `{"mihomo_version":"v1.19.3","mihomo_healthy":true,"connections":4,"download_speed":100,"upload_speed":50,"download_total":1000,"upload_total":2000}`,
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/connections" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"downloadTotal":0,"uploadTotal":0,"connections":[]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer upstream.Close()
+
+	app := &App{store: store, cfg: Config{MihomoAPI: upstream.URL}}
+	rec := httptest.NewRecorder()
+	app.handleOverview(rec, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/overview", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode overview: %v", err)
+	}
+	for key, want := range map[string]float64{
+		"remote_node_total": 1,
+		"remote_online": 1,
+		"remote_mihomo_healthy": 1,
+		"agent_total": 1,
+		"agent_online": 1,
+		"mihomo_healthy": 1,
+	} {
+		if got, ok := payload[key].(float64); !ok || got != want {
+			t.Errorf("%s = %#v, want %v", key, payload[key], want)
+		}
+	}
+	nodes, ok := payload["remote_nodes"].([]any)
+	if !ok || len(nodes) != 1 {
+		t.Fatalf("remote_nodes = %#v, want one node", payload["remote_nodes"])
+	}
+	node, ok := nodes[0].(map[string]any)
+	if !ok {
+		t.Fatalf("remote_nodes[0] = %#v, want object", nodes[0])
+	}
+	if node["mihomo_version"] != "v1.19.3" || node["updated_at"] == "" {
+		t.Fatalf("node telemetry missing version or update timestamp: %#v", node)
 	}
 }
