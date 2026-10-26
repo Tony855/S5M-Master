@@ -131,8 +131,6 @@ CREATE TABLE IF NOT EXISTS agent_status(
  status_json TEXT NOT NULL DEFAULT '{}',
  updated_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_agent_tasks_created
- ON agent_tasks(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
 	_, err := s.db.Exec(schema)
