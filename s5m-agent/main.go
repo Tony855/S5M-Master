@@ -437,7 +437,10 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 		return fmt.Errorf("WebSocket 连接失败：%w", err)
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(8 * time.Second)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(8 * time.Second)); err != nil {
+		return err
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(8 * time.Second)); err != nil {
 		return err
 	}
 	var welcome struct {
