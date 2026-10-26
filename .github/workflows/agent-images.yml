@@ -312,6 +312,62 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  build-routeros-archives:
+    name: Build RouterOS native container archive (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build RouterOS-specific image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile.routeros
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: s5m-agent:routeros-${{ matrix.arch }}-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test RouterOS profile image
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh -n s5m-agent/routeros-entrypoint.sh
+          docker run --rm --platform ${{ matrix.platform }} --entrypoint /bin/sh s5m-agent:routeros-${{ matrix.arch }}-test -ec '
+            test -x /app/s5m-agent
+            test -x /app/routeros-entrypoint.sh
+            test -x /usr/local/bin/mihomo.initial
+            test -s /app/default-config.yaml
+            /usr/local/bin/mihomo.initial -v
+          '
+          docker image inspect s5m-agent:routeros-${{ matrix.arch }}-test --format '{{.Os}}/{{.Architecture}}' | grep -Fx '${{ matrix.platform }}'
+      - name: Export RouterOS image archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          docker save s5m-agent:routeros-${{ matrix.arch }}-test -o dist/s5m-agent-routeros-${{ matrix.arch }}.tar
+          sha256sum dist/s5m-agent-routeros-${{ matrix.arch }}.tar > dist/s5m-agent-routeros-${{ matrix.arch }}.tar.sha256
+      - name: Upload RouterOS archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-agent-routeros-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 90
+
   publish-github-release:
     name: Publish stable GitHub Release
     if: startsWith(github.ref, 'refs/tags/s5m-agent-v') || (github.event_name == 'workflow_dispatch' && inputs.release_version != '')
