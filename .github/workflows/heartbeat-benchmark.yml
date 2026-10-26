@@ -1,0 +1,43 @@
+name: Agent heartbeat benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchtime:
+        description: "Benchmark duration per fleet size (for example 3s or 10s)"
+        required: true
+        default: "3s"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  heartbeat-benchmark:
+    name: SQLite heartbeat persistence benchmark
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22.x'
+          cache: true
+          cache-dependency-path: source/go.sum
+      - name: Download dependencies
+        run: go mod download
+      - name: Run heartbeat persistence benchmark
+        shell: bash
+        env:
+          BENCHTIME: ${{ inputs.benchtime }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BENCHTIME" =~ ^[1-9][0-9]*(ns|us|µs|ms|s|m)$ ]]; then
+            echo "Invalid benchtime: use a positive duration such as 3s or 10s."
+            exit 2
+          fi
+          go test ./internal/app -run '^$' -bench '^BenchmarkAgentHeartbeatPersistence$' -benchmem -benchtime="$BENCHTIME" -count=1
