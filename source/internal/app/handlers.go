@@ -2129,7 +2129,9 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "保存节点配置失败")
 		return
 	}
-	writeJSON(w, 200, map[string]string{"message": "完整节点配置已保存；Agent 将在下一次拉取时应用"})
+	// 手工保存完整 YAML 后，标记为独立配置，避免错误显示为模板同步。
+	_, _ = a.store.db.Exec("INSERT INTO node_template_bindings(machine_code, template_version, config_sha256, source, updated_at) VALUES(?, 0, ?, 'independent', ?) ON CONFLICT(machine_code) DO UPDATE SET template_version=0, config_sha256=excluded.config_sha256, source='independent', updated_at=excluded.updated_at", code, hashConfig(in.YAML), time.Now().UTC().Format(time.RFC3339))
+	writeJSON(w, 200, map[string]string{"message": "完整节点配置已保存为独立配置；Agent 将在下一次拉取时应用"})
 }
 
 // handleRetryNodeConfigSync regenerates cached node YAML for all authorized Agents.
