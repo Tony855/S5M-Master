@@ -102,23 +102,66 @@ func(c Config)execute(action string,params map[string]json.RawMessage)(map[strin
 	default:return nil,fmt.Errorf("unsupported action %q",action)
 	}
 }
-func postResult(client *http.Client,c Config,token string,t Task,result map[string]any,runErr error)error{
-	status,errorText:="succeeded","";if runErr!=nil{status,errorText="failed",runErr.Error()};if result==nil{result=map[string]any{}}
-	rj,_:=json.Marshal(result);body,_:=json.Marshal(map[string]any{"status":status,"result":json.RawMessage(rj),"error":errorText})
-	resp,err:=request(client,http.MethodPost,fmt.Sprintf("%s/api/v1/agent/container/tasks/%d/result",c.CentralURL,t.ID),token,body);if err!=nil{return err};defer resp.Body.Close();if resp.StatusCode<200||resp.StatusCode>=300{b,_:=io.ReadAll(io.LimitReader(resp.Body,2048));return fmt.Errorf("result upload HTTP %d: %s",resp.StatusCode,strings.TrimSpace(string(b)))};return nil
+type agentCommand struct {
+ ID string `json:"id"`
+ Type string `json:"type"`
+ ContainerID string `json:"container_id"`
+}
+func processAgentCommand(client *http.Client, c Config, token string) error {
+ resp, err := request(client, http.MethodGet, c.CentralURL+"/api/v1/agent/command", token, nil)
+ if err != nil { return err }; defer resp.Body.Close()
+ if resp.StatusCode != http.StatusOK { b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)); return fmt.Errorf("command poll HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b))) }
+ var envelope struct { Command *agentCommand `json:"command"` }
+ if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<10)).Decode(&envelope); err != nil { return err }; if envelope.Command == nil { return nil }
+ cmd := envelope.Command
+ actions := map[string]string{"routeros_container_list":"routeros.container.list", "routeros_container_start":"routeros.container.start", "routeros_container_stop":"routeros.container.stop", "routeros_container_restart":"routeros.container.restart"}
+ action, ok := actions[cmd.Type]; if !ok { return ackAgentCommand(client, c, token, cmd.ID, "failed", "unsupported RouterOS command type: "+cmd.Type) }
+ params := map[string]json.RawMessage{}; if cmd.ContainerID != "" { raw, _ := json.Marshal(cmd.ContainerID); params["container_id"] = raw }
+ result, runErr := c.execute(action, params)
+ status, message := "success", "RouterOS command completed"; if runErr != nil { status, message = "failed", runErr.Error() } else if result != nil { raw, err := json.Marshal(result); if err == nil { message = string(raw) } }
+ if len(message) > 6000 { message = message[:6000] }
+ if err := ackAgentCommand(client, c, token, cmd.ID, status, message); err != nil { return fmt.Errorf("ack RouterOS command: %w", err) }; if runErr != nil { return runErr }
+ fmt.Printf("RouterOS command %s (%s) completed\n", cmd.ID, action); return nil
+}
+func ackAgentCommand(client *http.Client, c Config, token, id, status, message string) error {
+ body, err := json.Marshal(map[string]string{"id":id, "status":status, "message":message}); if err != nil { return err }
+ resp, err := request(client, http.MethodPost, c.CentralURL+"/api/v1/agent/command/ack", token, body); if err != nil { return err }; defer resp.Body.Close()
+ if resp.StatusCode < 200 || resp.StatusCode >= 300 { b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048)); return fmt.Errorf("command ACK HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b))) }; return nil
 }
 func errorString(err error)string{if err==nil{return ""};return err.Error()}
 func run()error{
 	c,err:=loadConfig();if err!=nil{return err};client:=&http.Client{Timeout:20*time.Second};token,err:=register(client,c);if err!=nil{return fmt.Errorf("register with S5M: %w",err)}
 	fmt.Printf("S5M RouterOS Agent registered as %s; API-SSL %s\n",c.MachineCode,c.RouterOSAddr)
 	for{
-		_,probeErr:=c.command("/system/resource/print","=.proplist=version,board-name,architecture-name,uptime")
-		statusPayload,_:=json.Marshal(map[string]any{"hostname":"routeros-"+c.MachineCode,"os":"routeros","arch":"unknown","docker_available":false,"mihomo_running":false,"mihomo_version":"","status_json":map[string]any{"routeros_available":probeErr==nil,"routeros_api_addr":c.RouterOSAddr,"last_error":errorString(probeErr)}})
-		resp,reqErr:=request(client,http.MethodPost,c.CentralURL+"/api/v1/agent/container/status",token,statusPayload);if reqErr==nil{io.Copy(io.Discard,io.LimitReader(resp.Body,1024));resp.Body.Close()}else{fmt.Printf("status report failed: %v\n",reqErr)}
-		resp,err=request(client,http.MethodGet,c.CentralURL+"/api/v1/agent/container/tasks/next",token,nil)
-		if err!=nil{fmt.Printf("task poll failed: %v\n",err)}else if resp.StatusCode==http.StatusNoContent{resp.Body.Close()}else if resp.StatusCode!=http.StatusOK{b,_:=io.ReadAll(io.LimitReader(resp.Body,2048));resp.Body.Close();fmt.Printf("task poll HTTP %d: %s\n",resp.StatusCode,strings.TrimSpace(string(b)))}else{
-			var t Task;err=json.NewDecoder(io.LimitReader(resp.Body,32<<10)).Decode(&t);resp.Body.Close();if err!=nil||t.ID<=0{fmt.Printf("invalid task response: %v\n",err)}else{result,runErr:=c.execute(t.Action,t.Params);if err:=postResult(client,c,token,t,result,runErr);err!=nil{fmt.Printf("task %d result upload failed: %v\n",t.ID,err)}else if runErr!=nil{fmt.Printf("task %d failed: %v\n",t.ID,runErr)}else{fmt.Printf("task %d (%s) succeeded\n",t.ID,t.Action)}}
+		resourceRows, probeErr := c.command("/system/resource/print", "=.proplist=version,board-name,architecture-name,uptime")
+		hostname := "routeros-" + c.MachineCode
+		arch := "unknown"
+		resource := map[string]string{}
+		if len(resourceRows) > 0 {
+			resource = resourceRows[0]
+			if value := strings.TrimSpace(resource["architecture-name"]); value != "" {
+				arch = value
+			}
 		}
+		if identityRows, identityErr := c.command("/system/identity/print", "=.proplist=name"); identityErr == nil && len(identityRows) > 0 {
+			if name := strings.TrimSpace(identityRows[0]["name"]); name != "" {
+				hostname = name
+			}
+		} else if probeErr == nil && identityErr != nil {
+			probeErr = fmt.Errorf("read RouterOS identity: %w", identityErr)
+		}
+		statusPayload, _ := json.Marshal(map[string]any{
+			"hostname": hostname, "os": "routeros", "arch": arch,
+			"docker_available": false, "mihomo_running": false, "mihomo_version": "",
+			"status_json": map[string]any{
+				"routeros_available": probeErr == nil, "routeros_api_addr": c.RouterOSAddr,
+				"routeros_version": resource["version"], "board_name": resource["board-name"],
+				"architecture_name": resource["architecture-name"], "uptime": resource["uptime"],
+				"last_error": errorString(probeErr),
+			},
+		})
+		resp,reqErr:=request(client,http.MethodPost,c.CentralURL+"/api/v1/agent/container/status",token,statusPayload);if reqErr==nil{io.Copy(io.Discard,io.LimitReader(resp.Body,1024));resp.Body.Close()}else{fmt.Printf("status report failed: %v\n",reqErr)}
+		if err := processAgentCommand(client, c, token); err != nil { fmt.Printf("RouterOS command processing failed: %v\n", err) }
 		time.Sleep(5*time.Second)
 	}
 }

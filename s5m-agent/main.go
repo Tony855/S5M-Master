@@ -1052,6 +1052,22 @@ func getMachineID() (string, error) {
 	return loadOrCreateMachineID("/etc/machine-id", machineIDPath())
 }
 
+func hostnameHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "仅允许 GET", http.StatusMethodNotAllowed)
+		return
+	}
+	hostname, err := os.Hostname()
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		http.Error(w, "无法读取主机名", http.StatusInternalServerError)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"hostname": hostname})
+}
+
 func machineIDHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
@@ -1079,6 +1095,7 @@ func main() {
 
 		// ====== 提供前端页面的 API ======
 		http.HandleFunc("/api/machine-id", machineIDHandler)
+		http.HandleFunc("/api/hostname", hostnameHandler)
 
 		http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 			data, _ := os.ReadFile(mihomoHome() + "/agent.json")

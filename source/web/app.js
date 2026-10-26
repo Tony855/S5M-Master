@@ -1039,50 +1039,52 @@ createApp({
       finally { dockerLoading.value = false; }
     };
 
+    const routerOSCommand = async (action, params = {}) => {
+      const code = String(dockerMachineCode.value || '').trim();
+      if (!code || !routerOSAgentEntries.value.some(item => item.code === code)) throw new Error('请先选择有效的 RouterOS Agent');
+      const response = await api('/api/v1/agents/routeros-command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: code, action, container_id: params.container_id || '' }) });
+      const queued = await response.json().catch(() => ({}));
+      if (!response.ok || !queued.command_id) throw new Error(queued.error || queued.message || 'RouterOS 命令排队失败');
+      routerosStatus.value = '命令 #' + queued.command_id + ' 已排队，等待 RouterOS Agent 执行…';
+      for (let attempt = 0; attempt < 30; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const resultResponse = await api('/api/v1/agents/routeros-command-result?machine_code=' + encodeURIComponent(code) + '&t=' + Date.now());
+        const payload = await resultResponse.json().catch(() => ({}));
+        if (!resultResponse.ok) throw new Error(payload.error || '读取 RouterOS 命令结果失败');
+        const result = payload.result;
+        if (!result || String(result.id || '') !== String(queued.command_id)) continue;
+        if (result.status === 'failed') throw new Error(result.message || ('RouterOS 命令 #' + queued.command_id + ' 执行失败'));
+        if (result.status !== 'success') continue;
+        let detail = result.message || '';
+        try { detail = JSON.parse(detail); } catch (_) {}
+        return { command_id: queued.command_id, output: typeof detail === 'string' ? detail : JSON.stringify(detail, null, 2), ...(detail && typeof detail === 'object' ? detail : {}) };
+      }
+      const timeout = new Error('命令 #' + queued.command_id + ' 在 30 秒内没有收到最终结果；请检查 RouterOS Agent 在线状态后再决定是否重试');
+      timeout.commandId = queued.command_id; timeout.commandStatus = 'unknown'; throw timeout;
+    };
     const refreshRouterOS = async () => {
       if (!dockerMachineCode.value) return showMsg('请先选择 RouterOS Agent 机器码', 'warning');
-      if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
-        dockerMachineCode.value = '';
-        return showMsg('所选机器码不是 RouterOS Agent，请重新选择', 'warning');
-      }
-      routerosLoading.value = true;
-      routerosStatus.value = '正在读取 RouterOS 原生 /container/print…';
+      if (!routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) { dockerMachineCode.value = ''; return showMsg('所选机器码不是 RouterOS Agent，请重新选择', 'warning'); }
+      routerosLoading.value = true; routerosStatus.value = '正在读取 RouterOS 原生 /container/print…';
       try {
-        const result = await dockerTask('routeros.container.list');
+        const result = await routerOSCommand('list');
         routerosContainers.value = Array.isArray(result.containers) ? result.containers : [];
-        routerosStatus.value = '读取完成：' + routerosContainers.value.length + ' 个 RouterOS 容器；任务 #' + (result.task_id || '—');
-        await loadContainerTasks({ silent: true });
-      } catch (e) {
-        routerosStatus.value = e.message || '读取 RouterOS 容器失败';
-        showMsg(routerosStatus.value, 'error');
-      } finally { routerosLoading.value = false; }
+        routerosStatus.value = '读取完成：' + routerosContainers.value.length + ' 个 RouterOS 容器；命令 #' + result.command_id;
+      } catch (e) { routerosStatus.value = e.message || '读取 RouterOS 容器失败'; showMsg(routerosStatus.value, e.commandStatus === 'unknown' ? 'warning' : 'error'); }
+      finally { routerosLoading.value = false; }
     };
     const routerOSAction = async (action, row) => {
-      if (!dockerMachineCode.value || !routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) {
-        dockerMachineCode.value = '';
-        return showMsg('当前选择不是 RouterOS Agent，请重新选择后操作', 'warning');
-      }
+      if (!dockerMachineCode.value || !routerOSAgentEntries.value.some(item => item.code === dockerMachineCode.value)) { dockerMachineCode.value = ''; return showMsg('当前选择不是 RouterOS Agent，请重新选择后操作', 'warning'); }
       const id = String(row && row['.id'] || '');
-      if (!/^\*[0-9a-fA-F]{1,31}$/.test(id)) return showMsg('RouterOS 容器内部 ID 无效', 'error');
+      if (!/^\\*[0-9a-fA-F]{1,31}$/.test(id)) return showMsg('RouterOS 容器内部 ID 无效', 'error');
       const labels = { 'routeros.container.start': '启动', 'routeros.container.stop': '停止', 'routeros.container.restart': '重启' };
-      const label = labels[action];
-      if (!label) return;
-      try {
-        await ElementPlus.ElMessageBox.confirm('确定' + label + ' RouterOS 容器 ' + (row.name || id) + '（' + id + '）？', '确认 RouterOS 操作', { type: 'warning', confirmButtonText: '确认' + label, cancelButtonText: '取消' });
-      } catch (_) { return; }
-      routerosLoading.value = true;
-      routerosStatus.value = '正在提交' + label + '任务…';
-      try {
-        const result = await dockerTask(action, { container_id: id });
-        routerosStatus.value = label + '任务成功，任务 #' + (result.task_id || '—');
-        showDockerResult('RouterOS ' + label + '结果', result);
-        await refreshRouterOS();
-      } catch (e) {
-        routerosStatus.value = e.message || 'RouterOS 操作失败';
-        showMsg(routerosStatus.value, 'error');
-      } finally { routerosLoading.value = false; }
+      const label = labels[action]; if (!label) return;
+      try { await ElementPlus.ElMessageBox.confirm('确定' + label + ' RouterOS 容器 ' + (row.name || id) + '（' + id + '）？', '确认 RouterOS 操作', { type: 'warning', confirmButtonText: '确认' + label, cancelButtonText: '取消' }); } catch (_) { return; }
+      routerosLoading.value = true; routerosStatus.value = '正在提交' + label + '命令…';
+      try { const result = await routerOSCommand(action.replace('routeros.container.', ''), { container_id: id }); routerosStatus.value = label + '成功，命令 #' + result.command_id; showDockerResult('RouterOS ' + label + '结果', result); await refreshRouterOS(); }
+      catch (e) { routerosStatus.value = e.message || 'RouterOS 操作失败'; showMsg(routerosStatus.value, e.commandStatus === 'unknown' ? 'warning' : 'error'); }
+      finally { routerosLoading.value = false; }
     };
-
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
