@@ -26,7 +26,7 @@ func websocketTestApp(t *testing.T) (*App, string, string) {
 	const secret = "ws-dedicated-secret"
 	app := &App{store: store, jwtKey: []byte("test-ws-signing-key")}
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token": "global-secret",
+		"agent_token":           "global-secret",
 		"agent_machine_" + code: secret,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
@@ -80,13 +80,13 @@ func TestAgentWebSocketAcceptsHeartbeatAndPersistsStatus(t *testing.T) {
 	status := map[string]any{
 		"mihomo_version": "v1.19.3",
 		"mihomo_healthy": true,
-		"upload_total": 12,
+		"upload_total":   12,
 		"download_total": 34,
-		"upload_speed": 1,
+		"upload_speed":   1,
 		"download_speed": 2,
-		"connections": 3,
-		"config_sha256": "abc",
-		"last_error": "",
+		"connections":    3,
+		"config_sha256":  "abc",
+		"last_error":     "",
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-1", "status": status}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
