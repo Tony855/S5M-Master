@@ -69,19 +69,24 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
+		missingField := ""
 		for _, key := range []string{
 			"mihomo_version", "mihomo_healthy", "upload_total",
 			"download_total", "upload_speed", "download_speed",
 			"connections", "config_sha256", "last_error",
 		} {
 			if _, ok := msg.Status[key]; !ok {
-				_ = conn.WriteJSON(map[string]string{
-					"type":    "error",
-					"id":      msg.ID,
-					"message": "心跳缺少必需字段: " + key,
-				})
-				continue
+				missingField = key
+				break
 			}
+		}
+		if missingField != "" {
+			_ = conn.WriteJSON(map[string]string{
+				"type":    "error",
+				"id":      msg.ID,
+				"message": "心跳缺少必需字段: " + missingField,
+			})
+			continue
 		}
 		msg.Status["received_at"] = time.Now().Unix()
 		payload, marshalErr := json.Marshal(msg.Status)
