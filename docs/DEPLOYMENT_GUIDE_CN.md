@@ -121,8 +121,188 @@ sudo docker tag s5m-agent:amd64-test s5m-agent:local
 
 ### 5.3 创建数据目录并启动容器
 
+以下是保留现有数据的常规首次部署方式。若要彻底重装且不保留旧 Agent 数据，请先看紧接着的 **5.3.1 全新重装**。
+
 ```bash
-sudo install -d -m 0700 /opt/s5m-agent/data
+sudo install -d -m 0750 /opt/s5m-agent/data
+sudo docker run -d \
+  --name s5m-agent \
+  --restart unless-stopped \
+  -e S5M_HOSTNAME="$(hostname)" \
+  -p 81:80 \
+  -p 7890:7890 \
+  -v /opt/s5m-agent/data:/data \
+  s5m-agent:local
+```
+
+端口说明：
+- `-p 81:80`：宿主机 81 转发到容器 Agent Web/API 80。若希望宿主机也使用 80，可改为 `-p 80:80`，但需确认 80 未被 Nginx/其他服务占用。
+- `-p 7890:7890`：只有当其他设备需要通过该节点使用 Mihomo 代理时才映射；只做 Agent 管理/心跳时可以省略。
+- **映射 7890 不代表代理自动对外可用。** 仓库默认配置为 `allow-lan: false`，这是更安全的默认值。若确实要让远程客户端连接，必须按业务需要将 Mihomo 配置改为允许 LAN/非回环监听（例如检查 `allow-lan` 和 `bind-address`），并设置防火墙仅允许可信来源；不要直接把未受控的代理端口暴露到公网。
+- 不要添加 `-p 8088:8088`；8088 是 Mihomo 控制 API，不应发布到宿主机公网。
+- 该镜像的入口是 `/init`；不要额外添加 Docker 的 `--init`，避免与镜像内的 init/s6 启动机制冲突。
+
+#### 5.3.1 全新重装（清除 Agent 旧数据）
+
+> **破坏性操作：** 下列命令会删除名为 `s5m-agent` 的容器、其同名旧镜像标签和 `/opt/s5m-agent` 下的 Agent 专用数据。不会清理其他 Docker 项目。执行前确认此目录没有存放其他应用数据。
+
+假设镜像归档已下载到 `/root/s5m-agent-linux-amd64.tar`：
+
+```bash
+# 1) 确认 Docker/containerd 正常；任一命令失败时先停止，不要删除存储目录
+sudo systemctl is-active docker
+sudo systemctl is-active containerd
+sudo docker info
+
+# 2) 验证归档可读取
+sudo ls -lh /root/s5m-agent-linux-amd64.tar
+sudo tar -tf /root/s5m-agent-linux-amd64.tar >/dev/null
+
+# 3) 删除旧 Agent 容器和专用数据（不删除 /var/lib/docker 或 /var/lib/containerd）
+sudo docker rm -f s5m-agent 2>/dev/null || true
+sudo docker image rm s5m-agent:local 2>/dev/null || true
+sudo rm -rf -- /opt/s5m-agent
+sudo install -d -m 0750 /opt/s5m-agent/data
+
+# 4) 导入镜像并查看实际名称/标签
+sudo docker load -i /root/s5m-agent-linux-amd64.tar
+sudo docker image ls
+```
+
+Actions 归档可能使用 `s5m-agent:amd64-test` 等标签。按 `docker image ls` 的真实输出选择源标签；若存在 `s5m-agent:amd64-test`，可统一标记：
+
+```bash
+sudo docker tag s5m-agent:amd64-test s5m-agent:local
+```
+
+若镜像使用其他标签，请替换上述源标签。确认本地标签存在后启动：
+
+```bash
+sudo docker run -d \
+  --name s5m-agent \
+  --restart unless-stopped \
+  -e S5M_HOSTNAME="$(hostname)" \
+  -p 81:80 \
+  -p 7890:7890 \
+  -v /opt/s5m-agent/data:/data \
+  -v /etc/machine-id:/etc/machine-id:ro \
+  s5m-agent:local
+```
+
+如果不需要提供代理服务，删除命令中的 `-p 7890:7890`。若只允许管理网访问 Agent 页面，应通过主机防火墙/云安全组限制宿主机 81/TCP。**不要**映射 8088，不要添加 `--init`，也不要清空 Docker/containerd 的全局存储目录。
+
+最后验证：
+
+```bash
+sudo docker ps -a --filter name='^/s5m-agent
+
+如果使用仓库内的 `s5m-agent/docker-compose.yml` 而不是上面的 `docker run` 命令，启动前先在同一个 Shell 中导出宿主机名，否则 Compose 中的 `S5M_HOSTNAME` 可能为空：
+
+```bash
+export S5M_HOSTNAME="$(hostname)"
+cd s5m-agent
+docker compose up -d
+```
+
+如果用 systemd、面板或其他自动化工具启动 Compose，请在其环境配置中显式设置 `S5M_HOSTNAME` 为宿主机的真实 hostname。
+
+注意：
+
+- `/data` 是持久化目录，保存 `config.yaml`、绑定凭据等；不要在普通升级时删除。
+- 不要添加 `-p 8088:8088`。Mihomo 控制 API 不应暴露到宿主机公网。
+- 如果该节点不需要给其他设备提供代理服务，可删掉 `-p 7890:7890`。
+- 若端口 80 已被占用，可改成 `-p 18080:80`，随后通过 `http://节点IP:18080/` 访问。
+- 若 Docker 守护进程以 root 运行，宿主机目录权限应允许容器运行用户写入。若日志报 `permission denied`，先检查目录权限和容器日志，不要直接将目录权限改为全局可写。
+
+### 5.4 验证 Agent 容器
+
+```bash
+sudo docker ps --filter name=s5m-agent
+sudo docker logs --tail 200 s5m-agent
+sudo docker inspect s5m-agent --format '{{json .State.Health}}'
+sudo docker exec s5m-agent /usr/local/bin/mihomo -v
+curl -fsS http://127.0.0.1:80/api/machine-id
+curl -fsS http://127.0.0.1:80/api/hostname
+curl -fsS http://127.0.0.1:80/api/config
+```
+
+确认容器处于运行状态、日志中没有持续重启或配置解析错误，并且 Mihomo 能输出版本信息。健康检查状态可能需要等待启动周期后才显示。若 `curl` 失败，先检查 `docker ps`、端口映射和日志。
+
+### 5.5 防火墙
+
+只向管理网或可信管理员 IP 开放 80/TCP；7890/TCP 是否开放取决于代理用途。示例（UFW，先确认 SSH 管理端口已放行，避免锁死远程连接）：
+
+```bash
+sudo ufw allow from ADMIN_PUBLIC_IP to any port 80 proto tcp
+# 只有确实需要对外提供代理时才开放：
+sudo ufw allow 7890/tcp
+sudo ufw status numbered
+```
+
+还要同步检查云厂商安全组。容器端口发布可能绕过部分基于 UFW 的预期限制，应在云安全组/上游防火墙一并限制来源。
+
+## 6. RouterOS：导入 ARM64 镜像归档
+
+> RouterOS 容器功能受设备架构、RouterOS 版本、容器设置、存储空间和设备硬件限制。请先确认目标设备支持容器功能及 ARM64 容器；x86_64 RouterOS 应使用 amd64 镜像，ARM64 RouterOS 使用 arm64 镜像。**不要把 amd64 tar 导入 ARM64 设备，反之亦然。** 容器导入命令可能随 RouterOS 版本变化，请以设备当前版本的官方 Container 文档和 CLI 的命令补全为准。
+
+### 6.1 在 RouterOS 上准备
+
+1. 在 RouterOS 中启用容器功能，并按该设备/版本的官方文档完成容器所需的安全设置。
+2. 准备足够的持久化存储空间。镜像 tar、解包后的 rootfs 和 `/data` 配置目录都会占用存储；不要把可写数据放到会随容器重建而清除的位置。
+3. 在管理电脑上从 Actions 下载 `s5m-agent-linux-arm64`（ARM64 设备）或 `s5m-agent-linux-amd64`（x86_64 设备），解压 ZIP，并确认 tar 和 SHA256 文件齐全。
+4. 使用 WinBox 的 **Files** 或 SCP/SFTP（以设备已启用且支持的传输方式为准）将 tar 镜像和校验文件传到 RouterOS 可访问的存储位置。RouterOS 不一定具备 `sha256sum` 命令，请在上传前于 Linux/macOS/WSL 上完成校验。
+
+### 6.2 建立网络接口和持久化目录
+
+容器需要一个可用的 VETH 接口，并将其接入正确的 bridge/LAN；IP 地址、网关和防火墙规则应按现有网络规划设置。不要直接照抄示例 IP，以免与现网冲突。
+
+以下为配置思路，不是可直接在所有 RouterOS 设备执行的完整脚本：
+
+- 创建 VETH，例如 `veth-s5m`，为它分配一个未占用的 LAN IP/前缀；
+- 将 VETH 加入目标 bridge，并配置必要的路由和防火墙；
+- 在持久化磁盘目录下建立独立的容器 root directory 与数据目录；
+- 建立挂载映射，把宿主持久化目录挂载到容器 `/data`；
+- 通过 RouterOS Container 菜单/CLI 的本地镜像导入功能导入 tar，再创建容器并指定 VETH、root directory、`/data` 挂载和开机启动。
+
+不同 RouterOS 版本的本地镜像导入参数存在差异。先在 CLI 输入 `/container/import-image ?` 和 `/container/add ?` 查看设备实际支持的参数，再按官方文档执行；不要假设 Linux 的 `docker load` 命令可在 RouterOS 上运行。
+
+### 6.3 端口与管理
+
+- 在 VETH/LAN 防火墙中仅允许管理网访问 Agent 的 80/TCP。
+- 7890/TCP 仅在需要向其他设备提供代理服务时开放。
+- 不要把 8088/TCP 转发到公网或不可信 LAN。
+- 从管理电脑访问 `http://ROUTEROS_AGENT_IP:80/`，确认页面可打开。
+- 检查 RouterOS 容器状态与日志；如果容器立即退出，优先检查镜像架构、容器支持状态、root directory 可写性、`/data` 挂载以及启动日志。
+
+RouterOS 设备 CPU/内存和闪存资源差异很大。Mihomo 规则集和配置可能明显增加内存/存储消耗；部署前应先在目标设备上验证启动、流量和重启恢复行为，再投入生产。
+
+## 7. Agent 与主控绑定
+
+1. 登录 S5M 主控管理界面，进入 Agent/节点管理，创建或查看该节点的注册授权密钥。
+2. 在浏览器打开 Agent 地址：`http://节点IP:80/`（若自定义宿主端口，请使用对应端口）。
+3. 注册页面会在机器码上方显示主机名。Linux/Docker 部署请传入宿主机的 `S5M_HOSTNAME` 环境变量（见第 5.3 节）；否则默认值可能是容器自身的 hostname/容器 ID。\n4. 在绑定页面填写主控完整地址，例如 `http://主控IP` 或配置 TLS 后的 `https://主控域名`，以及节点注册授权密钥，然后提交。
+4. 回到主控节点列表，确认该节点已出现。
+5. 等待至少一个心跳周期（约 30 秒），查看主控在线状态与 Agent 日志，确认心跳和状态上报持续正常。
+
+主控地址不要包含用户名/密码、查询参数或 URL fragment。不要将授权密钥、JWT、管理员密码或 Mihomo secret 发到公开 issue。绑定凭据已保存并不代表主控网络通信一定成功；必须继续验证在线状态。
+
+## 8. 升级与回滚
+
+升级前备份 Agent 数据目录：
+
+Ubuntu/Debian：
+
+```bash
+sudo tar -C /opt/s5m-agent -czf /root/s5m-agent-data-$(date +%F-%H%M).tar.gz data
+sudo docker inspect s5m-agent --format '{{.Config.Image}}'
+```
+
+下载并校验新版本 tar 后，先导入镜像。保留现有容器配置和 `/data` 卷，停止旧容器后使用新镜像重建：
+
+```bash
+sudo docker stop s5m-agent
+sudo docker rm s5m-agent
+# 先按 docker image ls 中的实际名称给新镜像打标签，再执行：
 sudo docker run -d \
   --name s5m-agent \
   --restart unless-stopped \
@@ -133,6 +313,40 @@ sudo docker run -d \
   -v /opt/s5m-agent/data:/data \
   s5m-agent:local
 ```
+
+重建前确认新镜像已成功导入并打好标签。回滚时使用之前保存的镜像标签重新创建容器。不要删除 `/opt/s5m-agent/data`。
+
+## 9. 故障排查
+
+| 现象 | 检查方法 |
+| --- | --- |
+| Actions 没有 Artifacts | 检查两个构建 job 是否成功；失败的运行不会产生完整归档 |
+| SHA256 校验失败 | 重新下载 ZIP 和 tar；不要导入校验失败的文件 |
+| `docker load` 失败 | 检查 tar 是否完整、是否误把 ZIP 当成 tar、磁盘空间是否充足 |
+| 容器立即退出 | `docker logs --tail 200 s5m-agent`；检查 Mihomo 配置语法、目录权限和 CPU 架构 |
+| 80 页面无法打开 | 检查容器状态、端口映射、主机防火墙/云安全组及 RouterOS VETH/bridge |
+| Agent 页面打开但主控离线 | 检查主控健康接口、Agent 日志、主控地址、路由/DNS/时间、注册授权密钥 |
+| Mihomo 无法启动 | 查看容器日志和 `/data/config.yaml`；确认配置可被当前 Mihomo 版本接受 |
+| RouterOS 无法导入/启动 | 确认设备支持容器、架构匹配、空间足够，并以当前 RouterOS 版本的官方文档核对本地导入流程 |
+
+## 10. 上线前检查表
+
+- [ ] 主控 `s5m-server` 和 `mihomo` 服务正常，健康接口成功。
+- [ ] GitHub Actions 对应提交的 amd64、arm64 构建和 smoke test 全部成功。
+- [ ] 下载的 tar 已通过 SHA256 校验。
+- [ ] Agent 容器运行稳定，Mihomo 版本可显示。
+- [ ] `/data` 使用持久化存储，重启容器后配置仍在。
+- [ ] Agent 绑定主控，持续心跳并显示在线。
+- [ ] 80/TCP 仅对管理网开放；8088/TCP 没有映射或公网暴露。
+- [ ] 已验证重启恢复、升级和回滚流程。
+
+sudo docker inspect s5m-agent --format '状态={{.State.Status}} 健康={{if .State.Health}}{{.State.Health.Status}}{{else}}未配置{{end}}'
+sudo docker logs --tail 100 s5m-agent
+curl -i --max-time 10 http://127.0.0.1:81/api/config
+curl -i --max-time 10 http://127.0.0.1:81/api/machine-id
+```
+
+
 
 如果使用仓库内的 `s5m-agent/docker-compose.yml` 而不是上面的 `docker run` 命令，启动前先在同一个 Shell 中导出宿主机名，否则 Compose 中的 `S5M_HOSTNAME` 可能为空：
 
