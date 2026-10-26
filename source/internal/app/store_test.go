@@ -162,7 +162,6 @@ func TestGetSettingsReturnsAllStoredValues(t *testing.T) {
 	}
 }
 
-
 func TestFreshStoreDoesNotCreateLegacyAgentTasksTable(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "fresh-store.db"))
 	if err != nil {
