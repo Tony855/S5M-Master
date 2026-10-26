@@ -96,7 +96,7 @@ jobs:
           dockerfile = Path("s5m-agent/Dockerfile.routeros").read_text(encoding="utf-8")
           assert 'filepath.Join(mihomoHome(), "bin", "mihomo")' in main
           assert 'S5M_ROUTEROS=1' in dockerfile
-          assert '/data/bin/mihomo' in entry
+          assert 'MIHOMO_HOME}/bin/mihomo' in entry
           assert 'processContainerTask' not in main
           assert 'reportContainerStatus' not in main
           print("RouterOS persistent kernel profile verified; remote container task handlers remain absent")
