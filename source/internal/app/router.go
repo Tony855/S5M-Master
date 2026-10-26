@@ -27,6 +27,10 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 	a := &App{cfg: cfg, store: st, jwtKey: []byte(cfg.JWTSecret)}
+	if err := a.ensureTemplateSchema(); err != nil {
+		_ = st.db.Close()
+		return nil, fmt.Errorf("初始化 Mihomo 模板版本表失败: %w", err)
+	}
 	if err := a.ensureAdmin(); err != nil {
 		_ = st.db.Close()
 		return nil, err
@@ -86,6 +90,12 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"DELETE /api/v1/agents":                 a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":             a.handlePassword,
 		"GET /api/v1/settings":                  a.handleGetSettings,
+		"GET /api/v1/mihomo/template":           a.handleGetMihomoTemplate,
+		"PUT /api/v1/mihomo/template":           a.handleSaveMihomoTemplateDraft,
+		"POST /api/v1/mihomo/template/publish":  a.handlePublishMihomoTemplate,
+		"GET /api/v1/mihomo/template/nodes":     a.handleGetNodeTemplateStatus,
+		"POST /api/v1/mihomo/template/apply":    a.handleApplyMihomoTemplate,
+		"POST /api/v1/mihomo/template/rollback": a.handleRollbackNodeTemplate,
 		"PUT /api/v1/settings":                  a.handleUpdateSettings,
 		"GET /api/v1/nodes/{code}/config":       a.handleGetNodeConfig,
 		"PUT /api/v1/nodes/{code}/config":       a.handleSaveNodeConfig,
