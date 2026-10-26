@@ -1510,29 +1510,23 @@ func (a *App) handleAgentMihomoUpdateInfo(w http.ResponseWriter, r *http.Request
 		writeErr(w, http.StatusNotFound, "目标 Agent 未注册")
 		return
 	}
-	// RouterOS Agent reports the RouterOS device architecture, not the Linux
-	// runtime architecture of a Mihomo-enabled S5M Agent. Never offer a Mihomo
-	// binary update to a RouterOS-only node, even when its CPU is arm64/x86_64.
-	var agentOS string
-	if queryErr := a.store.db.QueryRow("SELECT os FROM agent_status WHERE machine_code=?", code).Scan(&agentOS); queryErr == nil &&
-		strings.ToLower(strings.TrimSpace(agentOS)) == "routeros" {
+	// Agent runtime telemetry is stored in settings as agent_status_<machine_code>.
+	// The legacy agent_status table was removed with retired container-management
+	// telemetry, so OS and architecture must be read from the authenticated heartbeat.
+	var status map[string]any
+	if raw := settings["agent_status_"+code]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &status); err != nil {
+			writeErr(w, http.StatusBadRequest, "Agent 状态数据格式无效，请等待节点重新上报心跳")
+			return
+		}
+	}
+	agentOS, _ := status["os"].(string)
+	if strings.EqualFold(strings.TrimSpace(agentOS), "routeros") {
 		writeErr(w, http.StatusBadRequest, "该节点是 RouterOS Agent，不支持 Mihomo 内核更新")
 		return
 	}
-	var status map[string]any
-	if raw := settings["agent_status_"+code]; raw != "" {
-		_ = json.Unmarshal([]byte(raw), &status)
-	}
 	arch, _ := status["arch"].(string)
 	arch = strings.ToLower(strings.TrimSpace(arch))
-	// Older Agents may have a valid architecture in the normalized status table
-	// before their heartbeat JSON includes arch. Use that report as a safe fallback.
-	if arch != "amd64" && arch != "x86_64" && arch != "arm64" && arch != "aarch64" {
-		var reportedArch string
-		if queryErr := a.store.db.QueryRow("SELECT arch FROM agent_status WHERE machine_code=?", code).Scan(&reportedArch); queryErr == nil {
-			arch = strings.ToLower(strings.TrimSpace(reportedArch))
-		}
-	}
 	var assetPattern string
 	switch arch {
 	case "amd64", "x86_64":
