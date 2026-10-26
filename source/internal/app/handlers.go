@@ -1775,6 +1775,14 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.agentWSMu.Lock()
+	// Authorization may have been revoked while this request waited for the
+	// heartbeat lock. Recheck it inside the critical section before persistence.
+	currentCode, currentAuthErr := a.agentMachineFromRequest(r)
+	if currentAuthErr != nil || currentCode != code {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
+		return
+	}
 	if a.agentHeartbeatAt == nil {
 		a.agentHeartbeatAt = make(map[string]int64)
 	}
