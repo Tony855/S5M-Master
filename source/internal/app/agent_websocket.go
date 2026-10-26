@@ -116,13 +116,9 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
 	a.agentWSMu.Unlock()
-	defer func() {
-		a.agentWSMu.Lock()
-		if a.agentWSGeneration[machineCode] == generation {
-			delete(a.agentWSGeneration, machineCode)
-		}
-		a.agentWSMu.Unlock()
-	}()
+// Keep the generation counter after disconnect. Deleting it would let a
+	// later reconnect reuse generation 1 and accidentally re-authorize an old
+	// still-open socket (an ABA problem).
 
 	conn.SetReadLimit(agentWSMaxMessageBytes)
 	_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
