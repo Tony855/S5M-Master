@@ -607,7 +607,7 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 	if err := store.UpdateSettings(map[string]string{
 		"agent_machine_" + code: "dedicated-secret",
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_" + code: `{"mihomo_version":"v1.19.3","mihomo_healthy":true,"connections":4,"download_speed":100,"upload_speed":50,"download_total":1000,"upload_total":2000}`,
+		"agent_status_" + code:   `{"mihomo_version":"v1.19.3","mihomo_healthy":true,"connections":4,"download_speed":100,"upload_speed":50,"download_total":1000,"upload_total":2000}`,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -634,12 +634,12 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 		t.Fatalf("decode overview: %v", err)
 	}
 	for key, want := range map[string]float64{
-		"remote_node_total": 1,
-		"remote_online": 1,
+		"remote_node_total":     1,
+		"remote_online":         1,
 		"remote_mihomo_healthy": 1,
-		"agent_total": 1,
-		"agent_online": 1,
-		"mihomo_healthy": 1,
+		"agent_total":           1,
+		"agent_online":          1,
+		"mihomo_healthy":        1,
 	} {
 		if got, ok := payload[key].(float64); !ok || got != want {
 			t.Errorf("%s = %#v, want %v", key, payload[key], want)
