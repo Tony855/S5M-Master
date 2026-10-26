@@ -56,6 +56,39 @@ func TestMihomoSecretCandidates(t *testing.T) {
 	}
 }
 
+func TestHostnameHandler(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/hostname", nil)
+	rec := httptest.NewRecorder()
+	hostnameHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/hostname status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var payload map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode hostname response: %v", err)
+	}
+	want, err := os.Hostname()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["hostname"] != want {
+		t.Fatalf("hostname = %q, want %q", payload["hostname"], want)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+
+	post := httptest.NewRequest(http.MethodPost, "/api/hostname", nil)
+	postRec := httptest.NewRecorder()
+	hostnameHandler(postRec, post)
+	if postRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST /api/hostname status = %d, want %d", postRec.Code, http.StatusMethodNotAllowed)
+	}
+	if got := postRec.Header().Get("Allow"); got != http.MethodGet {
+		t.Fatalf("Allow = %q, want GET", got)
+	}
+}
+
 func TestValidateCentralURL(t *testing.T) {
 	tests := []struct {
 		name string
