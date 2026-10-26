@@ -394,7 +394,7 @@ func TestSaveNodeConfigRejectsOversizedBodyWith413(t *testing.T) {
 	const code = "node_oversize"
 	if err := store.UpdateSettings(map[string]string{
 		"agent_token":           "global-secret",
-		"agent_machine_" + code: "dedicated-secret",
+		"agent_machine_" + code:  "dedicated-secret",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
