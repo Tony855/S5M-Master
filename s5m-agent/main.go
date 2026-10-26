@@ -558,7 +558,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		return "", fmt.Errorf("Mihomo 压缩包损坏: %w", err)
 	}
 	defer gz.Close()
-	newBinary, err := os.CreateTemp("/usr/local/bin", ".mihomo-update-*")
+	newBinary, err := os.CreateTemp(filepath.Dir(mihomoBinaryPath()), ".mihomo-update-*")
 	if err != nil {
 		return "", fmt.Errorf("创建内核临时文件失败: %w", err)
 	}
