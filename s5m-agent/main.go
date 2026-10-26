@@ -76,6 +76,13 @@ func validateCentralURL(raw string) (string, error) {
 	return centralURL, nil
 }
 
+func mihomoBinaryPath() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("S5M_ROUTEROS")), "1") {
+		return filepath.Join(mihomoHome(), "bin", "mihomo")
+	}
+	return "/usr/local/bin/mihomo"
+}
+
 func mihomoConfigPath() string {
 	return mihomoHome() + "/config.yaml"
 }
@@ -166,7 +173,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
-	if output, err := exec.Command("/usr/local/bin/mihomo", "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
+	if output, err := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, fmt.Errorf("新配置未通过 Mihomo 校验: %w: %s", err, strings.TrimSpace(string(output)))
 	}
@@ -506,7 +513,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	// ACK delivery can fail after a successful update. If the same command is
 	// delivered again, recognize the already-installed target version and avoid
 	// downloading/replacing/restarting the kernel a second time.
-	if output, err := exec.Command("/usr/local/bin/mihomo", "-v").CombinedOutput(); err == nil {
+	if output, err := exec.Command(mihomoBinaryPath(), "-v").CombinedOutput(); err == nil {
 		versionPattern := regexp.MustCompile(`\bv` + regexp.QuoteMeta(strings.TrimPrefix(cmd.Version, "v")) + `\b`)
 		if versionPattern.Match(output) {
 			return "Mihomo 已是目标版本 " + cmd.Version + "，按幂等重试跳过重复安装", nil
@@ -590,7 +597,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", fmt.Errorf("当前配置没有 Mihomo API secret")
 	}
-	const binaryPath = "/usr/local/bin/mihomo"
+	binaryPath := mihomoBinaryPath()
 	backupPath := binaryPath + ".previous"
 	_ = os.Remove(backupPath)
 	if err := os.Rename(binaryPath, backupPath); err != nil {
