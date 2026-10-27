@@ -2,6 +2,7 @@ package app
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
