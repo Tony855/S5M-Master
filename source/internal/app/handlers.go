@@ -1499,7 +1499,10 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 		return "", fmt.Errorf("读取 Agent 授权失败: %w", err)
 	}
 	machineToken := settings["agent_machine_"+code]
-	if machineToken == "" || machineToken == settings["agent_token"] ||
+	// A whitespace-only per-Agent token is not an active credential. Keep the
+	// exact token bytes for version verification; only use TrimSpace to reject
+	// blank values so valid credentials are never silently rewritten.
+	if strings.TrimSpace(machineToken) == "" || machineToken == settings["agent_token"] ||
 		version != fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken))) {
 		return "", fmt.Errorf("Agent 未授权或授权已失效")
 	}
