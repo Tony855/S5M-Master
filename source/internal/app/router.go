@@ -1,9 +1,11 @@
 package app
 
 import (
+	"bufio"
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -147,6 +149,18 @@ func (w *statusResponseWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
 }
+
+// Hijack preserves WebSocket upgrade support through the HTTP status logger.
+// Gorilla WebSocket requires http.Hijacker to take ownership of the connection.
+func (w *statusResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("底层 ResponseWriter 不支持 HTTP Hijacker")
+	}
+	return hijacker.Hijack()
+}
+
+var _ http.Hijacker = (*statusResponseWriter)(nil)
 
 func withRecover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
