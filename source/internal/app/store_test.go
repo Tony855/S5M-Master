@@ -1,10 +1,10 @@
 package app
 
 import (
-	"path/filepath"
-	"testing"
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"testing"
 )
 
 func TestSaveNodeConfigIfEmptyPreservesExistingYAML(t *testing.T) {
