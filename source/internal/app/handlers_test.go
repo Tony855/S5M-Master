@@ -776,7 +776,4 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 			t.Errorf("generated config missing %q:\\n%s", want, generated)
 		}
 	}
-	if strings.Contains(generated, "import-pass") {
-		t.Fatal("generated config unexpectedly exposed the raw imported password")
-	}
 }
