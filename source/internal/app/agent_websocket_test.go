@@ -43,6 +43,23 @@ func websocketTestApp(t *testing.T) (*App, string, string) {
 	return app, code, token
 }
 
+// floatMap converts JSON-number-like test payloads to float64 values, matching
+// encoding/json's decoding behavior on the server.
+func floatMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		switch number := value.(type) {
+		case int:
+			out[key] = float64(number)
+		case int64:
+			out[key] = float64(number)
+		default:
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func TestAgentWebSocketRejectsUnauthorizedHandshake(t *testing.T) {
 	app, _, _ := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
@@ -90,7 +107,7 @@ func TestAgentWebSocketAcceptsHeartbeatAndPersistsStatus(t *testing.T) {
 		"config_sha256":  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"last_error":     "",
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-1", "status": status}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-1", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
@@ -159,7 +176,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": status}); err != nil {
+	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on superseded connection: %v", err)
 	}
 	var response map[string]any
@@ -183,7 +200,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 		freshStatus[k] = v
 	}
 	freshStatus["mihomo_version"] = "current-connection"
-	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": freshStatus}); err != nil {
+	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": floatMap(freshStatus)}); err != nil {
 		t.Fatalf("send heartbeat on current connection: %v", err)
 	}
 	if err := newConn.ReadJSON(&response); err != nil {
@@ -245,7 +262,7 @@ func TestAgentWebSocketGenerationDoesNotResetAfterDisconnect(t *testing.T) {
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": status}); err != nil {
+	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on stale connection: %v", err)
 	}
 	var response map[string]any
@@ -331,7 +348,7 @@ func TestAgentWebSocketHeartbeatRecoversAfterControllerStateReset(t *testing.T) 
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-recovery", "status": status}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-recovery", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
@@ -737,5 +754,108 @@ func TestHTTPAgentHeartbeatRejectsRevokedAuthorization(t *testing.T) {
 	}
 	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
 		t.Fatalf("revoked HTTP heartbeat was persisted: %#v", settings)
+	}
+}
+
+func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
+	app, _, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "cmd-poll-1"}); err != nil {
+		t.Fatalf("request command: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read command response: %v", err)
+	}
+	if response["type"] != "command.none" || response["id"] != "cmd-poll-1" {
+		t.Fatalf("unexpected command response: %#v", response)
+	}
+}
+
+func TestAgentWebSocketDeliversAndAcknowledgesPendingCommand(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	pending := map[string]string{
+		"id":   "cmd-test-1",
+		"type": "update_mihomo",
+	}
+	raw, err := json.Marshal(pending)
+	if err != nil {
+		t.Fatalf("marshal pending command: %v", err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: string(raw)}); err != nil {
+		t.Fatalf("queue pending command: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "poll-1"}); err != nil {
+		t.Fatalf("request command: %v", err)
+	}
+	var delivered map[string]any
+	if err := conn.ReadJSON(&delivered); err != nil {
+		t.Fatalf("read delivered command: %v", err)
+	}
+	if delivered["type"] != "command.deliver" || delivered["id"] != "poll-1" {
+		t.Fatalf("unexpected command envelope: %#v", delivered)
+	}
+	command, ok := delivered["command"].(map[string]any)
+	if !ok || command["id"] != "cmd-test-1" || command["type"] != "update_mihomo" {
+		t.Fatalf("unexpected delivered command: %#v", delivered["command"])
+	}
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": "cmd-test-1",
+		"command_status": "success", "message": "test completed",
+	}); err != nil {
+		t.Fatalf("send command ACK: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read ACK confirmation: %v", err)
+	}
+	if ack["type"] != "command.acknowledged" || ack["id"] != "cmd-test-1" || ack["ok"] != true {
+		t.Fatalf("unexpected ACK confirmation: %#v", ack)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read persisted command result: %v", err)
+	}
+	if settings["agent_command_"+code] != "" {
+		t.Fatalf("acknowledged command remains queued: %s", settings["agent_command_"+code])
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode persisted command result: %v", err)
+	}
+	if result["id"] != "cmd-test-1" || result["status"] != "success" || result["message"] != "test completed" {
+		t.Fatalf("unexpected persisted command result: %#v", result)
 	}
 }
