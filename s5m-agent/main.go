@@ -599,8 +599,8 @@ func processAgentCommandWebSocket(cfg Config) error {
 		return fmt.Errorf("WebSocket 连接失败：%w", err)
 	}
 	defer conn.Close()
-	_ = conn.SetReadDeadline(time.Now().Add(12*time.Second))
-	_ = conn.SetWriteDeadline(time.Now().Add(8*time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(12 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
 	var welcome struct {
 		Type string `json:"type"`
 	}
@@ -661,7 +661,9 @@ func processAgentCommandWebSocket(cfg Config) error {
 		OK      bool   `json:"ok"`
 		Message string `json:"message"`
 	}
-	if err := conn.ReadJSON(&ack); err != nil { return fmt.Errorf("读取命令 ACK 确认失败：%w",err) }
+	if err := conn.ReadJSON(&ack); err != nil {
+		return fmt.Errorf("读取命令 ACK 确认失败：%w", err)
+	}
 	if ack.Type != "command.acknowledged" || ack.ID != cmd.ID || !ack.OK {
 		return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
 	}
