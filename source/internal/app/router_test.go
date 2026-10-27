@@ -317,3 +317,19 @@ func TestDeleteMihomoTemplateVersionRequiresAdminRole(t *testing.T) {
 		t.Fatalf("operator template deletion returned HTTP %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
 	}
 }
+
+func TestFaviconReturnsNoContentInsteadOfNotFound(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "favicon.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store}
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("favicon returned HTTP %d, want %d", response.Code, http.StatusNoContent)
+	}
+}

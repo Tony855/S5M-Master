@@ -137,6 +137,12 @@ func (a *App) Router(static fs.FS) http.Handler {
 		mux.HandleFunc(pat, handler)
 	}
 
+	// Browsers request this conventional icon path automatically. Return 204 when no icon is bundled.
+	// This avoids treating a harmless browser request as an application/API warning.
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux.Handle("/", http.FileServer(http.FS(static)))
 	return withRecover(mux)
 }
