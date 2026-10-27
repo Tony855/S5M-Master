@@ -18,6 +18,104 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// defaultMihomoTemplate is shown when no draft has been saved yet. It is a
+// safe starter template based on the project's generated configuration shape.
+// Replace the example proxy endpoint and secret before applying it to a node.
+const defaultMihomoTemplate = `allow-lan: true
+mixed-port: 8080
+mode: rule
+log-level: info
+ipv6: false
+find-process-mode: "off"
+unified-delay: true
+tcp-concurrent: true
+tcp-fast-open: true
+
+external-controller: 127.0.0.1:8088
+secret: "REPLACE_WITH_A_UNIQUE_RANDOM_SECRET"
+
+sniffer:
+  enable: true
+  sniff:
+    HTTP:
+      ports: [80]
+      override-destination: true
+    TLS:
+      ports: [443]
+    QUIC:
+      ports: [443]
+      override-destination: true
+
+# TUN defaults to disabled to avoid unexpectedly taking over host traffic.
+# Enable only after confirming platform permissions and routing.
+tun:
+  enable: false
+  tcp-concurrent: true
+  bind-address: "*"
+  stack: mixed
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"
+  auto-detect-interface: true
+  auto-route: true
+  strict-route: true
+
+dns:
+  enable: true
+  listen: 0.0.0.0:5353
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "*.local"
+    - "*.msftconnecttest.com"
+    - "*.msftncsi.com"
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  respect-rules: true
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  fallback:
+    - https://dns.cloudflare.com/dns-query
+    - https://dns.google/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+    ipcidr:
+      - 240.0.0.0/4
+
+# Replace the example server/port with a real reachable proxy endpoint.
+proxies:
+  - name: "proxy-01"
+    type: socks5
+    server: YOUR_PROXY_SERVER
+    port: 1080
+    udp: true
+
+proxy-groups:
+  - name: "代理出口"
+    type: select
+    proxies:
+      - "proxy-01"
+      - DIRECT
+
+rules:
+  - DOMAIN-SUFFIX,dns.alidns.com,代理出口
+  - DOMAIN-SUFFIX,doh.pub,代理出口
+  - DOMAIN-SUFFIX,dns.cloudflare.com,代理出口
+  - DOMAIN-SUFFIX,dns.google,代理出口
+  - DOMAIN-KEYWORD,221111cdn,REJECT
+  - DOMAIN-SUFFIX,221111cdn,REJECT
+  - DOMAIN-REGEX,^abc.*2222com,REJECT
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,代理出口
+`
+
 type mihomoTemplateVersion struct {
 	Version   int    `json:"version"`
 	SHA256    string `json:"sha256"`
@@ -111,6 +209,10 @@ func (a *App) handleGetMihomoTemplate(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		writeErr(w, 500, "读取模板版本失败")
 		return
+	}
+	if strings.TrimSpace(draft) == "" {
+		// Do not persist the starter until the administrator explicitly saves it.
+		draft = defaultMihomoTemplate
 	}
 	writeJSON(w, 200, map[string]any{"draft_yaml": draft, "current_version": current, "versions": versions})
 }
