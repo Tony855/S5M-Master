@@ -143,25 +143,44 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&msg); err != nil {
 			return
 		}
-		if msg.Type == "config.request" {
-			if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
+		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
+			// Serialize sensitive WebSocket operations with connection replacement and
+			// credential revocation. The delete-agent handler uses the same mutex.
+			a.agentWSMu.Lock()
+			if a.agentWSGeneration[machineCode] != generation {
+				a.agentWSMu.Unlock()
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
+				return
 			}
-			continue
-		}
-		if msg.Type == "command.request" {
-			if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
+			authorizedCode, authErr := a.agentMachineFromRequest(r)
+			if authErr != nil || authorizedCode != machineCode {
+				a.agentWSMu.Unlock()
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
+				return
 			}
-			continue
-		}
-		if msg.Type == "command.ack" {
-			if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
+			switch msg.Type {
+			case "config.request":
+				err = a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash)
+			case "command.request":
+				err = a.sendAgentWSCommand(conn, machineCode, msg.ID)
+			case "command.ack":
+				err = a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message)
+			}
+			a.agentWSMu.Unlock()
+			if err != nil {
+				message := err.Error()
+				if msg.Type == "config.request" {
+					message = "读取节点配置失败"
+				} else if msg.Type == "command.request" {
+					message = "读取待执行命令失败"
+				}
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": message})
 				continue
 			}
-			if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
-				return
+			if msg.Type == "command.ack" {
+				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+					return
+				}
 			}
 			continue
 		}
