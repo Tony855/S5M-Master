@@ -143,6 +143,15 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&msg); err != nil {
 			return
 		}
+		// Authorization can be revoked after the handshake. Revalidate the
+		// original bearer token before every operation, not only before heartbeats.
+		currentMachineCode, authErr := a.agentMachineFromRequest(r)
+		if authErr != nil || currentMachineCode != machineCode {
+			_ = conn.WriteJSON(map[string]string{
+				"type": "error", "id": msg.ID, "message": "Agent 授权已失效，请重新注册",
+			})
+			return
+		}
 		if msg.Type == "config.request" {
 			if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
 				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
