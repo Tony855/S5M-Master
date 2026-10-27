@@ -1169,7 +1169,7 @@ func main() {
 		fmt.Println("👉 正在通过 WebSocket 同步配置...")
 		localHash := ""
 		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
-			localSum := sha256.Sum256(localData)
+			localSum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
 			localHash = hex.EncodeToString(localSum[:])
 		}
 		newYml, unchanged, syncErr := fetchAgentConfigWebSocket(cfg, localHash)
