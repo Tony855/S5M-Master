@@ -117,6 +117,52 @@ rules:
 	}
 }
 
+func TestSyncAuthorizedNodeConfigsSkipsUnauthorizedNodeConfigs(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-authorization.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_authorized":       "token-authorized",
+		"agent_machine_revoked":          "   ",
+		"agent_mihomo_secret_authorized": "authorized-secret",
+		"tun_enable":                     "true",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	const authorizedExisting = "mixed-port: 7999\nsecret: preserve-authorized-secret\n"
+	const unauthorizedExisting = "mixed-port: 7888\nsecret: preserve-revoked-secret\nproxies: []\nrules: []\n"
+	if err := store.SaveNodeConfig("authorized", authorizedExisting); err != nil {
+		t.Fatalf("seed authorized config: %v", err)
+	}
+	if err := store.SaveNodeConfig("revoked", unauthorizedExisting); err != nil {
+		t.Fatalf("seed revoked config: %v", err)
+	}
+
+	app := &App{store: store}
+	if err := app.syncAuthorizedNodeConfigs(); err != nil {
+		t.Fatalf("sync authorized nodes: %v", err)
+	}
+
+	authorized, err := store.GetNodeConfig("authorized")
+	if err != nil {
+		t.Fatalf("read authorized config: %v", err)
+	}
+	if authorized == nil || !strings.Contains(authorized.YAML, "preserve-authorized-secret") {
+		t.Fatalf("authorized node's custom settings should be preserved: %+v", authorized)
+	}
+
+	revoked, err := store.GetNodeConfig("revoked")
+	if err != nil {
+		t.Fatalf("read revoked config: %v", err)
+	}
+	if revoked == nil || revoked.YAML != unauthorizedExisting {
+		t.Fatalf("unauthorized node config should not be touched by sync: got=%+v, want YAML %q", revoked, unauthorizedExisting)
+	}
+}
+
 func TestSyncAuthorizedNodeConfigsWithNoAuthorizedNodesLeavesExistingConfigsUntouched(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-no-agents.db"))
 	if err != nil {
