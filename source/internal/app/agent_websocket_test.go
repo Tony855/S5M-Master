@@ -786,7 +786,6 @@ func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
 	}
 }
 
-
 func TestAgentWebSocketDeliversAndAcknowledgesPendingCommand(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	pending := map[string]string{
