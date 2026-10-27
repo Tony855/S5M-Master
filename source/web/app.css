@@ -820,3 +820,5 @@ html, body, #app {
   color: #b91c1c;
 }
 
+.status-text-unknown { color: #64748b; }
+.remote-node-version.status-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; font-size: 10px; }
