@@ -52,6 +52,7 @@ createApp({
     const savingTemplate = ref(false);
     const validatingTemplate = ref(false);
     const publishingTemplate = ref(false);
+    const deletingTemplateVersion = ref(0);
     const applyingTemplate = ref(false);
     const publishing = ref(false);
     const updatingKernel = ref(false);
@@ -796,6 +797,33 @@ createApp({
       finally { publishingTemplate.value = false; }
     };
 
+    const deleteMihomoTemplateVersion = async (version) => {
+      const target = Number(version || 0);
+      if (!Number.isInteger(target) || target < 1) return showMsg('模板版本号无效', 'warning');
+      if (target === Number(templateCurrentVersion.value || 0)) return showMsg('不能删除当前发布版本，请先发布新版本', 'warning');
+      const item = templateVersions.value.find(v => Number(v.version) === target);
+      const note = item && item.note ? '（' + item.note + '）' : '';
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确定删除历史模板 v' + target + note + '？若仍有节点绑定该版本，服务器会拒绝删除。此操作不可撤销。',
+          '删除 Mihomo 模板版本',
+          { type: 'warning', confirmButtonText: '删除版本', cancelButtonText: '取消' }
+        );
+      } catch (_) { return; }
+      if (deletingTemplateVersion.value) return;
+      deletingTemplateVersion.value = target;
+      try {
+        const res = await api('/api/v1/mihomo/template/' + target, { method: 'DELETE' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.message || '删除模板版本失败');
+        if (Number(selectedTemplateVersion.value) === target) selectedTemplateVersion.value = null;
+        showMsg(data.message || ('模板历史版本 v' + target + ' 已删除'), 'success');
+        await loadMihomoTemplate();
+        await loadTemplateNodeStatus();
+      } catch (e) { showMsg(e.message || '删除模板版本失败', 'error'); }
+      finally { deletingTemplateVersion.value = 0; }
+    };
+
     const rollbackMihomoTemplate = async () => {
       const code = String(selectedTemplateNode.value || '').trim();
       if (!code) { showMsg('请先选择要恢复的节点', 'warning'); return; }
@@ -1012,6 +1040,27 @@ const safeCopy = async (text) => {
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate,
       loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, applyMihomoTemplate, rollbackMihomoTemplate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importTab, importText, importing, importMachineCode,
+      switchPage, doLogin, logout, loadOverview,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeedreturn {
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
+      overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
+      retryingNodeConfigSync, retryNodeConfigSync,
+      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
       kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
       openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
       systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
