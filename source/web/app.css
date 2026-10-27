@@ -733,3 +733,49 @@ html, body, #app {
 @media (max-width: 760px) {
   .container-nav-trigger { height: 42px; padding: 0 13px; }
 }
+
+
+/* Compact instance cards: summary first, full diagnostics on demand. */
+.instance-summary {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-soft, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.instance-summary-primary,
+.instance-summary-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.instance-summary-primary { color: var(--sub); }
+.instance-summary-secondary { margin-top: 5px; justify-content: space-between; }
+.instance-summary-secondary strong { color: var(--text); }
+.instance-summary-mihomo.is-running { color: #16a36a; }
+.instance-summary-mihomo.is-stopped { color: #d97706; }
+.instance-summary-updated { margin-top: 5px; color: var(--sub); font-size: 11px; }
+.instance-details { margin-top: 8px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.instance-details > summary {
+  padding: 9px 12px;
+  color: var(--primary, #409eff);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.instance-details[open] > summary { border-bottom: 1px solid var(--border); }
+.instance-details-content { display: grid; gap: 8px; padding: 10px 12px; }
+.instance-detail-item { display: grid; grid-template-columns: minmax(105px, .65fr) minmax(0, 1.35fr); gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.instance-detail-label { color: var(--sub); }
+.instance-detail-note { color: var(--sub); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.instance-detail-note.is-error { color: #dc2626; }
+@media (max-width: 600px) {
+  .instance-summary-secondary { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .instance-detail-item { grid-template-columns: 1fr; gap: 2px; }
+}
