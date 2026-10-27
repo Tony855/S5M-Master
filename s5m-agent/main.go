@@ -402,12 +402,79 @@ func collectMihomoStatus() map[string]any {
 // HTTP is retained only as a compatibility fallback if the WebSocket handshake,
 // heartbeat exchange, or acknowledgement fails.
 func reportHeartbeat(cfg Config, status map[string]any) error {
-	if err := reportHeartbeatWebSocket(cfg, status); err == nil {
-		return nil
-	} else {
-		fmt.Printf("WebSocket 心跳失败，回退 HTTP：%v\n", err)
+	return reportHeartbeatWebSocket(cfg, status)
+}
+
+// fetchAgentConfigWebSocket fetches this machine's configuration without HTTP polling.
+// A config hash allows the controller to avoid retransmitting unchanged YAML.
+func fetchAgentConfigWebSocket(cfg Config, localHash string) ([]byte, bool, error) {
+	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
+	if err != nil || base.Host == "" {
+		return nil, false, fmt.Errorf("主控地址无效")
 	}
-	return reportHeartbeatHTTP(cfg, status)
+	switch strings.ToLower(base.Scheme) {
+	case "http":
+		base.Scheme = "ws"
+	case "https":
+		base.Scheme = "wss"
+	default:
+		return nil, false, fmt.Errorf("主控地址协议不支持")
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/agent/ws"
+	base.RawPath = ""
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+cfg.Token)
+	conn, response, err := (&websocket.Dialer{HandshakeTimeout: 8 * time.Second}).Dial(base.String(), header)
+	if err != nil {
+		if response != nil {
+			return nil, false, fmt.Errorf("WebSocket 握手失败：HTTP %d：%w", response.StatusCode, err)
+		}
+		return nil, false, fmt.Errorf("WebSocket 连接失败：%w", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
+	var welcome struct { Type string `json:"type"` }
+	if err := conn.ReadJSON(&welcome); err != nil {
+		return nil, false, fmt.Errorf("读取 WebSocket 欢迎消息失败：%w", err)
+	}
+	if welcome.Type != "welcome" {
+		return nil, false, fmt.Errorf("WebSocket 欢迎消息类型无效")
+	}
+	requestID := fmt.Sprintf("cfg-%d", time.Now().UnixNano())
+	if err := conn.WriteJSON(map[string]string{"type": "config.request", "id": requestID, "config_sha256": localHash}); err != nil {
+		return nil, false, fmt.Errorf("发送配置请求失败：%w", err)
+	}
+	var result struct {
+		Type string `json:"type"`
+		ID string `json:"id"`
+		SHA256 string `json:"sha256"`
+		YAML string `json:"yaml"`
+		Message string `json:"message"`
+	}
+	if err := conn.ReadJSON(&result); err != nil {
+		return nil, false, fmt.Errorf("读取 WebSocket 配置响应失败：%w", err)
+	}
+	if result.ID != requestID {
+		return nil, false, fmt.Errorf("WebSocket 配置响应 ID 不匹配")
+	}
+	switch result.Type {
+	case "config.unchanged":
+		return nil, true, nil
+	case "config.sync":
+		if strings.TrimSpace(result.YAML) == "" {
+			return nil, false, fmt.Errorf("主控端返回空配置")
+		}
+		sum := sha256.Sum256([]byte(result.YAML))
+		if result.SHA256 != hex.EncodeToString(sum[:]) {
+			return nil, false, fmt.Errorf("主控端配置 SHA-256 校验失败")
+		}
+		return []byte(result.YAML), false, nil
+	case "error":
+		return nil, false, fmt.Errorf("主控端拒绝配置请求：%s", result.Message)
+	default:
+		return nil, false, fmt.Errorf("未知的 WebSocket 配置响应类型: %s", result.Type)
+	}
 }
 
 func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
@@ -1099,51 +1166,23 @@ func main() {
 			fmt.Printf("Agent 命令处理失败: %v\n", err)
 		}
 
-		fmt.Println("👉 正在向主控台发送心跳...")
-		req, err := http.NewRequest(
-			http.MethodGet,
-			strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/config",
-			nil,
-		)
-		if err != nil {
-			fmt.Printf("Agent 配置请求创建失败: %v\n", err)
-			continue
-		}
-		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+		fmt.Println("👉 正在通过 WebSocket 同步配置...")
+		localHash := ""
 		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
 			localSum := sha256.Sum256(localData)
-			req.Header.Set("If-None-Match", fmt.Sprintf("\"%x\"", localSum[:]))
+			localHash = hex.EncodeToString(localSum[:])
 		}
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			fmt.Printf("❌ Agent 心跳请求失败: %v\n", err)
-			continue
-		}
-
-		if resp.StatusCode == http.StatusNotModified {
-			resp.Body.Close()
-			if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-				fmt.Printf("Agent 状态上报失败: %v\n", err)
-			}
-			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
-			continue
-		}
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-			resp.Body.Close()
-			fmt.Printf("❌ Agent 心跳异常: HTTP %d，主控端响应: %s\n", resp.StatusCode, strings.TrimSpace(string(body)))
-			continue
-		}
-
-		newYml, readErr := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
-		if readErr != nil {
-			fmt.Printf("读取主控台配置失败: %v\n", readErr)
+		newYml, unchanged, syncErr := fetchAgentConfigWebSocket(cfg, localHash)
+		if syncErr != nil {
+			fmt.Printf("❌ WebSocket 配置同步失败: %v\n", syncErr)
 			continue
 		}
 		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
 			fmt.Printf("Agent 状态上报失败: %v\n", err)
+		}
+		if unchanged {
+			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
+			continue
 		}
 		if len(strings.TrimSpace(string(newYml))) == 0 {
 			fmt.Println("主控台返回空配置，本次跳过")
