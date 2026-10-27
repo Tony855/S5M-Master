@@ -152,6 +152,18 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// A reconnect supersedes the previous socket for every operation, not
+		// only heartbeat writes. Otherwise an old socket could still poll
+		// commands, fetch config, or acknowledge a command after replacement.
+		a.agentWSMu.Lock()
+		isCurrentGeneration := a.agentWSGeneration[machineCode] == generation
+		a.agentWSMu.Unlock()
+		if !isCurrentGeneration {
+			_ = conn.WriteJSON(map[string]string{
+				"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代",
+			})
+			return
+		}
 		if msg.Type == "config.request" {
 			if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
 				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
