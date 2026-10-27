@@ -2,9 +2,9 @@ package app
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -926,7 +926,6 @@ func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
 		t.Fatal("config request did not update Agent last-seen timestamp")
 	}
 }
-
 
 func TestAgentWebSocketCannotReadConfigAfterAuthorizationRevocation(t *testing.T) {
 	app, code, token := websocketTestApp(t)
