@@ -1142,6 +1142,7 @@ func machineIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"machine_id": id})
 }
+
 // probeControllerHTTP is deliberately limited to controller reachability.
 // A received HTTP response proves network reachability; application data is never
 // read from this endpoint and no HTTP fallback is used for Agent status/config/commands.
@@ -1212,9 +1213,9 @@ func runAgentWebSocketSession(cfg Config) error {
 	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
 	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	var welcome struct {
-		Type string `json:"type"`
-		Protocol int `json:"protocol"`
-		HeartbeatIntervalSec int `json:"heartbeat_interval_sec"`
+		Type                 string `json:"type"`
+		Protocol             int    `json:"protocol"`
+		HeartbeatIntervalSec int    `json:"heartbeat_interval_sec"`
 	}
 	if err := conn.ReadJSON(&welcome); err != nil {
 		return fmt.Errorf("读取 WebSocket 欢迎消息失败：%w", err)
@@ -1237,9 +1238,9 @@ func runAgentWebSocketSession(cfg Config) error {
 			return fmt.Errorf("发送状态心跳失败：%w", err)
 		}
 		var heartbeatAck struct {
-			Type string `json:"type"`
-			ID string `json:"id"`
-			OK bool `json:"ok"`
+			Type    string `json:"type"`
+			ID      string `json:"id"`
+			OK      bool   `json:"ok"`
 			Message string `json:"message"`
 		}
 		if err := readAgentWSJSON(conn, &heartbeatAck, 90*time.Second); err != nil {
@@ -1262,10 +1263,10 @@ func runAgentWebSocketSession(cfg Config) error {
 			return fmt.Errorf("请求配置失败：%w", err)
 		}
 		var configResponse struct {
-			Type string `json:"type"`
-			ID string `json:"id"`
-			SHA256 string `json:"sha256"`
-			YAML string `json:"yaml"`
+			Type    string `json:"type"`
+			ID      string `json:"id"`
+			SHA256  string `json:"sha256"`
+			YAML    string `json:"yaml"`
 			Message string `json:"message"`
 		}
 		if err := readAgentWSJSON(conn, &configResponse, 90*time.Second); err != nil {
@@ -1311,10 +1312,10 @@ func runAgentWebSocketSession(cfg Config) error {
 			return fmt.Errorf("请求待执行命令失败：%w", err)
 		}
 		var commandEnvelope struct {
-			Type string `json:"type"`
-			ID string `json:"id"`
+			Type    string        `json:"type"`
+			ID      string        `json:"id"`
 			Command *agentCommand `json:"command"`
-			Message string `json:"message"`
+			Message string        `json:"message"`
 		}
 		if err := readAgentWSJSON(conn, &commandEnvelope, 90*time.Second); err != nil {
 			return fmt.Errorf("读取命令响应失败：%w", err)
@@ -1352,9 +1353,9 @@ func runAgentWebSocketSession(cfg Config) error {
 				return fmt.Errorf("命令已执行但 ACK 发送失败（服务端将按命令 ID 幂等重投）: %w", err)
 			}
 			var ack struct {
-				Type string `json:"type"`
-				ID string `json:"id"`
-				OK bool `json:"ok"`
+				Type    string `json:"type"`
+				ID      string `json:"id"`
+				OK      bool   `json:"ok"`
 				Message string `json:"message"`
 			}
 			if err := readAgentWSJSON(conn, &ack, 30*time.Second); err != nil {
