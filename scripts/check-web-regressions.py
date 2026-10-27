@@ -163,7 +163,7 @@ checks.update({
         and "同步至所有已授权节点" in html
     ),
     "mobile proxy association label handles global sentinel before generic machine code": (
-        'v-if="item.machine_code === \'__GLOBAL__\'" in html
+        'v-if="item.machine_code === \'__GLOBAL__\'"' in html
         and html.index('v-if="item.machine_code === \'__GLOBAL__\'"')
         < html.index('v-else-if="item.machine_code"')
         and "未关联节点实例，不会同步到节点配置" in html
