@@ -1650,6 +1650,11 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "机器码、版本号或 SHA-256 格式无效")
 		return
 	}
+	// Serialize command enqueue with ACK and revocation for this Agent. The
+	// database's conditional insert still protects against concurrent writers.
+	operationMu := a.agentWSOperationLock(in.MachineCode)
+	operationMu.Lock()
+	defer operationMu.Unlock()
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 授权失败")
@@ -1731,6 +1736,11 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "命令 ID 或状态无效")
 		return
 	}
+	// Keep HTTP ACKs mutually exclusive with WebSocket ACKs, command enqueue,
+	// and revocation for this Agent so a stale ACK cannot delete a new command.
+	operationMu := a.agentWSOperationLock(code)
+	operationMu.Lock()
+	defer operationMu.Unlock()
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取待执行命令失败")
@@ -1828,8 +1838,12 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
-	// cannot restore status after the binding has been deleted.
+	// Match the lock order used by WebSocket connection replacement (per-Agent
+	// lock, then global generation lock) to avoid deadlocks and serialize revoke
+	// against command ACK/enqueue operations for this machine.
+	operationMu := a.agentWSOperationLock(code)
+	operationMu.Lock()
+	defer operationMu.Unlock()
 	a.agentWSMu.Lock()
 	defer a.agentWSMu.Unlock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {
