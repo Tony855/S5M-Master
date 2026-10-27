@@ -36,9 +36,9 @@ func BenchmarkHTTPAgentHeartbeatHandler(b *testing.B) {
 	}
 	sum := sha256.Sum256([]byte(secret))
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub": code,
+		"sub":  code,
 		"role": "agent",
-		"ver": hex.EncodeToString(sum[:]),
+		"ver":  hex.EncodeToString(sum[:]),
 	}).SignedString(app.jwtKey)
 	if err != nil {
 		b.Fatalf("sign benchmark token: %v", err)
