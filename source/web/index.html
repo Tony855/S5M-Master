@@ -161,7 +161,7 @@
                   <span class="machine-tag">{{ scope.row.machine_code }}</span>
                   <div class="section-hint" style="margin-top:4px;">{{ machineCodeStatus(scope.row.machine_code) }}</div>
                 </div>
-                <span v-else style="color:var(--sub);">未绑定</span>
+                <span v-else-if="scope.row.machine_code === '__GLOBAL__'" style="color:var(--sub);">全局节点</span><span v-else style="color:var(--sub);">未绑定</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="160">
@@ -179,7 +179,7 @@
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">类型/模式</div><div class="proxy-mobile-value">{{ item.type }} / {{ item.mode }}</div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">服务器</div><div class="proxy-mobile-value">{{ item.server }}:{{ item.port }}</div></div>
               <div class="proxy-mobile-row">
-                <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else>未绑定</span><div class="section-hint">{{ item.machine_code ? machineCodeStatus(item.machine_code) : '未关联节点实例，不会同步到节点配置' }}</div></div>
+                <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else-if="item.machine_code === '__GLOBAL__'">全局节点</span><span v-else>未绑定</span><div class="section-hint">{{ item.machine_code === '__GLOBAL__' ? '同步至所有已授权节点' : (item.machine_code ? machineCodeStatus(item.machine_code) : '未关联节点实例，不会同步到节点配置') }}</div></div>
               </div>
               <div class="proxy-mobile-actions">
                 <el-button size="small" class="btn-action-edit" @click="openEditProxy(item)">编辑</el-button>
@@ -194,10 +194,11 @@
         <el-dialog v-model="proxyDialog" :title="proxyForm.id ? '编辑节点' : '新增节点'" width="90%" style="max-width: 520px;">
           <el-form :model="proxyForm" label-width="90px">
             <el-form-item label="关联节点实例">
-              <el-select v-model="proxyForm.machine_code" placeholder="未绑定（不会同步到节点）" clearable filterable style="width:100%">
+              <el-select v-model="proxyForm.machine_code" placeholder="留空为未绑定；选择全局节点可同步到所有已授权节点" clearable filterable style="width:100%">
+                <el-option label="全局节点（同步到所有已授权节点）" value="__GLOBAL__"></el-option>
                 <el-option v-for="code in availableMachineCodes" :key="code" :label="machineCodeOptionLabel(code)" :value="code"></el-option>
               </el-select>
-              <div class="section-hint" style="line-height:1.6;margin-top:5px;">绑定后此代理只进入所选机器码对应的独立配置；未绑定代理仅保留在主控列表，不会同步到任何节点。保存后主控端自动同步 proxies/rules，不覆盖该节点其他自定义设置。</div>
+              <div class="section-hint" style="line-height:1.6;margin-top:5px;">选择具体实例后仅进入该实例配置；选择“全局节点”会同步到所有已授权节点；留空则为未绑定，仅保留在主控列表。保存后自动同步 proxies/rules，不覆盖节点其他自定义设置。</div>
             </el-form-item>
             <el-form-item label="启用代理">
               <el-switch v-model="proxyForm.enabled" active-text="启用" inactive-text="禁用"></el-switch>
