@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S5M Agent 一键部署（全新安装 / 重装；仅清理 S5M Agent 自身资源）
+# S5M Agent 安全更新：仅替换 Agent 容器，保留持久化数据和宿主机其他 Docker 资源
 set -uo pipefail
 
 IMAGE_NAME="s5m-agent-linux-amd64.tar"
@@ -41,39 +41,13 @@ if ! command -v docker >/dev/null 2>&1 || ! docker version >/dev/null 2>&1; then
 fi
 systemctl enable --now docker >/dev/null 2>&1 || true
 
-# ---------- 2. 仅清理 S5M Agent 自身资源 ----------
-# 不删除其他应用的容器、镜像、卷或网络。
-log "清理旧 S5M Agent 容器 ..."
-docker rm -f "$CONTAINER" 2>/dev/null || true
-
-log "清理 S5M Agent 相关镜像 ..."
-while IFS= read -r image_id; do
-  [ -n "$image_id" ] && docker rmi -f "$image_id" 2>/dev/null || true
-done < <(docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '$1 ~ /^s5m-agent:/ {print $2}' | sort -u)
-
-# ---------- 3. 删除 S5M Agent 数据目录（不保留应用数据） ----------
-log "删除数据目录 /opt/s5m-agent ..."
-rm -rf /opt/s5m-agent
-
-# ---------- 4. 确保 Docker / containerd 服务运行 ----------
-# 不清空 /var/lib/containerd，避免破坏宿主机上其他容器的数据。
-log "检查并重启 containerd / Docker ..."
-systemctl daemon-reload
-systemctl restart containerd || die "containerd 启动失败"
-sleep 2
-systemctl restart docker || die "Docker 启动失败"
-sleep 2
-
-systemctl is-active --quiet containerd || die "containerd 启动失败"
-systemctl is-active --quiet docker     || die "Docker 启动失败"
-
-# ---------- 5. 加载镜像（失败自动重试 3 次） ----------
+# ---------- 2. 加载新镜像 ----------
+# 不清理旧镜像、不删除卷、不重启 Docker/containerd。
 log "加载镜像 $IMAGE_TAR ..."
 ok=0
 for i in 1 2 3; do
   if docker load -i "$IMAGE_TAR"; then ok=1; break; fi
-  warn "第 $i 次加载失败，重启 containerd/docker 后重试 ..."
-  systemctl restart containerd docker
+  warn "第 $i 次加载失败，等待 3 秒后重试（不会重启 Docker 服务）..."
   sleep 3
 done
 if [ "$ok" -ne 1 ]; then
@@ -87,11 +61,16 @@ docker tag "$IMAGE_SRC" "$IMAGE_LOCAL" 2>/dev/null || {
   [ -n "$src" ] && docker tag "$src" "$IMAGE_LOCAL" || die "找不到 s5m-agent 镜像"
 }
 
-# ---------- 6. 重建数据目录 ----------
-log "重建数据目录 $DATA_DIR ..."
+# ---------- 3. 保留持久化数据 ----------
+# 不删除 /opt/s5m-agent；其中可能保存机器标识和配置。
+log "确保持久化目录存在：$DATA_DIR"
 install -d -m 0700 "$DATA_DIR"
 
-# ---------- 7. 启动容器 ----------
+# ---------- 4. 仅替换 S5M Agent 容器 ----------
+log "仅移除旧 S5M Agent 容器（不删除数据目录）..."
+docker rm -f "$CONTAINER" 2>/dev/null || true
+
+# ---------- 5. 启动容器 ----------
 log "启动容器 $CONTAINER ..."
 docker run -d \
   --name "$CONTAINER" \
