@@ -179,7 +179,7 @@
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">类型/模式</div><div class="proxy-mobile-value">{{ item.type }} / {{ item.mode }}</div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">服务器</div><div class="proxy-mobile-value">{{ item.server }}:{{ item.port }}</div></div>
               <div class="proxy-mobile-row">
-                <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else-if="item.machine_code === '__GLOBAL__'">全局节点</span><span v-else>未绑定</span><div class="section-hint">{{ item.machine_code === '__GLOBAL__' ? '同步至所有已授权节点' : (item.machine_code ? machineCodeStatus(item.machine_code) : '未关联节点实例，不会同步到节点配置') }}</div></div>
+                <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code === '__GLOBAL__'">全局节点</span><span v-else-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else>未绑定</span><div class="section-hint">{{ item.machine_code === '__GLOBAL__' ? '同步至所有已授权节点' : (item.machine_code ? machineCodeStatus(item.machine_code) : '未关联节点实例，不会同步到节点配置') }}</div></div>
               </div>
               <div class="proxy-mobile-actions">
                 <el-button size="small" class="btn-action-edit" @click="openEditProxy(item)">编辑</el-button>
