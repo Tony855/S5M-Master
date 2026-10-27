@@ -2053,7 +2053,7 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mt := settings["agent_machine_"+code]
-	if mt == "" || mt == settings["agent_token"] {
+	if strings.TrimSpace(mt) == "" || mt == settings["agent_token"] {
 		writeErr(w, 404, "节点未授权")
 		return
 	}
@@ -2093,7 +2093,7 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mt := settings["agent_machine_"+code]
-	if mt == "" || mt == settings["agent_token"] {
+	if strings.TrimSpace(mt) == "" || mt == settings["agent_token"] {
 		writeErr(w, 404, "节点未授权")
 		return
 	}
