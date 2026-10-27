@@ -106,7 +106,10 @@ createApp({
       if (!item) return '未找到已授权的节点实例';
       return (item.online ? '在线' : '离线') + (item.hostname ? ' · ' + item.hostname : '');
     };
-    const proxyCountForMachine = (code) => proxies.value.filter(p => p.machine_code === code).length;
+    const proxyCountForMachine = (code) => {
+      const machineCode = String(code || '').trim();
+      return proxies.value.filter(p => String(p.machine_code || '').trim() === machineCode).length;
+    };
     // Do not infer whether a dedicated YAML exists from the proxy count.
     // The node-config GET endpoint may initialize a default YAML on first access.
     const nodeConfigState = () => '可在配置管理中查看/编辑';
@@ -123,11 +126,14 @@ createApp({
     const filteredProxies = computed(() => {
       if (activeGroup.value === 'ALL') return proxies.value;
       if (activeGroup.value === 'UNBOUND') return proxies.value.filter(p => !p.machine_code);
-      return proxies.value.filter(p => p.machine_code === activeGroup.value);
+      return proxies.value.filter(p => String(p.machine_code || '').trim() === String(activeGroup.value || '').trim());
     });
 
     const getUnboundCount = () => proxies.value.filter(p => !p.machine_code).length;
-    const getMachineCount = (code) => proxies.value.filter(p => p.machine_code === code).length;
+    const getMachineCount = (code) => {
+      const machineCode = String(code || '').trim();
+      return proxies.value.filter(p => String(p.machine_code || '').trim() === machineCode).length;
+    };
     // =============================
 
     const fmtBytes = (n) => {
@@ -222,7 +228,7 @@ createApp({
       page.value = v;
       if (v === 'dashboard') loadOverview();
       if (v === 'proxies') { loadProxies(); loadAgentsData(); }
-      if (v === 'instances') loadAgentsData();
+      if (v === 'instances') { loadAgentsData(); loadProxies(); }
       if (v === 'config') { loadAgentsData(); loadSettings(); loadMihomoTemplate(); loadTemplateNodeStatus(); }
       if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }
     };

@@ -51,14 +51,17 @@ tun:
     strict-route: true
 dns:
     enable: true
+    # LAN clients may use this listener; firewall must restrict TCP/UDP 5353 to trusted LANs.
     listen: 0.0.0.0:5353
     enhanced-mode: fake-ip
+    cache-algorithm: arc
     fake-ip-range: 198.18.0.1/16
     fake-ip-filter:
         - '*.lan'
         - '*.local'
         - '*.msftconnecttest.com'
         - '*.msftncsi.com'
+    # Bootstrap DNS is plain DNS; restrict its egress if a strict no-cleartext-DNS policy is required.
     default-nameserver:
         - 223.5.5.5
         - 119.29.29.29
