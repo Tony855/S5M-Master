@@ -262,7 +262,7 @@ func TestAgentWebSocketGenerationDoesNotResetAfterDisconnect(t *testing.T) {
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": status}); err != nil {
+	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on stale connection: %v", err)
 	}
 	var response map[string]any
