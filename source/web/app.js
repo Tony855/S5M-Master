@@ -579,7 +579,11 @@ createApp({
         const res = await api('/api/v1/agents?t=' + Date.now());
         if (!res.ok) {
           const detail = await res.text().catch(() => '');
-          agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
+          if (!hasExistingData) {
+            agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
+          } else {
+            console.warn('静默刷新实例失败，保留现有列表（HTTP ' + res.status + '）', detail);
+          }
           console.error('读取实例失败', res.status, detail);
           if (!hasExistingData) agentEntries.value = [];
           return;
