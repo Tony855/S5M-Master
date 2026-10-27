@@ -127,14 +127,14 @@ func TestDeleteAgentBindingRemovesLiveTemplateBindingAndAgentSettings(t *testing
 		t.Fatalf("create template binding table: %v", err)
 	}
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_node-a": "dedicated-token",
-		"agent_lastseen_node-a": "123",
-		"agent_status_node-a": "online",
-		"agent_secret_node-a": "secret",
-		"agent_mihomo_secret_node-a": "mihomo-secret",
-		"agent_command_node-a": `{"id":"cmd"}`,
+		"agent_machine_node-a":        "dedicated-token",
+		"agent_lastseen_node-a":       "123",
+		"agent_status_node-a":         "online",
+		"agent_secret_node-a":         "secret",
+		"agent_mihomo_secret_node-a":  "mihomo-secret",
+		"agent_command_node-a":        `{"id":"cmd"}`,
 		"agent_command_result_node-a": `{"id":"cmd","status":"ok"}`,
-		"agent_machine_node-b": "keep-token",
+		"agent_machine_node-b":        "keep-token",
 	}); err != nil {
 		t.Fatalf("seed Agent settings: %v", err)
 	}
