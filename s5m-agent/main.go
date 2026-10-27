@@ -434,7 +434,9 @@ func fetchAgentConfigWebSocket(cfg Config, localHash string) ([]byte, bool, erro
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
-	var welcome struct { Type string `json:"type"` }
+	var welcome struct {
+		Type string `json:"type"`
+	}
 	if err := conn.ReadJSON(&welcome); err != nil {
 		return nil, false, fmt.Errorf("读取 WebSocket 欢迎消息失败：%w", err)
 	}
@@ -446,10 +448,10 @@ func fetchAgentConfigWebSocket(cfg Config, localHash string) ([]byte, bool, erro
 		return nil, false, fmt.Errorf("发送配置请求失败：%w", err)
 	}
 	var result struct {
-		Type string `json:"type"`
-		ID string `json:"id"`
-		SHA256 string `json:"sha256"`
-		YAML string `json:"yaml"`
+		Type    string `json:"type"`
+		ID      string `json:"id"`
+		SHA256  string `json:"sha256"`
+		YAML    string `json:"yaml"`
 		Message string `json:"message"`
 	}
 	if err := conn.ReadJSON(&result); err != nil {
@@ -620,7 +622,7 @@ func processAgentCommandWebSocket(cfg Config) error {
 	status := "success"
 	if runErr != nil { status = "failed"; message = runErr.Error() }
 	if len(message) > 2048 { message = message[:2048] }
-	if err := conn.WriteJSON(map[string]string{"type":"command.ack","id":cmd.ID,"status":status,"message":message}); err != nil {
+	if err := conn.WriteJSON(map[string]string{"type":"command.ack","id":cmd.ID,"command_status":status,"message":message}); err != nil {
 		return fmt.Errorf("命令已执行但 WebSocket ACK 发送失败，主控端可能重新投递: %w",err)
 	}
 	var ack struct { Type string `json:"type"`; ID string `json:"id"`; OK bool `json:"ok"`; Message string `json:"message"` }
