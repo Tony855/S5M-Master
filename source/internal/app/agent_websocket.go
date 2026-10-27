@@ -213,6 +213,20 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// Revalidate credentials for heartbeats as well as config/command
+		// operations. This closes the handshake/revocation race where a socket
+		// authenticated just before revocation could register its generation
+		// just after the revocation handler removed the binding.
+		authorizedCode, authErr := a.agentMachineFromRequest(r)
+		if authErr != nil || authorizedCode != machineCode {
+			a.agentWSMu.Unlock()
+			_ = conn.WriteJSON(map[string]string{
+				"type":    "error",
+				"id":      msg.ID,
+				"message": "Agent 未授权或授权已失效",
+			})
+			return
+		}
 		if a.agentHeartbeatAt == nil {
 			a.agentHeartbeatAt = make(map[string]int64)
 		}
