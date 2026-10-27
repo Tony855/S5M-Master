@@ -157,11 +157,15 @@
             <el-table-column label="服务器" min-width="180"><template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template></el-table-column>
             <el-table-column label="关联节点实例" min-width="190">
               <template #default="scope">
-                <div v-if="scope.row.machine_code">
+                <div v-if="scope.row.machine_code === '__GLOBAL__'">
+                  <span style="color:var(--sub);">全局节点</span>
+                  <div class="section-hint" style="margin-top:4px;">同步至所有已授权节点</div>
+                </div>
+                <div v-else-if="scope.row.machine_code">
                   <span class="machine-tag">{{ scope.row.machine_code }}</span>
                   <div class="section-hint" style="margin-top:4px;">{{ machineCodeStatus(scope.row.machine_code) }}</div>
                 </div>
-                <span v-else-if="scope.row.machine_code === '__GLOBAL__'" style="color:var(--sub);">全局节点</span><span v-else style="color:var(--sub);">未绑定</span>
+                <span v-else style="color:var(--sub);">未绑定</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="160">
