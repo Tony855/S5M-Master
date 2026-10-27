@@ -10,7 +10,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 // TestAgentWebSocketRevocationBlocksCommandPolling verifies an established socket
 // cannot keep reading commands after its machine authorization is revoked.
 func TestAgentWebSocketRevocationBlocksCommandPolling(t *testing.T) {
@@ -50,7 +49,8 @@ func TestAgentWebSocketRevocationBlocksCommandPolling(t *testing.T) {
 	if err := conn.ReadJSON(&response); err != nil {
 		t.Fatalf("read revoked socket response: %v", err)
 	}
-	if response["type"] != "error" || !strings.Contains(response["message"].(string), "授权已失效") {
+	message, _ := response["message"].(string)
+	if response["type"] != "error" || !strings.Contains(message, "授权已失效") {
 		t.Fatalf("revoked socket response = %#v, want authorization error", response)
 	}
 	settings, err := app.store.GetSettings()
