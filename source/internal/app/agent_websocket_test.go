@@ -1070,7 +1070,6 @@ func TestAgentWebSocketHeartbeatRevalidatesAuthorizationAfterBindingRemoval(t *t
 	}
 }
 
-
 func TestLegacyHTTPAgentEndpointsRejectRevokedBinding(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	if err := app.store.UpdateSettings(map[string]string{
