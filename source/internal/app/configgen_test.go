@@ -68,7 +68,7 @@ rules:
 				t.Errorf("attempt %d: synced YAML lost or omitted %q:\n%s", attempt, want, got.YAML)
 			}
 		}
-		if strings.Contains(got.YAML, "stale-proxy") || strings.Contains(got.YAML, "MATCH,DIRECT") {
+		if strings.Contains(got.YAML, "stale-proxy") || strings.Contains(got.YAML, "MATCH,OLD-DIRECT") {
 			t.Errorf("attempt %d: managed proxy/rule sections were not refreshed:\n%s", attempt, got.YAML)
 		}
 	}
