@@ -1142,6 +1142,253 @@ func machineIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewEncoder(w).Encode(map[string]string{"machine_id": id})
 }
+// probeControllerHTTP is deliberately limited to controller reachability.
+// A received HTTP response proves network reachability; application data is never
+// read from this endpoint and no HTTP fallback is used for Agent status/config/commands.
+func probeControllerHTTP(cfg Config) error {
+	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
+	if err != nil || base.Host == "" {
+		return fmt.Errorf("主控地址无效")
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/health"
+	base.RawPath = ""
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base.String(), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	// Even a 4xx/5xx response proves that the controller host is reachable.
+	return nil
+}
+
+func nextReconnectDelay(current time.Duration) time.Duration {
+	if current < 2*time.Second {
+		return 2 * time.Second
+	}
+	current *= 2
+	if current > 60*time.Second {
+		return 60 * time.Second
+	}
+	return current
+}
+
+// runAgentWebSocketSession owns one persistent connection for all Agent control-plane
+// traffic. Every request/response is correlated by ID, and the existing safe config
+// apply/rollback and idempotent kernel-upgrade paths are reused.
+func runAgentWebSocketSession(cfg Config) error {
+	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
+	if err != nil || base.Host == "" {
+		return fmt.Errorf("主控地址无效")
+	}
+	switch strings.ToLower(base.Scheme) {
+	case "http":
+		base.Scheme = "ws"
+	case "https":
+		base.Scheme = "wss"
+	default:
+		return fmt.Errorf("主控地址协议不支持")
+	}
+	base.Path = strings.TrimRight(base.Path, "/") + "/api/v1/agent/ws"
+	base.RawPath = ""
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+cfg.Token)
+	dialer := websocket.Dialer{HandshakeTimeout: 8 * time.Second}
+	conn, response, err := dialer.Dial(base.String(), header)
+	if err != nil {
+		if response != nil {
+			return fmt.Errorf("WebSocket 握手失败：HTTP %d：%w", response.StatusCode, err)
+		}
+		return fmt.Errorf("WebSocket 连接失败：%w", err)
+	}
+	defer conn.Close()
+	conn.SetReadLimit(3 << 20)
+	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
+	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	var welcome struct {
+		Type string `json:"type"`
+		Protocol int `json:"protocol"`
+		HeartbeatIntervalSec int `json:"heartbeat_interval_sec"`
+	}
+	if err := conn.ReadJSON(&welcome); err != nil {
+		return fmt.Errorf("读取 WebSocket 欢迎消息失败：%w", err)
+	}
+	if welcome.Type != "welcome" || welcome.Protocol != 1 {
+		return fmt.Errorf("WebSocket 协议版本或欢迎消息无效")
+	}
+	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalSec) * time.Second
+	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
+		heartbeatInterval = 30 * time.Second
+	}
+
+	for {
+		// 1. Status/heartbeat is WebSocket-only.
+		status := collectMihomoStatus()
+		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
+		if err := writeAgentWSJSON(conn, map[string]any{
+			"type": "heartbeat", "id": heartbeatID, "status": status,
+		}); err != nil {
+			return fmt.Errorf("发送状态心跳失败：%w", err)
+		}
+		var heartbeatAck struct {
+			Type string `json:"type"`
+			ID string `json:"id"`
+			OK bool `json:"ok"`
+			Message string `json:"message"`
+		}
+		if err := readAgentWSJSON(conn, &heartbeatAck, 90*time.Second); err != nil {
+			return fmt.Errorf("读取状态心跳确认失败：%w", err)
+		}
+		if heartbeatAck.Type != "heartbeat.ack" || heartbeatAck.ID != heartbeatID || !heartbeatAck.OK {
+			return fmt.Errorf("主控端状态心跳确认无效: %s", heartbeatAck.Message)
+		}
+
+		// 2. Fetch config on the same socket. A hash prevents needless YAML transfers.
+		localHash := ""
+		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
+			sum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
+			localHash = hex.EncodeToString(sum[:])
+		}
+		configRequestID := fmt.Sprintf("cfg-%d", time.Now().UnixNano())
+		if err := writeAgentWSJSON(conn, map[string]string{
+			"type": "config.request", "id": configRequestID, "config_sha256": localHash,
+		}); err != nil {
+			return fmt.Errorf("请求配置失败：%w", err)
+		}
+		var configResponse struct {
+			Type string `json:"type"`
+			ID string `json:"id"`
+			SHA256 string `json:"sha256"`
+			YAML string `json:"yaml"`
+			Message string `json:"message"`
+		}
+		if err := readAgentWSJSON(conn, &configResponse, 90*time.Second); err != nil {
+			return fmt.Errorf("读取配置响应失败：%w", err)
+		}
+		if configResponse.ID != configRequestID {
+			return fmt.Errorf("WebSocket 配置响应 ID 不匹配")
+		}
+		switch configResponse.Type {
+		case "config.unchanged":
+		case "config.sync":
+			if strings.TrimSpace(configResponse.YAML) == "" {
+				return fmt.Errorf("主控端返回空配置")
+			}
+			changed, applyErr := mergeConfig([]byte(configResponse.YAML))
+			if applyErr != nil {
+				fmt.Printf("WebSocket 配置校验/写入失败: %v\\n", applyErr)
+				break
+			}
+			if changed {
+				if reloadErr := reloadMihomo(); reloadErr != nil {
+					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\\n", reloadErr)
+					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
+					}
+					if retryErr := reloadMihomo(); retryErr != nil {
+						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
+					}
+				} else {
+					_ = os.Remove(mihomoConfigPath() + ".previous")
+					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
+				}
+			}
+		default:
+			return fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type)
+		}
+
+		// 3. Fetch and acknowledge commands over this same persistent socket.
+		commandRequestID := fmt.Sprintf("cmd-%d", time.Now().UnixNano())
+		if err := writeAgentWSJSON(conn, map[string]string{
+			"type": "command.request", "id": commandRequestID,
+		}); err != nil {
+			return fmt.Errorf("请求待执行命令失败：%w", err)
+		}
+		var commandEnvelope struct {
+			Type string `json:"type"`
+			ID string `json:"id"`
+			Command *agentCommand `json:"command"`
+			Message string `json:"message"`
+		}
+		if err := readAgentWSJSON(conn, &commandEnvelope, 90*time.Second); err != nil {
+			return fmt.Errorf("读取命令响应失败：%w", err)
+		}
+		if commandEnvelope.ID != commandRequestID {
+			return fmt.Errorf("WebSocket 命令响应 ID 不匹配")
+		}
+		switch commandEnvelope.Type {
+		case "command.none":
+		case "command.deliver":
+			if commandEnvelope.Command == nil || strings.TrimSpace(commandEnvelope.Command.ID) == "" {
+				return fmt.Errorf("WebSocket 命令缺少有效 ID")
+			}
+			cmd := *commandEnvelope.Command
+			var commandErr error
+			message := ""
+			switch cmd.Type {
+			case "update_mihomo":
+				message, commandErr = updateMihomoKernel(cmd)
+			default:
+				commandErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
+			}
+			commandStatus := "success"
+			if commandErr != nil {
+				commandStatus = "failed"
+				message = commandErr.Error()
+			}
+			if len(message) > 2048 {
+				message = message[:2048]
+			}
+			if err := writeAgentWSJSON(conn, map[string]string{
+				"type": "command.ack", "id": cmd.ID,
+				"command_status": commandStatus, "message": message,
+			}); err != nil {
+				return fmt.Errorf("命令已执行但 ACK 发送失败（服务端将按命令 ID 幂等重投）: %w", err)
+			}
+			var ack struct {
+				Type string `json:"type"`
+				ID string `json:"id"`
+				OK bool `json:"ok"`
+				Message string `json:"message"`
+			}
+			if err := readAgentWSJSON(conn, &ack, 30*time.Second); err != nil {
+				return fmt.Errorf("读取命令 ACK 确认失败：%w", err)
+			}
+			if ack.Type != "command.acknowledged" || ack.ID != cmd.ID || !ack.OK {
+				return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
+			}
+			if commandErr != nil {
+				fmt.Printf("Agent 命令 %s 执行失败: %v\\n", cmd.ID, commandErr)
+			}
+		default:
+			return fmt.Errorf("未知的 WebSocket 命令响应类型: %s", commandEnvelope.Type)
+		}
+
+		// Heartbeats on every cycle keep the socket alive; no HTTP status/config/command fallback.
+		time.Sleep(heartbeatInterval)
+	}
+}
+
+func writeAgentWSJSON(conn *websocket.Conn, value any) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(8 * time.Second)); err != nil {
+		return err
+	}
+	return conn.WriteJSON(value)
+}
+
+func readAgentWSJSON(conn *websocket.Conn, target any, timeout time.Duration) error {
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	return conn.ReadJSON(target)
+}
+
 func main() {
 	// 启动 80 端口提供 Web 注册界面
 	go func() {
@@ -1252,76 +1499,30 @@ func main() {
 	// 确保 data 目录存在
 	os.MkdirAll(mihomoHome(), 0700)
 
-	// 主循环：每 30 秒心跳并检查配置
+	// 控制面采用单条持久 WebSocket：状态、配置同步、命令投递与 ACK 均走该连接。
+	// HTTP 仅用于主控连通性探测和首次注册；绝不通过 HTTP 回退传输状态/配置/命令。
+	backoff := 2 * time.Second
 	for {
-		time.Sleep(30 * time.Second)
-		data, _ := os.ReadFile(mihomoHome() + "/agent.json")
-		if len(data) == 0 {
+		data, readErr := os.ReadFile(filepath.Join(mihomoHome(), "agent.json"))
+		if readErr != nil || len(data) == 0 {
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		var cfg Config
-		json.Unmarshal(data, &cfg)
-		if cfg.Token == "" {
+		if err := json.Unmarshal(data, &cfg); err != nil || strings.TrimSpace(cfg.Token) == "" {
+			time.Sleep(5 * time.Second)
 			continue
 		}
-
-		if err := processAgentCommandWebSocket(cfg); err != nil {
-			fmt.Printf("Agent 命令处理失败: %v\n", err)
-		}
-
-		fmt.Println("👉 正在通过 WebSocket 同步配置...")
-		localHash := ""
-		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
-			localSum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
-			localHash = hex.EncodeToString(localSum[:])
-		}
-		newYml, unchanged, syncErr := fetchAgentConfigWebSocket(cfg, localHash)
-		if syncErr != nil {
-			fmt.Printf("❌ WebSocket 配置同步失败: %v\n", syncErr)
+		if err := probeControllerHTTP(cfg); err != nil {
+			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\\n", err)
+			time.Sleep(backoff)
+			backoff = nextReconnectDelay(backoff)
 			continue
 		}
-		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-			fmt.Printf("Agent 状态上报失败: %v\n", err)
+		if err := runAgentWebSocketSession(cfg); err != nil {
+			fmt.Printf("Agent WebSocket 会话断开: %v\\n", err)
 		}
-		if unchanged {
-			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
-			continue
-		}
-		if len(strings.TrimSpace(string(newYml))) == 0 {
-			fmt.Println("主控台返回空配置，本次跳过")
-			continue
-		}
-
-		// 完整替换本地配置，TUN、DNS、端口和规则均由主控端统一管理
-		changed, err := mergeConfig(newYml)
-		if err != nil {
-			fmt.Println("合并配置失败:", err)
-			continue
-		}
-		if !changed {
-			fmt.Println("配置未变化，跳过 Mihomo 重载")
-			continue
-		}
-
-		fmt.Println("发现配置更新，已写入 Mihomo 主配置")
-
-		if err := reloadMihomo(); err != nil {
-			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\n", err)
-			if restoreErr := rollbackConfigAfterReloadFailure(); restoreErr != nil {
-				fmt.Printf("恢复旧配置失败: %v\n", restoreErr)
-				continue
-			}
-			if reloadErr := reloadMihomo(); reloadErr != nil {
-				fmt.Printf("旧配置已恢复，但重新加载失败: %v\n", reloadErr)
-				continue
-			}
-			fmt.Println("已恢复旧配置并重新加载")
-			if err := os.Remove(mihomoConfigPath() + ".previous"); err != nil && !os.IsNotExist(err) {
-				fmt.Printf("旧配置备份清理失败（不影响已恢复的运行配置）: %v\n", err)
-			}
-			continue
-		}
-		_ = os.Remove(mihomoConfigPath() + ".previous")
-		fmt.Println("完整 Mihomo 配置应用成功")
+		time.Sleep(backoff)
+		backoff = nextReconnectDelay(backoff)
 	}
 }
