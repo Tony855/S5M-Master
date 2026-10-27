@@ -728,20 +728,19 @@ func newMihomoRestartRequest(secret string) (*http.Request, error) {
 	return req, nil
 }
 
-// restartMihomo asks the local external controller to restart Mihomo.
+// restartMihomo restarts the managed s6 service so the process is launched
+// from /usr/local/bin/mihomo again. Calling Mihomo's own /restart endpoint after
+// replacing its executable can re-exec the old image/path and leave the old
+// version running, causing the version health check to roll back a valid update.
 func restartMihomo(secret string) error {
-	restartReq, err := newMihomoRestartRequest(secret)
-	if err != nil {
-		return err
+	_ = secret // Retained in the signature for compatibility with update flow.
+	stopOutput, stopErr := exec.Command("s6-rc", "-d", "change", "mihomo").CombinedOutput()
+	if stopErr != nil {
+		return fmt.Errorf("停止 Mihomo s6 服务失败: %v: %s", stopErr, strings.TrimSpace(string(stopOutput)))
 	}
-	restartResp, err := (&http.Client{Timeout: 20 * time.Second}).Do(restartReq)
-	if err != nil {
-		return fmt.Errorf("请求 Mihomo 重启失败: %w", err)
-	}
-	defer restartResp.Body.Close()
-	if restartResp.StatusCode < 200 || restartResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(restartResp.Body, 2048))
-		return fmt.Errorf("Mihomo 重启返回 HTTP %d: %s", restartResp.StatusCode, strings.TrimSpace(string(body)))
+	startOutput, startErr := exec.Command("s6-rc", "-u", "change", "mihomo").CombinedOutput()
+	if startErr != nil {
+		return fmt.Errorf("启动 Mihomo s6 服务失败: %v: %s", startErr, strings.TrimSpace(string(startOutput)))
 	}
 	return nil
 }
