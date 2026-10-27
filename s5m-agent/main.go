@@ -1282,6 +1282,10 @@ func runAgentWebSocketSession(cfg Config) error {
 			if strings.TrimSpace(configResponse.YAML) == "" {
 				return fmt.Errorf("主控端返回空配置")
 			}
+			configSum := sha256.Sum256([]byte(strings.TrimSpace(configResponse.YAML)))
+			if !strings.EqualFold(hex.EncodeToString(configSum[:]), strings.TrimSpace(configResponse.SHA256)) {
+				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用")
+			}
 			changed, applyErr := mergeConfig([]byte(configResponse.YAML))
 			if applyErr != nil {
 				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
