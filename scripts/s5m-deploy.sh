@@ -119,3 +119,8 @@ curl -sI --max-time 5 "http://127.0.0.1:${PORT_WEB}" | head -n1 || warn "80 端�
 echo
 log "完成。浏览器访问： http://<服务器公网IP>"
 warn "请确认安全组/防火墙按需放行 ${PORT_WEB} 和 ${PORT_PROXY}"
+
+echo
+log "进入实时日志模式：docker logs -f $CONTAINER"
+warn "按 Ctrl+C 退出日志查看；这不会停止或删除容器。"
+docker logs -f "$CONTAINER"
