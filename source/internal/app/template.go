@@ -327,7 +327,12 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		// dedicated Agent credential. Deleted/revoked machines may leave legacy
 		// rows behind from older versions; remove those orphan bindings safely.
 		token := strings.TrimSpace(settings["agent_machine_"+machineCode])
-		if token == "" || token == strings.TrimSpace(settings["agent_token"]) {
+		globalToken := strings.TrimSpace(settings["agent_token"])
+		// Only infer a deleted/revoked machine when the server has a configured
+		// global Agent token. In minimal test/legacy databases without that
+		// setting, missing per-machine credentials are not enough to prove that
+		// a binding is orphaned, so retain the safe blocking behavior.
+		if globalToken != "" && (token == "" || token == globalToken) {
 			if _, err := tx.ExecContext(r.Context(),
 				"DELETE FROM node_template_bindings WHERE machine_code=? AND source='template' AND template_version=?",
 				machineCode, version); err != nil {
