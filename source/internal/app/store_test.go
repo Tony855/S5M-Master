@@ -110,6 +110,69 @@ func TestSaveNodeConfigsRejectsBlankMachineCode(t *testing.T) {
 	}
 }
 
+func TestDeleteAgentBindingRemovesLiveTemplateBindingAndAgentSettings(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "delete-agent-binding.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if _, err := store.db.Exec(`CREATE TABLE node_template_bindings (
+		machine_code TEXT PRIMARY KEY,
+		template_version INTEGER NOT NULL DEFAULT 0,
+		config_sha256 TEXT NOT NULL DEFAULT '',
+		source TEXT NOT NULL DEFAULT 'template',
+		updated_at TEXT NOT NULL DEFAULT ''
+	)`); err != nil {
+		t.Fatalf("create template binding table: %v", err)
+	}
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a": "dedicated-token",
+		"agent_lastseen_node-a": "123",
+		"agent_status_node-a": "online",
+		"agent_secret_node-a": "secret",
+		"agent_mihomo_secret_node-a": "mihomo-secret",
+		"agent_command_node-a": `{"id":"cmd"}`,
+		"agent_command_result_node-a": `{"id":"cmd","status":"ok"}`,
+		"agent_machine_node-b": "keep-token",
+	}); err != nil {
+		t.Fatalf("seed Agent settings: %v", err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO node_template_bindings(machine_code,template_version) VALUES('node-a',3),('node-b',3)`); err != nil {
+		t.Fatalf("seed template bindings: %v", err)
+	}
+
+	if err := store.DeleteAgentBinding("node-a"); err != nil {
+		t.Fatalf("DeleteAgentBinding: %v", err)
+	}
+
+	for _, key := range []string{"agent_machine_node-a", "agent_lastseen_node-a", "agent_status_node-a", "agent_secret_node-a", "agent_mihomo_secret_node-a", "agent_command_node-a", "agent_command_result_node-a"} {
+		value, err := store.GetSetting(key)
+		if err != nil {
+			t.Fatalf("GetSetting(%q): %v", key, err)
+		}
+		if value != "" {
+			t.Errorf("setting %q = %q, want empty after deletion", key, value)
+		}
+	}
+	if value, err := store.GetSetting("agent_machine_node-b"); err != nil || value != "keep-token" {
+		t.Errorf("other Agent credential = %q, err=%v; want preserved", value, err)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM node_template_bindings WHERE machine_code='node-a'`).Scan(&count); err != nil {
+		t.Fatalf("count deleted Agent bindings: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("deleted Agent still has %d live template bindings", count)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM node_template_bindings WHERE machine_code='node-b'`).Scan(&count); err != nil {
+		t.Fatalf("count other Agent bindings: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("other Agent binding count = %d, want 1", count)
+	}
+}
+
 func TestCreateSettingIfAbsentDoesNotOverwritePendingCommand(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "atomic-setting-test.db"))
 	if err != nil {
