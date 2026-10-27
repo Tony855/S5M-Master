@@ -170,6 +170,49 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 	}
 }
 
+func TestProxyHandlersRejectInvalidMachineAssociation(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "proxy-association-api.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	app := &App{store: store}
+	invalidBody := `{"name":"invalid-association","mode":"proxy","type":"socks5","server":"192.0.2.30","port":1080,"machine_code":"node/a"}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/proxies", strings.NewReader(invalidBody))
+	createRec := httptest.NewRecorder()
+	app.handleCreateProxy(createRec, createReq)
+	if createRec.Code != http.StatusBadRequest {
+		t.Fatalf("create status = %d, want %d; body=%s", createRec.Code, http.StatusBadRequest, createRec.Body.String())
+	}
+	proxies, err := store.ListProxies()
+	if err != nil {
+		t.Fatalf("ListProxies after rejected create: %v", err)
+	}
+	if len(proxies) != 0 {
+		t.Fatalf("invalid proxy was persisted: count=%d", len(proxies))
+	}
+
+	existing := &Proxy{Name: "valid-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.31", Port: 1080, MachineCode: "node-a", Enabled: true}
+	if err := store.CreateProxy(existing); err != nil {
+		t.Fatalf("CreateProxy fixture: %v", err)
+	}
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/proxies/"+strconv.FormatInt(existing.ID, 10), strings.NewReader(invalidBody))
+	updateReq.SetPathValue("id", strconv.FormatInt(existing.ID, 10))
+	updateRec := httptest.NewRecorder()
+	app.handleUpdateProxy(updateRec, updateReq)
+	if updateRec.Code != http.StatusBadRequest {
+		t.Fatalf("update status = %d, want %d; body=%s", updateRec.Code, http.StatusBadRequest, updateRec.Body.String())
+	}
+	proxies, err = store.ListProxies()
+	if err != nil {
+		t.Fatalf("ListProxies after rejected update: %v", err)
+	}
+	if len(proxies) != 1 || proxies[0].MachineCode != "node-a" {
+		t.Fatalf("rejected update changed persisted association: proxies=%+v", proxies)
+	}
+}
+
 func TestParseProxyLineRejectsInvalidPort(t *testing.T) {
 	for _, line := range []string{
 		"socks5://user:pass@example.com:not-a-port",
