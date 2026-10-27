@@ -740,7 +740,6 @@ func TestHTTPAgentHeartbeatRejectsRevokedAuthorization(t *testing.T) {
 	}
 }
 
-
 func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
 	app, _, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
