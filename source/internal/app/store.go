@@ -213,6 +213,67 @@ func (s *Store) UpdateSettings(updates map[string]string) error {
 	return tx.Commit()
 }
 
+// AckAgentCommand atomically commits a command result and removes only the matching
+// pending command. A retry is accepted only when the persisted result has the same ID.
+// matched=false means the command was replaced or no longer exists.
+func (s *Store) AckAgentCommand(machineCode, commandID, status, message string, updatedAt int64) (duplicate bool, matched bool, err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, false, err
+	}
+	defer tx.Rollback()
+
+	pendingKey := "agent_command_" + machineCode
+	resultKey := "agent_command_result_" + machineCode
+	var raw string
+	err = tx.QueryRow(`SELECT value FROM settings WHERE key=?`, pendingKey).Scan(&raw)
+	pendingExists := err == nil
+	if err == sql.ErrNoRows {
+		raw = ""
+	} else if err != nil {
+		return false, false, err
+	}
+	var pending map[string]string
+	if raw != "" && json.Unmarshal([]byte(raw), &pending) == nil && pending["id"] == commandID {
+		result, marshalErr := json.Marshal(map[string]any{
+			"id": commandID, "type": pending["type"], "status": status,
+			"message": message, "updated_at": updatedAt,
+		})
+		if marshalErr != nil {
+			return false, false, marshalErr
+		}
+		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES(?,?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`, resultKey, string(result)); err != nil {
+			return false, false, err
+		}
+		if _, err := tx.Exec(`DELETE FROM settings WHERE key=? AND value=?`, pendingKey, raw); err != nil {
+			return false, false, err
+		}
+		if err := tx.Commit(); err != nil {
+			return false, false, err
+		}
+		return false, true, nil
+	}
+
+	// A different or malformed pending command takes precedence over an old
+	// result: an ACK for that old ID must not be accepted as a duplicate while
+	// a replacement command is waiting for acknowledgement.
+	if pendingExists {
+		return false, false, nil
+	}
+
+	var previous string
+	err = tx.QueryRow(`SELECT value FROM settings WHERE key=?`, resultKey).Scan(&previous)
+	if err != nil && err != sql.ErrNoRows {
+		return false, false, err
+	}
+	var previousResult map[string]any
+	if err == nil && json.Unmarshal([]byte(previous), &previousResult) == nil && previousResult["id"] == commandID {
+		return true, true, nil
+	}
+	return false, false, nil
+}
+
 func (s *Store) CountUsers() (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&n)
