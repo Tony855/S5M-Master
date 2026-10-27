@@ -30,7 +30,7 @@ func TestAgentRegisterRejectsWhitespaceOnlyDedicatedToken(t *testing.T) {
 }
 
 func TestAgentRegisterRejectsGlobalTokenAsDedicatedCredential(t *testing.T) {
-	app, code, _ := websocketTestApp(t)
+	app, _, _ := websocketTestApp(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register",
 		strings.NewReader(`{"machine_code":"ws_node_01","secret":"global-secret"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -43,5 +43,4 @@ func TestAgentRegisterRejectsGlobalTokenAsDedicatedCredential(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"token"`) {
 		t.Fatalf("registration returned a token for the global credential: %s", rec.Body.String())
 	}
-	_ = code
 }
