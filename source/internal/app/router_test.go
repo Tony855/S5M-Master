@@ -287,7 +287,6 @@ func TestRemovedContainerManagementEndpointsReturnNotFound(t *testing.T) {
 	}
 }
 
-
 func TestDeleteMihomoTemplateVersionRequiresAdminRole(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "template-delete-auth.db")
 	store, err := OpenStore(dbPath)
