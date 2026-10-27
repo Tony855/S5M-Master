@@ -10,7 +10,7 @@ func TestAgentCommandAckDoesNotDeleteReplacementCommand(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	const pending = `{"id":"cmd-new","type":"restart"}`
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_command_" + code: pending,
+		"agent_command_" + code:        pending,
 		"agent_command_result_" + code: `{"id":"cmd-old","status":"success"}`,
 	}); err != nil {
 		t.Fatalf("seed command state: %v", err)
