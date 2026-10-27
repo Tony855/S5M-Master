@@ -1166,7 +1166,7 @@ func main() {
 			continue
 		}
 
-		fmt.Printf("发现配置更新，已写入 Mihomo 主配置（目录：%s，文件：%s）\n", mihomoHome(), mihomoConfigPath())
+		fmt.Println("发现配置更新，已写入 Mihomo 主配置")
 
 		if err := reloadMihomo(); err != nil {
 			fmt.Printf("Mihomo 配置重载失败，正在恢复旧配置: %v\n", err)
