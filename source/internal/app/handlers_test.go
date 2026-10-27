@@ -128,6 +128,33 @@ func TestValidateProxyRejectsUnknownModeAndInvalidPorts(t *testing.T) {
 			name:  "empty mode defaults to proxy",
 			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080},
 		},
+		{
+			name:  "empty machine code stays unbound",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: ""},
+		},
+		{
+			name:  "explicit global association is valid",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: "__GLOBAL__"},
+		},
+		{
+			name:  "valid machine association is trimmed",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: " node-a "},
+		},
+		{
+			name:  "machine code containing whitespace is rejected",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: "node a"},
+			want:  "关联机器码格式错误",
+		},
+		{
+			name:  "machine code containing slash is rejected",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: "../node"},
+			want:  "关联机器码格式错误",
+		},
+		{
+			name:  "machine code exceeding 64 characters is rejected",
+			proxy: Proxy{Name: "proxy-a", Type: "socks5", Server: "example.com", Port: 1080, MachineCode: strings.Repeat("a", 65)},
+			want:  "关联机器码格式错误",
+		},
 	}
 	app := &App{}
 	for _, tt := range tests {
