@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateMihomoTemplate(t *testing.T) {
 	tests := []struct {
@@ -23,6 +26,29 @@ func TestValidateMihomoTemplate(t *testing.T) {
 				t.Fatalf("validateMihomoTemplate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
+	if err := validateMihomoTemplate(defaultMihomoTemplate); err != nil {
+		t.Fatalf("default Mihomo template should be valid YAML: %v", err)
+	}
+	for _, want := range []string{
+		"mixed-port: 8080",
+		"external-controller: 127.0.0.1:8088",
+		"listen: 0.0.0.0:5353",
+		"server: YOUR_PROXY_SERVER",
+		"type: socks5",
+		"enable: false",
+		"- MATCH,代理出口",
+	} {
+		if !strings.Contains(defaultMihomoTemplate, want) {
+			t.Errorf("default template missing %q", want)
+		}
+	}
+	if strings.Contains(defaultMihomoTemplate, "151.242.11.70") ||
+		strings.Contains(defaultMihomoTemplate, "0103da505e81003e") {
+		t.Fatal("starter template must not expose a user's proxy endpoint or API secret")
 	}
 }
 
