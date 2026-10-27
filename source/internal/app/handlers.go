@@ -1727,35 +1727,21 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, decodeErrorStatus(err), "命令结果 JSON 无效")
 		return
 	}
-	if in.ID == "" || (in.Status != "success" && in.Status != "failed") {
-		writeErr(w, http.StatusBadRequest, "命令 ID 或状态无效")
+	if strings.TrimSpace(in.ID) == "" || (in.Status != "success" && in.Status != "failed") || len(in.Message) > 2048 {
+		writeErr(w, http.StatusBadRequest, "命令 ID、状态或结果消息无效")
 		return
 	}
-	settings, err := a.store.GetSettings()
+	duplicate, matched, err := a.store.AckAgentCommand(code, in.ID, in.Status, in.Message, time.Now().Unix())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取待执行命令失败")
+		writeErr(w, http.StatusInternalServerError, "原子保存命令结果失败")
 		return
 	}
-	var pending map[string]string
-	if json.Unmarshal([]byte(settings["agent_command_"+code]), &pending) != nil || pending["id"] != in.ID {
-		// The first ACK may have been committed while its HTTP response was lost.
-		// Accept a retry only when the stored result belongs to this exact command ID.
-		var previous map[string]any
-		if json.Unmarshal([]byte(settings["agent_command_result_"+code]), &previous) == nil &&
-			previous["id"] == in.ID {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true})
-			return
-		}
+	if !matched {
 		writeErr(w, http.StatusConflict, "命令已被替换或不存在")
 		return
 	}
-	result, _ := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + code: string(result)}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存命令结果失败")
-		return
-	}
-	if err := a.store.DeleteSettings([]string{"agent_command_" + code}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "清除已执行命令失败")
+	if duplicate {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
