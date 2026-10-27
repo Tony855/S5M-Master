@@ -925,3 +925,90 @@ func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
 		t.Fatal("config request did not update Agent last-seen timestamp")
 	}
 }
+
+
+func TestAgentWebSocketCannotReadConfigAfterAuthorizationRevocation(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	const configYAML = "mixed-port: 7890\nsecret: retained-secret\n"
+	if err := app.store.SaveNodeConfig(code, configYAML); err != nil {
+		t.Fatalf("save node config: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-after-revoke"}); err != nil {
+		t.Fatalf("send config request after revocation: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read revoked connection response: %v", err)
+	}
+	if response["type"] != "error" || strings.Contains(fmt.Sprint(response["yaml"]), "retained-secret") {
+		t.Fatalf("revoked Agent must not receive config: %#v", response)
+	}
+}
+
+func TestAgentWebSocketSupersededConnectionCannotReadPendingCommand(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	pending := `{"id":"cmd-current","type":"update_mihomo"}`
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: pending}); err != nil {
+		t.Fatalf("seed pending command: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	dial := func() *websocket.Conn {
+		t.Helper()
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil {
+			t.Fatalf("dial authenticated WebSocket: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var welcome map[string]any
+		if err := conn.ReadJSON(&welcome); err != nil {
+			conn.Close()
+			t.Fatalf("read welcome: %v", err)
+		}
+		return conn
+	}
+	oldConn := dial()
+	defer oldConn.Close()
+	newConn := dial()
+	defer newConn.Close()
+
+	if err := oldConn.WriteJSON(map[string]any{"type": "command.request", "id": "old-connection"}); err != nil {
+		t.Fatalf("send command request on superseded connection: %v", err)
+	}
+	var response map[string]any
+	if err := oldConn.ReadJSON(&response); err != nil {
+		t.Fatalf("read superseded connection response: %v", err)
+	}
+	if response["type"] != "error" {
+		t.Fatalf("superseded connection must not read pending command, got %#v", response)
+	}
+	if strings.Contains(fmt.Sprint(response["command"]), "cmd-current") {
+		t.Fatalf("superseded connection received command payload: %#v", response)
+	}
+}
