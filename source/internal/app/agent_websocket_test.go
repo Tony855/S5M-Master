@@ -1112,7 +1112,6 @@ func TestLegacyHTTPAgentEndpointsRejectRevokedBinding(t *testing.T) {
 	}
 }
 
-
 // TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession protects the
 // persistent-session contract: heartbeat, config sync, command delivery, and ACK
 // must work sequentially without opening a replacement connection.
