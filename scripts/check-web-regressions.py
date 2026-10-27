@@ -131,6 +131,21 @@ if missing_api_routes:
     print("Frontend API routes without backend declarations: " + ", ".join(missing_api_routes))
 
 
+
+# Responsive instance-card styling and safety invariants. These checks keep the
+# visual refinement from silently regressing in future frontend changes.
+css = Path("source/web/app.css").read_text(encoding="utf-8")
+instance_card_checks = {
+    "instance cards use a two-column desktop grid and three columns on wide screens": "grid-template-columns: repeat(2, minmax(0, 1fr));" in css and "@media (min-width: 1500px)" in css and ".instance-panel .instance-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }" in css,
+    "instance grid collapses to one column at medium and mobile widths": "@media (max-width: 1050px)" in css and ".instance-panel .instance-list { grid-template-columns: minmax(0, 1fr); }" in css and "@media (max-width: 760px)" in css,
+    "instance action buttons become a two-column grid on mobile": ".instance-row .instance-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }" in css,
+    "instance details are collapsed by default and support expanded content": '<details class="instance-details">' in html and "<summary>展开详细状态</summary>" in html and ".instance-details[open] > summary" in css,
+    "runtime status palette includes online, offline, warning, and unknown states": all(token in css for token in (".status-badge.status-online", ".status-badge.status-offline", ".status-badge.status-warning", ".status-badge.status-unknown")),
+    "instance list does not expose token plaintext and keeps all four management actions": "列表不显示明文" in html and "{{ item.token }}" not in html and all(handler in html for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
+    "instance card layout prevents long machine identifiers from forcing overflow": ".instance-row {\n  min-width: 0;" in css and ".instance-row .agent-code {\n  min-width: 0;" in css and "overflow-wrap: anywhere;" in css,
+}
+checks.update(instance_card_checks)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)

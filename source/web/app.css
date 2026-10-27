@@ -733,3 +733,245 @@ html, body, #app {
 @media (max-width: 760px) {
   .container-nav-trigger { height: 42px; padding: 0 13px; }
 }
+
+
+/* Compact instance cards: summary first, full diagnostics on demand. */
+.instance-summary {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-soft, var(--surface));
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.instance-summary-primary,
+.instance-summary-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+.instance-summary-primary { color: var(--sub); }
+.instance-summary-secondary { margin-top: 5px; justify-content: space-between; }
+.instance-summary-secondary strong { color: var(--text); }
+.instance-summary-mihomo.is-running { color: #16a36a; }
+.instance-summary-mihomo.is-stopped { color: #d97706; }
+.instance-summary-updated { margin-top: 5px; color: var(--sub); font-size: 11px; }
+.instance-details { margin-top: 8px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+.instance-details > summary {
+  padding: 9px 12px;
+  color: var(--primary, #409eff);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style-position: inside;
+}
+.instance-details[open] > summary { border-bottom: 1px solid var(--border); }
+.instance-details-content { display: grid; gap: 8px; padding: 10px 12px; }
+.instance-detail-item { display: grid; grid-template-columns: minmax(105px, .65fr) minmax(0, 1.35fr); gap: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.instance-detail-label { color: var(--sub); }
+.instance-detail-note { color: var(--sub); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.instance-detail-note.is-error { color: #dc2626; }
+@media (max-width: 600px) {
+  .instance-summary-secondary { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .instance-detail-item { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* Site-wide semantic runtime status palette:
+   green = healthy, red = offline/error, amber = degraded/pending, gray = unknown. */
+.status-badge.status-online {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #bbf7d0;
+}
+.status-badge.status-offline {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+.status-badge.status-warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+.status-badge.status-unknown {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+.instance-summary-mihomo.is-running { color: #15803d; }
+.instance-summary-mihomo.is-stopped { color: #b91c1c; }
+.instance-summary-mihomo.is-unknown { color: #64748b; }
+.instance-token-state.is-configured { color: #15803d; font-weight: 650; }
+.instance-token-state.is-missing { color: #b91c1c; font-weight: 650; }
+.instance-detail-note.is-unknown {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #f1f5f9;
+  color: #475569;
+}
+.instance-detail-note.is-error {
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.status-text-unknown { color: #64748b; }
+.remote-node-version.status-badge { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 999px; font-size: 10px; }
+
+
+/* Desktop instance-management refinement: balanced grid, clearer hierarchy, and calmer surfaces. */
+.instance-panel > .card-title {
+  gap: 16px;
+  margin-bottom: 8px;
+}
+.instance-panel > .card-title > span:first-child {
+  letter-spacing: -.02em;
+}
+.instance-panel > .import-note {
+  max-width: 1120px;
+  line-height: 1.7;
+  color: var(--sub, #667085);
+}
+.instance-panel .subsection-heading {
+  margin-top: 22px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border, #e7ebf2);
+}
+.instance-panel .docker-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(160px, 220px);
+  gap: 12px;
+  max-width: 760px;
+}
+.instance-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.instance-row {
+  min-width: 0;
+  height: 100%;
+  padding: 18px;
+  border: 1px solid var(--border, #e5eaf2);
+  border-radius: 15px;
+  background: linear-gradient(160deg, var(--surface, #fff) 0%, var(--surface-soft, #fbfcff) 100%);
+  box-shadow: 0 3px 12px rgba(16, 24, 40, .035);
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.instance-row:hover {
+  border-color: #cbd7e8;
+  box-shadow: 0 9px 24px rgba(16, 24, 40, .075);
+  transform: translateY(-1px);
+}
+.instance-row .instance-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.instance-row .agent-code {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 750;
+  letter-spacing: -.015em;
+  overflow-wrap: anywhere;
+}
+.instance-row .status-badge {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.instance-row .instance-summary {
+  margin-top: 13px;
+  padding: 13px 14px;
+  border-radius: 11px;
+  background: rgba(247, 249, 252, .82);
+}
+.instance-row .instance-summary-primary {
+  gap: 5px 16px;
+}
+.instance-row .instance-summary-secondary {
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px 18px;
+  margin-top: 9px;
+}
+.instance-row .instance-summary-updated {
+  margin-top: 9px;
+  font-size: 11px;
+}
+.instance-row .instance-details {
+  margin-top: 10px;
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.instance-row .instance-details > summary {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--primary, #3678d4);
+}
+.instance-row .instance-details > summary::marker {
+  color: #94a3b8;
+}
+.instance-row .instance-details-content {
+  padding: 13px;
+  gap: 11px;
+}
+.instance-row .instance-detail-item {
+  grid-template-columns: minmax(105px, .55fr) minmax(0, 1.45fr);
+  gap: 12px;
+  line-height: 1.55;
+}
+.instance-row .instance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e8edf4);
+}
+.instance-row .instance-actions .el-button,
+.instance-row .instance-actions .el-button + .el-button {
+  margin-left: 0;
+}
+.instance-row .instance-actions .el-button {
+  min-height: 32px;
+  border-radius: 8px;
+}
+@media (min-width: 1500px) {
+  .instance-panel .instance-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .instance-row { padding: 19px; }
+}
+@media (max-width: 1050px) {
+  .instance-panel .instance-list { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .instance-panel .docker-controls {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: none;
+    gap: 9px;
+  }
+  .instance-row { padding: 13px; border-radius: 13px; }
+  .instance-row:hover { transform: none; }
+  .instance-row .agent-code { font-size: 13px; }
+  .instance-row .instance-summary { padding: 11px; }
+  .instance-row .instance-summary-secondary { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .instance-row .instance-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .instance-row .instance-actions .el-button { width: 100%; margin: 0; padding-left: 7px; padding-right: 7px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .instance-row { transition: none; }
+  .instance-row:hover { transform: none; }
+}
