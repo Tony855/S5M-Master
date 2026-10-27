@@ -334,7 +334,6 @@ func TestFaviconReturnsNoContentInsteadOfNotFound(t *testing.T) {
 	}
 }
 
-
 func TestAgentRuntimeEndpointsUseWebSocketOnly(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "runtime-routes.db"))
 	if err != nil {
