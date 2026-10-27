@@ -927,7 +927,6 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 	}
 }
 
-
 func TestProbeControllerHTTPOnlyChecksReachability(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
