@@ -728,19 +728,15 @@ func newMihomoRestartRequest(secret string) (*http.Request, error) {
 	return req, nil
 }
 
-// restartMihomo restarts the managed s6 service so the process is launched
-// from /usr/local/bin/mihomo again. Calling Mihomo's own /restart endpoint after
-// replacing its executable can re-exec the old image/path and leave the old
-// version running, causing the version health check to roll back a valid update.
+// restartMihomo asks s6-supervise to restart only the Mihomo process from
+// /usr/local/bin/mihomo. Do not take the service down through s6-rc: the Agent
+// declares a dependency on Mihomo, so a dependency-aware down operation may also
+// stop the Agent while it is processing this command and prevent its ACK.
 func restartMihomo(secret string) error {
 	_ = secret // Retained in the signature for compatibility with update flow.
-	stopOutput, stopErr := exec.Command("s6-rc", "-d", "change", "mihomo").CombinedOutput()
-	if stopErr != nil {
-		return fmt.Errorf("停止 Mihomo s6 服务失败: %v: %s", stopErr, strings.TrimSpace(string(stopOutput)))
-	}
-	startOutput, startErr := exec.Command("s6-rc", "-u", "change", "mihomo").CombinedOutput()
-	if startErr != nil {
-		return fmt.Errorf("启动 Mihomo s6 服务失败: %v: %s", startErr, strings.TrimSpace(string(startOutput)))
+	output, err := exec.Command("s6-svc", "-r", "/run/service/mihomo").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("请求 s6 重启 Mihomo 服务失败: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
