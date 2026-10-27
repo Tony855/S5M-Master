@@ -333,3 +333,53 @@ func TestFaviconReturnsNoContentInsteadOfNotFound(t *testing.T) {
 		t.Fatalf("favicon returned HTTP %d, want %d", response.Code, http.StatusNoContent)
 	}
 }
+
+
+func TestAgentRuntimeEndpointsUseWebSocketOnly(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "runtime-routes.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	a := &App{store: store, jwtKey: []byte("test-signing-key")}
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/v1/agent/config"},
+		{http.MethodPost, "/api/v1/agent/heartbeat"},
+		{http.MethodGet, "/api/v1/agent/command"},
+		{http.MethodPost, "/api/v1/agent/command/ack"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code == http.StatusOK || response.Code == http.StatusAccepted {
+				t.Fatalf("legacy HTTP runtime endpoint unexpectedly available: status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+
+	// Registration and the authenticated WebSocket runtime endpoint remain
+	// registered; only legacy runtime config/heartbeat/command HTTP routes go.
+	for _, tc := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/api/v1/agent/register"},
+		{http.MethodGet, "/api/v1/agent/ws"},
+	} {
+		t.Run("retained "+tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, req)
+			if response.Code == http.StatusNotFound {
+				t.Fatalf("required Agent endpoint missing: %s", tc.path)
+			}
+		})
+	}
+}
