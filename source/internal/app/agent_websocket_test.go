@@ -785,3 +785,78 @@ func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
 		t.Fatalf("unexpected command response: %#v", response)
 	}
 }
+
+
+func TestAgentWebSocketDeliversAndAcknowledgesPendingCommand(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	pending := map[string]string{
+		"id":   "cmd-test-1",
+		"type": "update_mihomo",
+	}
+	raw, err := json.Marshal(pending)
+	if err != nil {
+		t.Fatalf("marshal pending command: %v", err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: string(raw)}); err != nil {
+		t.Fatalf("queue pending command: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "poll-1"}); err != nil {
+		t.Fatalf("request command: %v", err)
+	}
+	var delivered map[string]any
+	if err := conn.ReadJSON(&delivered); err != nil {
+		t.Fatalf("read delivered command: %v", err)
+	}
+	if delivered["type"] != "command.deliver" || delivered["id"] != "poll-1" {
+		t.Fatalf("unexpected command envelope: %#v", delivered)
+	}
+	command, ok := delivered["command"].(map[string]any)
+	if !ok || command["id"] != "cmd-test-1" || command["type"] != "update_mihomo" {
+		t.Fatalf("unexpected delivered command: %#v", delivered["command"])
+	}
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": "cmd-test-1",
+		"command_status": "success", "message": "test completed",
+	}); err != nil {
+		t.Fatalf("send command ACK: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read ACK confirmation: %v", err)
+	}
+	if ack["type"] != "command.acknowledged" || ack["id"] != "cmd-test-1" || ack["ok"] != true {
+		t.Fatalf("unexpected ACK confirmation: %#v", ack)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read persisted command result: %v", err)
+	}
+	if settings["agent_command_"+code] != "" {
+		t.Fatalf("acknowledged command remains queued: %s", settings["agent_command_"+code])
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode persisted command result: %v", err)
+	}
+	if result["id"] != "cmd-test-1" || result["status"] != "success" || result["message"] != "test completed" {
+		t.Fatalf("unexpected persisted command result: %#v", result)
+	}
+}
