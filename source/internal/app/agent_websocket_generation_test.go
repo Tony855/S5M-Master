@@ -24,7 +24,13 @@ func TestAgentWebSocketSupersededConnectionCannotOperate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app, _, token := websocketTestApp(t)
+			app, code, token := websocketTestApp(t)
+			const pendingCommand = `{"id":"generation-cmd","type":"update_mihomo","version":"v1.2.3"}`
+			if tt.name == "command polling" {
+				if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: pendingCommand}); err != nil {
+					t.Fatalf("seed pending command: %v", err)
+				}
+			}
 			server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
 			defer server.Close()
 
@@ -62,6 +68,15 @@ func TestAgentWebSocketSupersededConnectionCannotOperate(t *testing.T) {
 			message, _ := response["message"].(string)
 			if response["type"] != "error" || !strings.Contains(message, "被更新连接取代") {
 				t.Fatalf("superseded socket response = %#v, want replacement-connection error", response)
+			}
+			if tt.name == "command polling" {
+				settings, err := app.store.GetSettings()
+				if err != nil {
+					t.Fatalf("read settings after rejected old socket: %v", err)
+				}
+				if settings["agent_command_"+code] != pendingCommand {
+					t.Fatalf("superseded socket consumed or changed pending command: %q", settings["agent_command_"+code])
+				}
 			}
 		})
 	}
