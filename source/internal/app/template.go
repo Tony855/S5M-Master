@@ -263,6 +263,15 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Load settings before opening the transaction. The SQLite store may use
+	// a single connection; calling Store.GetSettings while a transaction is
+	// active can wait forever for that same connection.
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		writeErr(w, http.StatusInternalServerError, "读取节点授权状态失败")
+		return
+	}
+
 	tx, err := a.store.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "开始删除模板版本事务失败")
@@ -307,12 +316,6 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 	boundNodes := make([]string, 0)
-	settings, settingsErr := a.store.GetSettings()
-	if settingsErr != nil {
-		rows.Close()
-		writeErr(w, http.StatusInternalServerError, "读取节点授权状态失败")
-		return
-	}
 	for rows.Next() {
 		var machineCode string
 		if err := rows.Scan(&machineCode); err != nil {
