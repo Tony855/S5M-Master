@@ -1013,7 +1013,6 @@ func TestAgentWebSocketSupersededConnectionCannotReadPendingCommand(t *testing.T
 	}
 }
 
-
 // TestAgentWebSocketHeartbeatRevalidatesAuthorizationAfterBindingRemoval covers
 // the in-flight handshake/revocation window: the socket generation still matches,
 // but the Agent binding has already been removed.
