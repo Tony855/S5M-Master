@@ -1731,7 +1731,18 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "命令 ID、状态或结果消息无效")
 		return
 	}
+	// Serialize ACK persistence with Agent binding revocation, then revalidate
+	// the credential while holding the same mutex used by DeleteAgentBinding.
+	// The initial authentication above can become stale while the request is decoded.
+	a.agentWSMu.Lock()
+	currentCode, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil || currentCode != code {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
+		return
+	}
 	duplicate, matched, err := a.store.AckAgentCommand(code, in.ID, in.Status, in.Message, time.Now().Unix())
+	a.agentWSMu.Unlock()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "原子保存命令结果失败")
 		return
