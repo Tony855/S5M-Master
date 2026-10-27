@@ -474,6 +474,10 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 			if code == "" {
 				continue
 			}
+			token := settings[key]
+			if strings.TrimSpace(token) == "" || token == settings["agent_token"] {
+				continue
+			}
 			lastSeen, _ := strconv.ParseInt(settings["agent_lastseen_"+code], 10, 64)
 			status := map[string]any{}
 			if raw := settings["agent_status_"+code]; raw != "" {
