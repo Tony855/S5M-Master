@@ -132,7 +132,6 @@ func TestDeleteMihomoTemplateVersionDeletesUnboundHistory(t *testing.T) {
 	}
 }
 
-
 func TestDeleteMihomoTemplateVersionFailsClosedOnInvalidCurrentVersion(t *testing.T) {
 	a, cleanup := newTemplateDeleteTestApp(t)
 	defer cleanup()
