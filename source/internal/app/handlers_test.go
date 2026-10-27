@@ -682,7 +682,7 @@ func TestHandleOverviewUsesDashboardRemoteAgentFieldNames(t *testing.T) {
 		"agent_status_blank_token":    `{"received_at":` + strconv.FormatInt(time.Now().Unix(), 10) + `,"mihomo_healthy":true}`,
 		"agent_machine_global_token":  "global-secret",
 		"agent_lastseen_global_token": strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_global_token":   `{"received_at":` + strconv.FormatInt(time.Now().Unix(), 10) + `,"mihomo_healthy":true}`
+		"agent_status_global_token":   `{"received_at":` + strconv.FormatInt(time.Now().Unix(), 10) + `,"mihomo_healthy":true}`,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
