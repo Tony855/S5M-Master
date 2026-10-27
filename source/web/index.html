@@ -145,7 +145,7 @@
             <div class="group-tab danger" :class="{ active: activeGroup === 'UNBOUND' }" @click="activeGroup = 'UNBOUND'">未绑定 ({{ getUnboundCount() }})</div>
             <div v-for="code in proxyGroupCodes" :key="code" class="group-tab success" 
                  :class="{ active: activeGroup === code }" @click="activeGroup = code">
-              机器: {{ code }} ({{ getMachineCount(code) }})
+              {{ code === '__GLOBAL__' ? '全局节点' : '机器: ' + code }} ({{ getMachineCount(code) }})
             </div>
           </div>
 
