@@ -540,7 +540,6 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 	return nil
 }
 
-
 type agentCommand struct {
 	ID      string `json:"id"`
 	Type    string `json:"type"`
