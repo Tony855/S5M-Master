@@ -926,3 +926,52 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 		t.Fatalf("reportHeartbeatWebSocket() error = %v", err)
 	}
 }
+
+
+func TestProbeControllerHTTPOnlyChecksReachability(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/health" {
+			t.Errorf("unexpected probe request: %s %s", r.Method, r.URL.Path)
+		}
+		// A 503 still proves the controller is reachable; this probe must not
+		// become an application-data or HTTP fallback channel.
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	if err := probeControllerHTTP(Config{CentralURL: server.URL}); err != nil {
+		t.Fatalf("probeControllerHTTP() error = %v", err)
+	}
+	if !called {
+		t.Fatal("controller reachability endpoint was not called")
+	}
+}
+
+func TestProbeControllerHTTPFailsWhenNetworkUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	if err := probeControllerHTTP(Config{CentralURL: url}); err == nil {
+		t.Fatal("expected network error after controller listener closed")
+	}
+}
+
+func TestNextReconnectDelayCapsAtSixtySeconds(t *testing.T) {
+	cases := []struct {
+		current time.Duration
+		want    time.Duration
+	}{
+		{0, 2 * time.Second},
+		{2 * time.Second, 4 * time.Second},
+		{30 * time.Second, 60 * time.Second},
+		{60 * time.Second, 60 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := nextReconnectDelay(tc.current); got != tc.want {
+			t.Errorf("nextReconnectDelay(%s) = %s, want %s", tc.current, got, tc.want)
+		}
+	}
+}
