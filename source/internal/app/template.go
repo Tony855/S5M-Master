@@ -300,13 +300,35 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	var bound int
-	if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM node_template_bindings WHERE source='template' AND template_version=?", version).Scan(&bound); err != nil {
+	rows, err := tx.QueryContext(r.Context(),
+		"SELECT machine_code FROM node_template_bindings WHERE source='template' AND template_version=? ORDER BY machine_code", version)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "检查节点模板绑定失败")
 		return
 	}
-	if bound > 0 {
-		writeErr(w, http.StatusConflict, fmt.Sprintf("该版本仍被 %d 个节点使用，不能删除；请先将这些节点迁移到其他版本或独立配置", bound))
+	boundNodes := make([]string, 0)
+	for rows.Next() {
+		var machineCode string
+		if err := rows.Scan(&machineCode); err != nil {
+			rows.Close()
+			writeErr(w, http.StatusInternalServerError, "读取节点模板绑定失败")
+			return
+		}
+		boundNodes = append(boundNodes, machineCode)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		writeErr(w, http.StatusInternalServerError, "读取节点模板绑定失败")
+		return
+	}
+	rows.Close()
+	if len(boundNodes) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":       fmt.Sprintf("模板 v%d 仍被 %d 个节点绑定，不能删除", version, len(boundNodes)),
+			"version":     version,
+			"bound_nodes": boundNodes,
+			"message":     "请先将这些节点迁移到其他模板版本或改为独立配置",
+		})
 		return
 	}
 

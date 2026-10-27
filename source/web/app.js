@@ -819,12 +819,23 @@ createApp({
       try {
         const res = await api('/api/v1/mihomo/template/' + target, { method: 'DELETE' });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '删除模板版本失败');
+        if (!res.ok) {
+          const error = new Error(data.error || data.message || '删除模板版本失败');
+          error.bound_nodes = data.bound_nodes;
+          throw error;
+        }
         if (Number(selectedTemplateVersion.value) === target) selectedTemplateVersion.value = null;
         showMsg(data.message || ('模板历史版本 v' + target + ' 已删除'), 'success');
         await loadMihomoTemplate();
         await loadTemplateNodeStatus();
-      } catch (e) { showMsg(e.message || '删除模板版本失败', 'error'); }
+      } catch (e) {
+        let message = e.message || '删除模板版本失败';
+        // The API may include exact nodes still bound to the requested version.
+        if (e && e.bound_nodes && Array.isArray(e.bound_nodes) && e.bound_nodes.length) {
+          message += '；绑定节点：' + e.bound_nodes.join('、');
+        }
+        showMsg(message, 'error');
+      }
       finally { deletingTemplateVersion.value = 0; }
     };
 
