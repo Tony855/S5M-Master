@@ -18,10 +18,10 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu            sync.Mutex
-	agentWSGeneration    map[string]uint64
-	agentWSOperationMu   map[string]*sync.Mutex
-	agentHeartbeatAt     map[string]int64
+	agentWSMu          sync.Mutex
+	agentWSGeneration  map[string]uint64
+	agentWSOperationMu map[string]*sync.Mutex
+	agentHeartbeatAt   map[string]int64
 }
 
 // agentWSOperationLock returns a per-Agent mutex. The global mutex protects only
