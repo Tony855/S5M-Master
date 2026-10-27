@@ -635,8 +635,8 @@ createApp({
             runtimeReported,
             runtimeMessage,
             lastError,
-            updated_at: reportedAt > 0 && Number.isFinite(reportedAt)
-              ? new Date(reportedAt * 1000).toLocaleString()
+            updated_at: (reportedAt > 0 && Number.isFinite(reportedAt)) || (last > 0 && Number.isFinite(last))
+              ? new Date(((reportedAt > 0 && Number.isFinite(reportedAt)) ? reportedAt : last) * 1000).toLocaleString()
               : '',
             pendingCommand: item.pending_command && typeof item.pending_command === 'object' ? item.pending_command : null,
             commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
