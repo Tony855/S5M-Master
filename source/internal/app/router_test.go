@@ -287,7 +287,6 @@ func TestRemovedContainerManagementEndpointsReturnNotFound(t *testing.T) {
 	}
 }
 
-
 func TestFaviconReturnsNoContentInsteadOfNotFound(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "favicon.db"))
 	if err != nil {
