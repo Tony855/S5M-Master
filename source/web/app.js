@@ -685,7 +685,7 @@ createApp({
       if (!machineCode) return showMsg('请先选择目标 Agent', 'warning');
       if (kernelUpdateInfoLoading.value) return showMsg('正在查询官方版本和校验值，请稍候', 'warning');
       if (kernelUpdateInfo.value && kernelUpdateInfo.value.error) return showMsg('请先成功获取官方更新信息', 'warning');
-      if (!/^v\\d+\\.\\d+\\.\\d+$/.test(version)) return showMsg('官方版本信息无效，请重新查询', 'warning');
+      if (!/^v\d+\.\d+\.\d+$/.test(version)) return showMsg('官方版本信息无效，请重新查询', 'warning');
       if (!/^[a-f0-9]{64}$/.test(sha256)) return showMsg('官方 SHA-256 信息无效，请重新查询', 'warning');
       if (queueingKernelUpdate.value) return;
       try {
