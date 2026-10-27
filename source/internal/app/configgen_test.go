@@ -6,6 +6,97 @@ import (
 	"testing"
 )
 
+func TestSyncAuthorizedNodeConfigsPreservesNodeSettingsAndCanRetry(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-sync.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a":       "agent-token",
+		"agent_mihomo_secret_node-a": "node-secret",
+		"tun_enable":                 "true",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	customYAML := `mixed-port: 7899
+secret: keep-this-secret
+tun:
+  enable: false
+dns:
+  enable: true
+  listen: 127.0.0.1:5353
+proxies:
+  - name: stale-proxy
+    type: socks5
+rules:
+  - MATCH,DIRECT
+`
+	if err := store.SaveNodeConfig("node-a", customYAML); err != nil {
+		t.Fatalf("SaveNodeConfig: %v", err)
+	}
+	proxy := &Proxy{
+		Name: "managed-proxy", Mode: "proxy", Type: "socks5",
+		Server: "192.0.2.50", Port: 1080, MachineCode: "node-a",
+		SourceCIDR: "0.0.0.0/0", Enabled: true,
+	}
+	if err := store.CreateProxy(proxy); err != nil {
+		t.Fatalf("CreateProxy: %v", err)
+	}
+
+	app := &App{store: store}
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := app.syncAuthorizedNodeConfigs(); err != nil {
+			t.Fatalf("sync attempt %d: %v", attempt, err)
+		}
+		got, err := store.GetNodeConfig("node-a")
+		if err != nil {
+			t.Fatalf("GetNodeConfig attempt %d: %v", attempt, err)
+		}
+		if got == nil {
+			t.Fatalf("node config missing after attempt %d", attempt)
+		}
+		for _, want := range []string{
+			"mixed-port: 7899",
+			"secret: keep-this-secret",
+			"enable: false",
+			"listen: 127.0.0.1:5353",
+			"managed-proxy",
+		} {
+			if !strings.Contains(got.YAML, want) {
+				t.Errorf("attempt %d: synced YAML lost or omitted %q:\n%s", attempt, want, got.YAML)
+			}
+		}
+		if strings.Contains(got.YAML, "stale-proxy") || strings.Contains(got.YAML, "MATCH,OLD-DIRECT") {
+			t.Errorf("attempt %d: managed proxy/rule sections were not refreshed:\n%s", attempt, got.YAML)
+		}
+	}
+}
+
+func TestSyncAuthorizedNodeConfigsWithNoAuthorizedNodesLeavesExistingConfigsUntouched(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-no-agents.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.SaveNodeConfig("historical-node", "mode: rule\n"); err != nil {
+		t.Fatalf("SaveNodeConfig: %v", err)
+	}
+	app := &App{store: store}
+	if err := app.syncAuthorizedNodeConfigs(); err != nil {
+		t.Fatalf("sync with no authorized nodes should be a no-op: %v", err)
+	}
+	got, err := store.GetNodeConfig("historical-node")
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if got == nil || got.YAML != "mode: rule\n" {
+		t.Fatalf("sync with no authorized nodes unexpectedly changed historical config: %+v", got)
+	}
+}
+
 func TestSaveNodeConfigsRollsBackEntireBatchOnWriteFailure(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-atomic.db"))
 	if err != nil {
