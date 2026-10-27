@@ -36,7 +36,7 @@ type agentWSMessage struct {
 	ID            string         `json:"id,omitempty"`
 	Status        map[string]any `json:"status,omitempty"`
 	ConfigHash    string         `json:"config_sha256,omitempty"`
-	CommandStatus string         `json:"status,omitempty"`
+	CommandStatus string         `json:"command_status,omitempty"`
 	Message       string         `json:"message,omitempty"`
 }
 
