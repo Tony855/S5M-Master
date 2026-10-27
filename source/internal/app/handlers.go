@@ -483,7 +483,12 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 			if raw := settings["agent_status_"+code]; raw != "" {
 				_ = json.Unmarshal([]byte(raw), &status)
 			}
-			online := lastSeen > 0 && now-lastSeen < 90
+			if lastSeen <= 0 {
+				if receivedAt, ok := status["received_at"].(float64); ok && receivedAt > 0 && receivedAt <= 9.0e15 {
+					lastSeen = int64(receivedAt)
+				}
+			}
+			online := lastSeen > 0 && now-lastSeen >= 0 && now-lastSeen < 90
 			healthy, _ := status["mihomo_healthy"].(bool)
 			apiOnline := healthy
 			updatedAt := ""
