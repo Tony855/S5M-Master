@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -912,5 +913,53 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 	cfg := Config{CentralURL: server.URL + "/gateway", Token: "test-token"}
 	if err := reportHeartbeatWebSocket(cfg, map[string]any{"mihomo_version": "test-version"}); err != nil {
 		t.Fatalf("reportHeartbeatWebSocket() error = %v", err)
+	}
+}
+
+
+func TestFetchAgentRuntimeReportsHeartbeatWhenConfigSyncFails(t *testing.T) {
+	var heartbeatSeen atomic.Bool
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		if err := conn.WriteJSON(map[string]string{"type": "welcome"}); err != nil {
+			return
+		}
+		var request struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		}
+		if err := conn.ReadJSON(&request); err != nil {
+			return
+		}
+		switch request.Type {
+		case "heartbeat":
+			heartbeatSeen.Store(true)
+			_ = conn.WriteJSON(map[string]any{"type": "heartbeat.ack", "id": request.ID, "ok": true})
+		case "config.request":
+			if !heartbeatSeen.Load() {
+				t.Error("config request was processed before the heartbeat")
+			}
+			_ = conn.WriteJSON(map[string]string{"type": "error", "id": request.ID, "message": "intentional config sync failure"})
+		default:
+			t.Errorf("unexpected WebSocket request type %q", request.Type)
+		}
+	}))
+	defer server.Close()
+
+	cfg := Config{CentralURL: server.URL, Token: "test-token"}
+	_, _, heartbeatErr, configErr := fetchAgentRuntime(cfg, map[string]any{"mihomo_healthy": true}, "")
+	if heartbeatErr != nil {
+		t.Fatalf("heartbeat should succeed independently: %v", heartbeatErr)
+	}
+	if configErr == nil {
+		t.Fatal("expected the deliberate config sync failure")
+	}
+	if !heartbeatSeen.Load() {
+		t.Fatal("heartbeat was not sent when config sync failed")
 	}
 }
