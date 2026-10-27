@@ -136,6 +136,12 @@ createApp({
     };
     // =============================
 
+    // Normalize upstream Mihomo version strings before the UI adds its display prefix.
+    // Accept plain versions and repeated v/V prefixes without rendering vv1.19.33.
+    const normalizeMihomoVersion = (value) => {
+      return String(value || '').trim().replace(/^(?:v)+/i, '');
+    };
+
     const fmtBytes = (n) => {
       n = Number(n) || 0;
       if (n < 1024) return n + ' B';
@@ -601,7 +607,7 @@ createApp({
           const hostname = String(status.hostname || '');
           const os = String(status.os || '');
           const arch = String(status.arch || '');
-          const mihomoVersion = String(status.mihomo_version || '');
+          const mihomoVersion = normalizeMihomoVersion(status.mihomo_version);
           const runtimeReported = reportedAt > 0 || Boolean(hostname || os || arch || mihomoVersion);
           const lastError = String(status.last_error || '');
 
