@@ -862,7 +862,7 @@ func TestAgentWebSocketDeliversAndAcknowledgesPendingCommand(t *testing.T) {
 
 func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
 	app, code, token := websocketTestApp(t)
-	configYAML := "mixed-port: 7890\nsecret: test-secret\ntun:\n  enable: true\ndns:\n  enable: true\n"
+	configYAML := strings.TrimSpace("mixed-port: 7890\nsecret: test-secret\ntun:\n  enable: true\ndns:\n  enable: true\n")
 	if err := app.store.SaveNodeConfig(code, configYAML); err != nil {
 		t.Fatalf("save node config: %v", err)
 	}
