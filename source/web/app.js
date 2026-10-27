@@ -15,7 +15,6 @@ createApp({
     const overview = ref({});
     const traffic = ref({ up: 0, down: 0, conns: 0 });
     let overviewTimer = null;
-    let instanceRefreshTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
 
@@ -567,16 +566,26 @@ createApp({
       }
     };
 
+    const agentRefreshing = ref(false);
     const loadAgentsData = async () => {
-      agentLoading.value = true;
-      agentLoadError.value = '';
+      // Never overlap instance requests. Once data exists, refresh silently so
+      // the current list and expanded cards remain mounted while the request runs.
+      if (agentLoading.value || agentRefreshing.value) return;
+      const hasExistingData = agentEntries.value.length > 0;
+      if (hasExistingData) agentRefreshing.value = true;
+      else agentLoading.value = true;
+      if (!hasExistingData) agentLoadError.value = '';
       try {
         const res = await api('/api/v1/agents?t=' + Date.now());
         if (!res.ok) {
           const detail = await res.text().catch(() => '');
-          agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
+          if (!hasExistingData) {
+            agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
+          } else {
+            console.warn('静默刷新实例失败，保留现有列表（HTTP ' + res.status + '）', detail);
+          }
           console.error('读取实例失败', res.status, detail);
-          agentEntries.value = [];
+          if (!hasExistingData) agentEntries.value = [];
           return;
         }
         const data = await res.json();
@@ -630,11 +639,16 @@ createApp({
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         agentEntries.value = list;
       } catch (e) {
-        agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。';
+        if (!hasExistingData) {
+          agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。';
+        } else {
+          console.warn('静默刷新实例失败，保留现有列表', e);
+        }
         console.error('读取实例失败', e);
-        agentEntries.value = [];
+        if (!hasExistingData) agentEntries.value = [];
       } finally {
         agentLoading.value = false;
+        agentRefreshing.value = false;
       }
     };
 
@@ -1028,20 +1042,12 @@ const safeCopy = async (text) => {
           }, 3000);
         }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
-        if (instanceRefreshTimer === null) {
-          instanceRefreshTimer = setInterval(() => {
-            if (!token.value || page.value !== 'instances') return;
-            if (!agentLoading.value) loadAgentsData();
-                }, 10000);
-        }
       }
     });
 
     onUnmounted(() => {
       if (overviewTimer !== null) clearInterval(overviewTimer);
-      if (instanceRefreshTimer !== null) clearInterval(instanceRefreshTimer);
       overviewTimer = null;
-      instanceRefreshTimer = null;
     });
 
     return {
@@ -1049,7 +1055,7 @@ const safeCopy = async (text) => {
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
-      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentSearch, agentStatusFilter, filteredAgentEntries,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,

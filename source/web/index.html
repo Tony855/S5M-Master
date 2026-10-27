@@ -274,7 +274,7 @@
 
         <!-- Unified instance area: registration, status and proxy/config association. -->
         <div class="card-panel instance-panel">
-          <div class="card-title"><span>节点实例管理</span><el-button size="small" type="primary" :loading="agentLoading" @click="loadAgentsData">刷新节点实例</el-button></div>
+          <div class="card-title"><span>节点实例管理</span><el-button size="small" type="primary" :loading="agentLoading || agentRefreshing" :disabled="agentLoading || agentRefreshing" @click="loadAgentsData">刷新节点实例</el-button></div>
           <p class="import-note">在这里统一管理已注册节点实例，并直接查看该实例关联的代理节点和独立 Mihomo 配置。代理管理中的机器码绑定会自动同步到对应节点配置的 proxies/rules；自定义 YAML 的 DNS、TUN、端口等其他设置会保留。</p>
 
           <div class="subsection-heading"><span>已注册实例</span><span class="section-hint">共 {{ agentEntries.length }} 个，当前显示 {{ filteredAgentEntries.length }} 个</span></div>
