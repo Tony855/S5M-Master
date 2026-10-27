@@ -398,9 +398,7 @@ func collectMihomoStatus() map[string]any {
 	return status
 }
 
-// reportHeartbeat uses WebSocket as the primary telemetry channel.
-// HTTP is retained only as a compatibility fallback if the WebSocket handshake,
-// heartbeat exchange, or acknowledgement fails.
+// reportHeartbeat sends runtime telemetry exclusively over WebSocket.
 func reportHeartbeat(cfg Config, status map[string]any) error {
 	return reportHeartbeatWebSocket(cfg, status)
 }
@@ -666,68 +664,6 @@ func processAgentCommandWebSocket(cfg Config) error {
 	}
 	if ack.Type != "command.acknowledged" || ack.ID != cmd.ID || !ack.OK {
 		return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
-	}
-	if runErr != nil {
-		return runErr
-	}
-	fmt.Printf("Agent 命令 %s 执行成功: %s\n", cmd.ID, message)
-	return nil
-}
-
-func processAgentCommand(cfg Config) error {
-	request, err := http.NewRequest(http.MethodGet, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/command", nil)
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+cfg.Token)
-	client := &http.Client{Timeout: 10 * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
-		return fmt.Errorf("读取主控命令返回 HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
-	}
-	var envelope struct {
-		Command *agentCommand `json:"command"`
-	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 16<<10)).Decode(&envelope); err != nil {
-		return err
-	}
-	if envelope.Command == nil {
-		return nil
-	}
-	cmd := envelope.Command
-	var runErr error
-	message := ""
-	switch cmd.Type {
-	case "update_mihomo":
-		message, runErr = updateMihomoKernel(*cmd)
-	default:
-		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
-	}
-	status := "success"
-	if runErr != nil {
-		status = "failed"
-		message = runErr.Error()
-	}
-	ackBody, _ := json.Marshal(map[string]string{"id": cmd.ID, "status": status, "message": message})
-	ackReq, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/command/ack", bytes.NewReader(ackBody))
-	if err != nil {
-		return err
-	}
-	ackReq.Header.Set("Authorization", "Bearer "+cfg.Token)
-	ackReq.Header.Set("Content-Type", "application/json")
-	ackResp, err := (&http.Client{Timeout: 10 * time.Second}).Do(ackReq)
-	if err != nil {
-		return fmt.Errorf("执行命令后上报结果失败: %w", err)
-	}
-	defer ackResp.Body.Close()
-	if ackResp.StatusCode < 200 || ackResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(ackResp.Body, 2048))
-		return fmt.Errorf("上报命令结果返回 HTTP %d: %s", ackResp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if runErr != nil {
 		return runErr
