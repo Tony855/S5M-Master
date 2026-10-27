@@ -373,6 +373,18 @@
             <el-table-column prop="note" label="版本说明" min-width="130"></el-table-column>
             <el-table-column prop="created_at" label="发布时间" min-width="160"></el-table-column>
             <el-table-column prop="sha256" label="SHA-256" min-width="180"></el-table-column>
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="scope">
+                <el-button
+                  size="small"
+                  type="danger"
+                  plain
+                  :loading="deletingTemplateVersion === scope.row.version"
+                  :disabled="scope.row.version === templateCurrentVersion || deletingTemplateVersion !== 0"
+                  @click="deleteMihomoTemplateVersion(scope.row.version)"
+                >删除</el-button>
+              </template>
+            </el-table-column>
           </el-table>
           <div style="margin-top:18px;font-weight:600;">节点模板版本状态</div>
           <el-table :data="templateNodes" size="small" style="width:100%;margin-top:8px;">
