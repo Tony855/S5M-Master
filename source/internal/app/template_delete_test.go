@@ -131,3 +131,21 @@ func TestDeleteMihomoTemplateVersionDeletesUnboundHistory(t *testing.T) {
 		t.Fatal("current template version was unexpectedly changed")
 	}
 }
+
+
+func TestDeleteMihomoTemplateVersionFailsClosedOnInvalidCurrentVersion(t *testing.T) {
+	a, cleanup := newTemplateDeleteTestApp(t)
+	defer cleanup()
+	seedTemplateDeleteTest(t, a, 4, 3, 4)
+	if _, err := a.store.db.Exec(`UPDATE settings SET value='invalid' WHERE key='mihomo_template_current_version'`); err != nil {
+		t.Fatalf("corrupt current version setting: %v", err)
+	}
+
+	rec := callDeleteTemplateVersion(a, "3")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !templateVersionExists(t, a, 3) {
+		t.Fatal("template version was deleted despite invalid current-version setting")
+	}
+}
