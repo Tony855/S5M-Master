@@ -211,14 +211,24 @@ func TestBuildConfigSupportsExplicitGlobalAndUnboundProxies(t *testing.T) {
 		{Name: "unbound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.12", Port: 1082, Enabled: true},
 	}
 	nodeConfig, err := buildConfigFromProxies(proxies, "node-a", "test-secret")
-	if err != nil { t.Fatalf("node config error = %v", err) }
-	for _, want := range []string{"global-proxy", "bound-proxy"} {
-		if !strings.Contains(nodeConfig, want) { t.Errorf("node config missing %q", want) }
+	if err != nil {
+		t.Fatalf("node config error = %v", err)
 	}
-	if strings.Contains(nodeConfig, "unbound-proxy") { t.Fatal("node config must exclude unbound proxy") }
+	for _, want := range []string{"global-proxy", "bound-proxy"} {
+		if !strings.Contains(nodeConfig, want) {
+			t.Errorf("node config missing %q", want)
+		}
+	}
+	if strings.Contains(nodeConfig, "unbound-proxy") {
+		t.Fatal("node config must exclude unbound proxy")
+	}
 	globalConfig, err := buildConfigFromProxies(proxies, "", "test-secret")
-	if err != nil { t.Fatalf("global config error = %v", err) }
-	if !strings.Contains(globalConfig, "global-proxy") { t.Fatal("global config must include explicitly global proxy") }
+	if err != nil {
+		t.Fatalf("global config error = %v", err)
+	}
+	if !strings.Contains(globalConfig, "global-proxy") {
+		t.Fatal("global config must include explicitly global proxy")
+	}
 	if strings.Contains(globalConfig, "bound-proxy") || strings.Contains(globalConfig, "unbound-proxy") {
 		t.Fatal("global/default config must exclude machine-bound and unbound proxies")
 	}
