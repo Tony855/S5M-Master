@@ -174,7 +174,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
-	if output, err := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
+	if _, err := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, fmt.Errorf("新配置未通过 Mihomo 校验（已隐藏底层路径详情）")
 	}
@@ -654,11 +654,11 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if err := os.Chmod(newPath, 0755); err != nil {
 		return "", err
 	}
-	if output, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
+	if _, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核自检失败（已隐藏底层路径详情）")
 	}
 	configPath := mihomoConfigPath()
-	if output, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
+	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
 	configData, err := os.ReadFile(configPath)
