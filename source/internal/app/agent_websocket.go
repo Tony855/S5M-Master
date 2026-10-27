@@ -303,24 +303,12 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
-	settings, err := a.store.GetSettings()
+	_, matched, err := a.store.AckAgentCommand(machineCode, commandID, status, message, time.Now().Unix())
 	if err != nil {
-		return fmt.Errorf("读取待执行命令失败: %w", err)
+		return fmt.Errorf("原子保存命令结果失败: %w", err)
 	}
-	var pending map[string]string
-	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) != nil || pending["id"] != commandID {
-		var previous map[string]any
-		if json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &previous) == nil && previous["id"] == commandID {
-			return nil
-		}
+	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
-	}
-	result, _ := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + machineCode: string(result)}); err != nil {
-		return fmt.Errorf("保存命令结果失败: %w", err)
-	}
-	if err := a.store.DeleteSettings([]string{"agent_command_" + machineCode}); err != nil {
-		return fmt.Errorf("清除已执行命令失败: %w", err)
 	}
 	return nil
 }
