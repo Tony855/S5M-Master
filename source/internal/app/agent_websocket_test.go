@@ -1111,3 +1111,106 @@ func TestLegacyHTTPAgentEndpointsRejectRevokedBinding(t *testing.T) {
 		t.Fatalf("revoked Agent state was recreated or command remained: %#v", settings)
 	}
 }
+
+
+// TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession protects the
+// persistent-session contract: heartbeat, config sync, command delivery, and ACK
+// must work sequentially without opening a replacement connection.
+func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	configYAML := "mixed-port: 7890\nsecret: test-secret\ntun:\n  enable: true\ndns:\n  enable: true\n"
+	if err := app.store.SaveNodeConfig(code, configYAML); err != nil {
+		t.Fatalf("save node config: %v", err)
+	}
+	pending, err := json.Marshal(map[string]string{"id": "cmd-session-1", "type": "update_mihomo"})
+	if err != nil {
+		t.Fatalf("marshal pending command: %v", err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: string(pending)}); err != nil {
+		t.Fatalf("queue pending command: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
+		t.Fatalf("read welcome: payload=%#v err=%v", welcome, err)
+	}
+
+	status := map[string]any{
+		"mihomo_version": "v1.19.3", "mihomo_healthy": true,
+		"upload_total": float64(12), "download_total": float64(34),
+		"upload_speed": float64(1), "download_speed": float64(2),
+		"connections": float64(3), "config_sha256": strings.Repeat("a", 64),
+		"last_error": "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-session-1", "status": status}); err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	var heartbeatAck map[string]any
+	if err := conn.ReadJSON(&heartbeatAck); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
+	if heartbeatAck["type"] != "heartbeat.ack" || heartbeatAck["id"] != "hb-session-1" {
+		t.Fatalf("unexpected heartbeat ACK: %#v", heartbeatAck)
+	}
+
+	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-session-1", "config_sha256": ""}); err != nil {
+		t.Fatalf("request config: %v", err)
+	}
+	var configResponse map[string]any
+	if err := conn.ReadJSON(&configResponse); err != nil {
+		t.Fatalf("read config response: %v", err)
+	}
+	if configResponse["type"] != "config.sync" || configResponse["id"] != "cfg-session-1" || configResponse["yaml"] != configYAML {
+		t.Fatalf("unexpected config response: %#v", configResponse)
+	}
+
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "poll-session-1"}); err != nil {
+		t.Fatalf("request command: %v", err)
+	}
+	var commandResponse map[string]any
+	if err := conn.ReadJSON(&commandResponse); err != nil {
+		t.Fatalf("read command response: %v", err)
+	}
+	command, ok := commandResponse["command"].(map[string]any)
+	if commandResponse["type"] != "command.deliver" || commandResponse["id"] != "poll-session-1" ||
+		!ok || command["id"] != "cmd-session-1" {
+		t.Fatalf("unexpected command response: %#v", commandResponse)
+	}
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": "cmd-session-1",
+		"command_status": "success", "message": "session test passed",
+	}); err != nil {
+		t.Fatalf("send command ACK: %v", err)
+	}
+	var commandAck map[string]any
+	if err := conn.ReadJSON(&commandAck); err != nil {
+		t.Fatalf("read command ACK confirmation: %v", err)
+	}
+	if commandAck["type"] != "command.acknowledged" || commandAck["id"] != "cmd-session-1" || commandAck["ok"] != true {
+		t.Fatalf("unexpected command ACK confirmation: %#v", commandAck)
+	}
+
+	// The same socket must remain valid after all operations, not be superseded.
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-session-2", "status": status}); err != nil {
+		t.Fatalf("send second heartbeat on same session: %v", err)
+	}
+	var secondAck map[string]any
+	if err := conn.ReadJSON(&secondAck); err != nil {
+		t.Fatalf("read second heartbeat ACK: %v", err)
+	}
+	if secondAck["type"] != "heartbeat.ack" || secondAck["id"] != "hb-session-2" {
+		t.Fatalf("unexpected second heartbeat ACK: %#v", secondAck)
+	}
+}
