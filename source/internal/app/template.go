@@ -307,12 +307,32 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 	boundNodes := make([]string, 0)
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		rows.Close()
+		writeErr(w, http.StatusInternalServerError, "读取节点授权状态失败")
+		return
+	}
 	for rows.Next() {
 		var machineCode string
 		if err := rows.Scan(&machineCode); err != nil {
 			rows.Close()
 			writeErr(w, http.StatusInternalServerError, "读取节点模板绑定失败")
 			return
+		}
+		// A binding is blocking deletion only while the machine has a valid
+		// dedicated Agent credential. Deleted/revoked machines may leave legacy
+		// rows behind from older versions; remove those orphan bindings safely.
+		token := strings.TrimSpace(settings["agent_machine_"+machineCode])
+		if token == "" || token == strings.TrimSpace(settings["agent_token"]) {
+			if _, err := tx.ExecContext(r.Context(),
+				"DELETE FROM node_template_bindings WHERE machine_code=? AND source='template' AND template_version=?",
+				machineCode, version); err != nil {
+				rows.Close()
+				writeErr(w, http.StatusInternalServerError, "清理已删除节点的遗留模板绑定失败")
+				return
+			}
+			continue
 		}
 		boundNodes = append(boundNodes, machineCode)
 	}
