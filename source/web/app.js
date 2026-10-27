@@ -139,8 +139,7 @@ createApp({
     // Normalize upstream Mihomo version strings before the UI adds its display prefix.
     // Accept plain versions and repeated v/V prefixes without rendering vv1.19.33.
     const normalizeMihomoVersion = (value) => {
-      const version = String(value || '').trim().replace(/^(?:v)+/i, '');
-      return version ? 'v' + version : '';
+      return String(value || '').trim().replace(/^(?:v)+/i, '');
     };
 
     const fmtBytes = (n) => {
