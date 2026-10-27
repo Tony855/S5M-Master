@@ -1868,7 +1868,7 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	// 不使用全局 Token 回退，也不展示只有心跳记录的未授权设备。
 	for code := range codes {
 		token := settings["agent_machine_"+code]
-		if token == "" || token == settings["agent_token"] {
+		if strings.TrimSpace(token) == "" || token == settings["agent_token"] {
 			continue
 		}
 
