@@ -916,7 +916,6 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 	}
 }
 
-
 func TestFetchAgentRuntimeReportsHeartbeatWhenConfigSyncFails(t *testing.T) {
 	var heartbeatSeen atomic.Bool
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
