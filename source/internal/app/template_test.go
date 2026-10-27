@@ -47,12 +47,21 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		strings.Contains(defaultMihomoTemplate, "0103da505e81003e") {
 		t.Fatal("starter template must not expose a user's proxy endpoint or API secret")
 	}
-	if strings.Contains(defaultMihomoTemplate, "proxies:") ||
-		strings.Contains(defaultMihomoTemplate, "proxy-groups:") ||
-		strings.Contains(defaultMihomoTemplate, "rules:") ||
-		strings.Contains(defaultMihomoTemplate, "YOUR_PROXY_SERVER") ||
-		strings.Contains(defaultMihomoTemplate, "221111cdn") {
-		t.Fatal("default template must not duplicate proxy/rule sections managed by the controller")
+
+	// Check only unindented, top-level section declarations. A substring check
+	// for "rules:" incorrectly matches the valid DNS option "respect-rules:".
+	for _, line := range strings.Split(defaultMihomoTemplate, "\n") {
+		switch strings.TrimSpace(line) {
+		case "proxies:", "proxy-groups:", "rules:":
+			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
+				t.Fatalf("default template must not define controller-managed top-level section %q", strings.TrimSpace(line))
+			}
+		}
+	}
+	for _, unwanted := range []string{"YOUR_PROXY_SERVER", "221111cdn"} {
+		if strings.Contains(defaultMihomoTemplate, unwanted) {
+			t.Fatalf("default template must not contain placeholder/hard-coded rule %q", unwanted)
+		}
 	}
 }
 
