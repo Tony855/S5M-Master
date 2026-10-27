@@ -299,7 +299,13 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 	var current int
-	fmt.Sscanf(currentRaw, "%d", &current)
+	if strings.TrimSpace(currentRaw) != "" {
+		current, err = strconv.Atoi(strings.TrimSpace(currentRaw))
+		if err != nil || current < 1 {
+			writeErr(w, http.StatusInternalServerError, "当前模板版本记录无效，拒绝删除")
+			return
+		}
+	}
 	if version == current {
 		writeErr(w, http.StatusConflict, "不能删除当前发布版本；请先发布新版本")
 		return
