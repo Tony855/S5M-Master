@@ -461,14 +461,18 @@ createApp({
       try {
         const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
         if (res.ok) {
+          // Remove from the reactive list immediately so both desktop and mobile
+          // views update without waiting for a second API request.
+          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
           await loadProxies();
           showMsg('已删除', 'success');
           return;
         }
         const message = await parseErr(res);
-        // Deletion is committed before the server regenerates authorized-node YAML.
-        // Refresh the list on this partial-success path so the removed proxy doesn't linger.
+        // The DB delete may succeed even when node-config synchronization fails.
+        // Reflect that committed deletion immediately, then reload the authoritative list.
         if (message.includes('代理已删除')) {
+          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
           await loadProxies();
           showMsg(message + '。请进入配置管理点击“立即重试同步所有节点”。', 'warning');
           return;
