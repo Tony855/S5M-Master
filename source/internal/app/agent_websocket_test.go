@@ -1012,3 +1012,61 @@ func TestAgentWebSocketSupersededConnectionCannotReadPendingCommand(t *testing.T
 		t.Fatalf("superseded connection received command payload: %#v", response)
 	}
 }
+
+
+// TestAgentWebSocketHeartbeatRevalidatesAuthorizationAfterBindingRemoval covers
+// the in-flight handshake/revocation window: the socket generation still matches,
+// but the Agent binding has already been removed.
+func TestAgentWebSocketHeartbeatRevalidatesAuthorizationAfterBindingRemoval(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	// Simulate binding removal after handshake authentication but before the
+	// connection-generation invalidation becomes visible to this socket.
+	if err := app.store.DeleteAgentBinding(code); err != nil {
+		t.Fatalf("DeleteAgentBinding: %v", err)
+	}
+	status := map[string]any{
+		"mihomo_version": "v1.19.3",
+		"mihomo_healthy": true,
+		"upload_total":   float64(12),
+		"download_total": float64(34),
+		"upload_speed":   float64(1),
+		"download_speed": float64(2),
+		"connections":    float64(3),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-revocation-race", "status": status}); err != nil {
+		t.Fatalf("send heartbeat after binding removal: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read response after binding removal: %v", err)
+	}
+	if response["type"] != "error" || !strings.Contains(response["message"].(string), "授权") {
+		t.Fatalf("revoked WebSocket heartbeat should fail authorization, got %#v", response)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_status_"+code] != "" || settings["agent_lastseen_"+code] != "" {
+		t.Fatalf("heartbeat after binding removal was persisted: %#v", settings)
+	}
+}
