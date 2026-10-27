@@ -1402,7 +1402,7 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	// 只允许预先分配的专属 Token 注册对应机器码。
 	machineToken := settings["agent_machine_"+in.MachineCode]
-	if machineToken == "" ||
+	if strings.TrimSpace(machineToken) == "" ||
 		machineToken == expectedSecret ||
 		in.Secret == expectedSecret ||
 		in.Secret != machineToken {
