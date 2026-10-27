@@ -296,27 +296,50 @@
                 <div class="agent-code">{{ item.code }}</div>
                 <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? '在线' : '离线' }}</span>
               </div>
-              <div class="instance-token">专属 Token：{{ item.tokenConfigured ? '已分配（列表不再显示明文）' : '未分配' }} · 最近心跳：{{ item.last_seen ? new Date(item.last_seen * 1000).toLocaleString() : '暂无记录' }}</div>
-              <div v-if="item.updated_at" class="instance-token">状态更新时间：{{ item.updated_at }}</div>
-              <div v-if="item.runtimeReported" class="instance-token">
-                主机：{{ item.hostname || '未知' }} · 系统：{{ item.os || '未知' }}{{ item.arch ? '/' + item.arch : '' }} · Mihomo：{{ item.mihomoRunning ? '运行中' : '未运行' }}{{ item.mihomoVersion ? ' (' + item.mihomoVersion + ')' : '' }}
+              <div class="instance-summary">
+                <div class="instance-summary-primary">
+                  <span>{{ item.hostname || '主机未知' }}</span>
+                  <span>{{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</span>
+                </div>
+                <div class="instance-summary-secondary">
+                  <span class="instance-summary-mihomo" :class="item.mihomoRunning ? 'is-running' : 'is-stopped'">
+                    Mihomo：{{ item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知') }}{{ item.mihomoVersion ? ' · v' + item.mihomoVersion : '' }}
+                  </span>
+                  <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
+                </div>
+                <div v-if="item.updated_at" class="instance-summary-updated">状态更新时间：{{ item.updated_at }}</div>
+                <div v-else class="instance-summary-updated">状态更新时间：暂无记录</div>
               </div>
-              <div v-else class="instance-token">运行状态：{{ item.runtimeMessage || '尚未收到有效运行状态' }}</div>
-              <div v-if="item.lastError" class="instance-token">Agent 状态/错误信息：{{ item.lastError }}</div>
-              <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-token">
-                Mihomo 更新：<el-tag type="warning" size="small">待 Agent 确认</el-tag> · 目标版本 {{ item.pendingCommand.version || '未知' }}
-              </div>
-              <div v-else-if="item.commandResult && item.commandResult.type === 'update_mihomo'" class="instance-token">
-                上次 Mihomo 更新：
-                <el-tag :type="item.commandResult.status === 'success' ? 'success' : (item.commandResult.status === 'failed' ? 'danger' : 'info')" size="small">
-                  {{ item.commandResult.status === 'success' ? '成功' : (item.commandResult.status === 'failed' ? '失败' : (item.commandResult.status || '未知')) }}
-                </el-tag>
-                · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
-              </div>
-              <div class="instance-link-summary">
-                <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
-                <span>独立配置：<strong>{{ nodeConfigState(item.code) }}</strong></span>
-              </div>
+              <details class="instance-details">
+                <summary>展开详细状态</summary>
+                <div class="instance-details-content">
+                  <div class="instance-detail-item">
+                    <span class="instance-detail-label">专属 Token</span>
+                    <span>{{ item.tokenConfigured ? '已分配（列表不显示明文）' : '未分配' }}</span>
+                  </div>
+                  <div class="instance-detail-item">
+                    <span class="instance-detail-label">主机与系统</span>
+                    <span>{{ item.hostname || '未知主机' }} · {{ item.os || '未知系统' }}{{ item.arch ? '/' + item.arch : '' }}</span>
+                  </div>
+                  <div class="instance-detail-item">
+                    <span class="instance-detail-label">状态更新时间</span>
+                    <span>{{ item.updated_at || '暂无记录' }}</span>
+                  </div>
+                  <div v-if="!item.runtimeReported" class="instance-detail-note">{{ item.runtimeMessage || '尚未收到有效运行状态' }}</div>
+                  <div v-if="item.lastError" class="instance-detail-note is-error">Agent 状态/错误信息：{{ item.lastError }}</div>
+                  <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-detail-note">
+                    Mihomo 更新：<el-tag type="warning" size="small">待 Agent 确认</el-tag> · 目标版本 {{ item.pendingCommand.version || '未知' }}
+                  </div>
+                  <div v-else-if="item.commandResult && item.commandResult.type === 'update_mihomo'" class="instance-detail-note">
+                    上次 Mihomo 更新：
+                    <el-tag :type="item.commandResult.status === 'success' ? 'success' : (item.commandResult.status === 'failed' ? 'danger' : 'info')" size="small">
+                      {{ item.commandResult.status === 'success' ? '成功' : (item.commandResult.status === 'failed' ? '失败' : (item.commandResult.status || '未知')) }}
+                    </el-tag>
+                    · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
+                  </div>
+                  <div v-else class="instance-detail-note">暂无 Mihomo 更新记录</div>
+                </div>
+              </details>
               <div class="instance-actions">
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
                 <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
