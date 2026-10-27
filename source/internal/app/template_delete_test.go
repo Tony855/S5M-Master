@@ -109,7 +109,7 @@ func TestDeleteMihomoTemplateVersionRejectsBoundVersionWithoutMutation(t *testin
 	}
 	rec := callDeleteTemplateVersion(a, "3")
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
 	if !templateVersionExists(t, a, 3) {
 		t.Fatal("bound template version was deleted despite conflict")
