@@ -90,31 +90,8 @@ dns:
     ipcidr:
       - 240.0.0.0/4
 
-# Replace the example server/port with a real reachable proxy endpoint.
-proxies:
-  - name: "proxy-01"
-    type: socks5
-    server: YOUR_PROXY_SERVER
-    port: 1080
-    udp: true
-
-proxy-groups:
-  - name: "代理出口"
-    type: select
-    proxies:
-      - "proxy-01"
-      - DIRECT
-
-rules:
-  - DOMAIN-SUFFIX,dns.alidns.com,代理出口
-  - DOMAIN-SUFFIX,doh.pub,代理出口
-  - DOMAIN-SUFFIX,dns.cloudflare.com,代理出口
-  - DOMAIN-SUFFIX,dns.google,代理出口
-  - DOMAIN-KEYWORD,221111cdn,REJECT
-  - DOMAIN-SUFFIX,221111cdn,REJECT
-  - DOMAIN-REGEX,^abc.*2222com,REJECT
-  - GEOIP,CN,DIRECT,no-resolve
-  - MATCH,代理出口
+# proxies and rules are intentionally omitted here.
+# The controller generates these sections from its managed proxy records and routing settings.
 `
 
 type mihomoTemplateVersion struct {
