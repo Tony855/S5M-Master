@@ -951,11 +951,11 @@ html, body, #app {
   border-radius: 8px;
 }
 @media (min-width: 1500px) {
-  .instance-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+  .instance-panel .instance-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
   .instance-row { padding: 19px; }
 }
 @media (max-width: 1050px) {
-  .instance-list { grid-template-columns: minmax(0, 1fr); }
+  .instance-panel .instance-list { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .instance-panel .docker-controls {
