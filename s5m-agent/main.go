@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"bytes"
 	"compress/gzip"
 	"crypto/aes"
