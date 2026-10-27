@@ -14,9 +14,9 @@ func TestSyncAuthorizedNodeConfigsPreservesNodeSettingsAndCanRetry(t *testing.T)
 	defer store.db.Close()
 
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_node-a": "agent-token",
+		"agent_machine_node-a":       "agent-token",
 		"agent_mihomo_secret_node-a": "node-secret",
-		"tun_enable": "true",
+		"tun_enable":                 "true",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
