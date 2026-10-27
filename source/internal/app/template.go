@@ -263,6 +263,15 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	// Load settings before opening the transaction. The SQLite store may use
+	// a single connection; calling Store.GetSettings while a transaction is
+	// active can wait forever for that same connection.
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		writeErr(w, http.StatusInternalServerError, "读取节点授权状态失败")
+		return
+	}
+
 	tx, err := a.store.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "开始删除模板版本事务失败")
@@ -313,6 +322,25 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 			rows.Close()
 			writeErr(w, http.StatusInternalServerError, "读取节点模板绑定失败")
 			return
+		}
+		// A binding is blocking deletion only while the machine has a valid
+		// dedicated Agent credential. Deleted/revoked machines may leave legacy
+		// rows behind from older versions; remove those orphan bindings safely.
+		token := strings.TrimSpace(settings["agent_machine_"+machineCode])
+		globalToken := strings.TrimSpace(settings["agent_token"])
+		// Only infer a deleted/revoked machine when the server has a configured
+		// global Agent token. In minimal test/legacy databases without that
+		// setting, missing per-machine credentials are not enough to prove that
+		// a binding is orphaned, so retain the safe blocking behavior.
+		if globalToken != "" && (token == "" || token == globalToken) {
+			if _, err := tx.ExecContext(r.Context(),
+				"DELETE FROM node_template_bindings WHERE machine_code=? AND source='template' AND template_version=?",
+				machineCode, version); err != nil {
+				rows.Close()
+				writeErr(w, http.StatusInternalServerError, "清理已删除节点的遗留模板绑定失败")
+				return
+			}
+			continue
 		}
 		boundNodes = append(boundNodes, machineCode)
 	}
