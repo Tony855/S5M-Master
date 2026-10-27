@@ -1427,11 +1427,23 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serialize the legacy HTTP config endpoint with Agent revocation, and
+	// revalidate after acquiring the lock. Otherwise a request authenticated
+	// just before revocation could recreate last-seen state or return config
+	// after its binding has been removed.
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	currentCode, currentAuthErr := a.agentMachineFromRequest(r)
+	if currentAuthErr != nil || currentCode != machineCode {
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
+		return
+	}
+
 	now := fmt.Sprintf("%d", time.Now().Unix())
 	if err := a.store.UpdateSettings(map[string]string{
 		"agent_lastseen_" + machineCode: now,
 	}); err != nil {
-		writeErr(w, 500, "更新设备心跳失败")
+		writeErr(w, http.StatusInternalServerError, "更新设备心跳失败")
 		return
 	}
 
@@ -1693,6 +1705,17 @@ func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 	code, err := a.agentMachineFromRequest(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
+	}
+
+	// Keep command delivery serialized with credential revocation. The second
+	// authorization check closes the gap between the initial JWT validation
+	// and reading the pending command.
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	currentCode, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil || currentCode != code {
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
 		return
 	}
 	settings, err := a.store.GetSettings()
