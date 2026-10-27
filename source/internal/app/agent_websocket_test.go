@@ -768,3 +768,50 @@ func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
 		t.Fatalf("unexpected command response: %#v", response)
 	}
 }
+
+func TestAgentWebSocketConfigSyncAndUnchanged(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	const yamlConfig = "mixed-port: 7890\nmode: rule\n"
+	if err := app.store.SaveNodeConfig(code, yamlConfig); err != nil {
+		t.Fatalf("SaveNodeConfig: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	sum := sha256.Sum256([]byte(strings.TrimSpace(yamlConfig)))
+	wantHash := hex.EncodeToString(sum[:])
+	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-first", "config_sha256": ""}); err != nil {
+		t.Fatalf("request config: %v", err)
+	}
+	var first map[string]any
+	if err := conn.ReadJSON(&first); err != nil {
+		t.Fatalf("read config sync: %v", err)
+	}
+	if first["type"] != "config.sync" || first["id"] != "cfg-first" || first["sha256"] != wantHash || first["yaml"] != strings.TrimSpace(yamlConfig) {
+		t.Fatalf("unexpected config sync response: %#v", first)
+	}
+
+	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-same", "config_sha256": wantHash}); err != nil {
+		t.Fatalf("request unchanged config: %v", err)
+	}
+	var second map[string]any
+	if err := conn.ReadJSON(&second); err != nil {
+		t.Fatalf("read unchanged response: %v", err)
+	}
+	if second["type"] != "config.unchanged" || second["id"] != "cfg-same" || second["sha256"] != wantHash {
+		t.Fatalf("unexpected unchanged response: %#v", second)
+	}
+}
