@@ -198,6 +198,9 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 			if err := yaml.Unmarshal([]byte(existing.YAML), &currentDoc); err != nil {
 				return fmt.Errorf("机器 %s 的独立 YAML 无效: %w", machineCode, err)
 			}
+			if len(currentDoc) == 0 {
+				return fmt.Errorf("机器 %s 的独立 YAML 必须是非空映射", machineCode)
+			}
 			if err := yaml.Unmarshal([]byte(generated), &generatedDoc); err != nil {
 				return fmt.Errorf("机器 %s 的生成 YAML 无效: %w", machineCode, err)
 			}

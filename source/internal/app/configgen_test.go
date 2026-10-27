@@ -6,6 +6,50 @@ import (
 	"testing"
 )
 
+func TestSyncAuthorizedNodeConfigsRejectsNullExistingYAMLWithoutPanicOrWrites(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-null-yaml.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a":       "token-a",
+		"agent_machine_node-b":       "token-b",
+		"agent_mihomo_secret_node-a": "secret-a",
+		"agent_mihomo_secret_node-b": "secret-b",
+		"tun_enable":                 "true",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	const nullYAML = "null\n"
+	const existingNodeB = "mixed-port: 7888\nsecret: node-b-secret\n"
+	if err := store.SaveNodeConfig("node-a", nullYAML); err != nil {
+		t.Fatalf("seed null node-a config: %v", err)
+	}
+	if err := store.SaveNodeConfig("node-b", existingNodeB); err != nil {
+		t.Fatalf("seed node-b config: %v", err)
+	}
+
+	app := &App{store: store}
+	if err := app.syncAuthorizedNodeConfigs(); err == nil {
+		t.Fatal("sync should reject null existing YAML with an error")
+	}
+
+	for code, want := range map[string]string{
+		"node-a": nullYAML,
+		"node-b": existingNodeB,
+	} {
+		got, err := store.GetNodeConfig(code)
+		if err != nil {
+			t.Fatalf("GetNodeConfig(%s): %v", code, err)
+		}
+		if got == nil || got.YAML != want {
+			t.Errorf("failed sync changed %s config: got=%+v, want YAML %q", code, got, want)
+		}
+	}
+}
+
 func TestSyncAuthorizedNodeConfigsDoesNotWriteBatchWhenAnyExistingYAMLIsInvalid(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-invalid-yaml.db"))
 	if err != nil {
