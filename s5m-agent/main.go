@@ -405,6 +405,15 @@ func reportHeartbeat(cfg Config, status map[string]any) error {
 
 // fetchAgentConfigWebSocket fetches this machine's configuration without HTTP polling.
 // A config hash allows the controller to avoid retransmitting unchanged YAML.
+// fetchAgentRuntime reports status independently from configuration sync.
+// A failed config request must not suppress the heartbeat, or the controller
+// may incorrectly mark a reachable Agent as stale.
+func fetchAgentRuntime(cfg Config, status map[string]any, localHash string) (config []byte, unchanged bool, heartbeatErr error, configErr error) {
+	heartbeatErr = reportHeartbeat(cfg, status)
+	config, unchanged, configErr = fetchAgentConfigWebSocket(cfg, localHash)
+	return config, unchanged, heartbeatErr, configErr
+}
+
 func fetchAgentConfigWebSocket(cfg Config, localHash string) ([]byte, bool, error) {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
@@ -536,30 +545,6 @@ func reportHeartbeatWebSocket(cfg Config, status map[string]any) error {
 	}
 	if ack.Type != "heartbeat.ack" || ack.ID != heartbeatID || !ack.OK {
 		return fmt.Errorf("主控端心跳确认无效")
-	}
-	return nil
-}
-
-func reportHeartbeatHTTP(cfg Config, status map[string]any) error {
-	body, err := json.Marshal(status)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(cfg.CentralURL, "/")+"/api/v1/agent/heartbeat", strings.NewReader(string(body)))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.Token)
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("主控端心跳返回 HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	return nil
 }
@@ -1211,13 +1196,13 @@ func main() {
 			localSum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
 			localHash = hex.EncodeToString(localSum[:])
 		}
-		newYml, unchanged, syncErr := fetchAgentConfigWebSocket(cfg, localHash)
+		newYml, unchanged, heartbeatErr, syncErr := fetchAgentRuntime(cfg, collectMihomoStatus(), localHash)
+		if heartbeatErr != nil {
+			fmt.Printf("Agent 状态上报失败: %v\n", heartbeatErr)
+		}
 		if syncErr != nil {
 			fmt.Printf("❌ WebSocket 配置同步失败: %v\n", syncErr)
 			continue
-		}
-		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-			fmt.Printf("Agent 状态上报失败: %v\n", err)
 		}
 		if unchanged {
 			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
