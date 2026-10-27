@@ -104,6 +104,11 @@ func TestDeleteMihomoTemplateVersionRejectsBoundVersionWithoutMutation(t *testin
 	a, cleanup := newTemplateDeleteTestApp(t)
 	defer cleanup()
 	seedTemplateDeleteTest(t, a, 4, 3, 4)
+	// Model a still-registered Agent: a dedicated credential means this
+	// binding must block deletion even when the global fallback token exists.
+	if _, err := a.store.db.Exec(`INSERT OR REPLACE INTO settings(key,value) VALUES('agent_token','global-token'),('agent_machine_node-a','dedicated-token')`); err != nil {
+		t.Fatalf("seed Agent credentials: %v", err)
+	}
 	if _, err := a.store.db.Exec(`INSERT INTO node_template_bindings(machine_code,template_version,source) VALUES('node-a',3,'template')`); err != nil {
 		t.Fatalf("seed node binding: %v", err)
 	}
