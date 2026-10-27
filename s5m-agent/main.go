@@ -670,7 +670,7 @@ func processAgentCommandWebSocket(cfg Config) error {
 	if runErr != nil {
 		return runErr
 	}
-	fmt.Printf("Agent 命令 %s 执行成功: %s\n",cmd.ID,message)
+	fmt.Printf("Agent 命令 %s 执行成功: %s\n", cmd.ID, message)
 	return nil
 }
 
