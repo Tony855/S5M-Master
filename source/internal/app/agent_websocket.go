@@ -32,12 +32,12 @@ var agentWSUpgrader = websocket.Upgrader{
 }
 
 type agentWSMessage struct {
-	Type   string         `json:"type"`
-	ID     string         `json:"id,omitempty"`
-	Status map[string]any `json:"status,omitempty"`
-	ConfigHash string `json:"config_sha256,omitempty"`
-	CommandStatus string `json:"status,omitempty"`
-	Message string `json:"message,omitempty"`
+	Type          string         `json:"type"`
+	ID            string         `json:"id,omitempty"`
+	Status        map[string]any `json:"status,omitempty"`
+	ConfigHash    string         `json:"config_sha256,omitempty"`
+	CommandStatus string         `json:"command_status,omitempty"`
+	Message       string         `json:"message,omitempty"`
 }
 
 // validateAgentWSStatus rejects malformed telemetry before it reaches persistent
