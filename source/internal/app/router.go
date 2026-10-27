@@ -18,9 +18,26 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu         sync.Mutex
-	agentWSGeneration map[string]uint64
-	agentHeartbeatAt  map[string]int64
+	agentWSMu            sync.Mutex
+	agentWSGeneration    map[string]uint64
+	agentWSOperationMu   map[string]*sync.Mutex
+	agentHeartbeatAt     map[string]int64
+}
+
+// agentWSOperationLock returns a per-Agent mutex. The global mutex protects only
+// the maps, so activity for one Agent does not serialize operations for all others.
+func (a *App) agentWSOperationLock(machineCode string) *sync.Mutex {
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	if a.agentWSOperationMu == nil {
+		a.agentWSOperationMu = make(map[string]*sync.Mutex)
+	}
+	lock := a.agentWSOperationMu[machineCode]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		a.agentWSOperationMu[machineCode] = lock
+	}
+	return lock
 }
 
 func New(cfg Config) (*App, error) {
