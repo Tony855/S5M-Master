@@ -160,7 +160,9 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
 				continue
 			}
-			if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil { return }
+			if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+				return
+			}
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
@@ -229,7 +231,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 // sendAgentWSConfig returns only the configuration assigned to the authenticated machine.
 func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, clientHash string) error {
 	nodeConfig, err := a.store.GetNodeConfig(machineCode)
@@ -266,7 +267,7 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	if err != nil {
 		return err
 	}
-	raw := strings.TrimSpace(settings["agent_command_" + machineCode])
+	raw := strings.TrimSpace(settings["agent_command_"+machineCode])
 	if raw == "" {
 		return conn.WriteJSON(map[string]any{"type": "command.none", "id": requestID})
 	}
@@ -277,7 +278,6 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	return conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command})
 }
 
-
 // ackAgentWSCommand persists an ACK only for the currently pending command.
 // Duplicate ACKs are accepted only when the prior result has the same command ID.
 func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) error {
@@ -285,7 +285,9 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
 	settings, err := a.store.GetSettings()
-	if err != nil { return fmt.Errorf("读取待执行命令失败: %w", err) }
+	if err != nil {
+		return fmt.Errorf("读取待执行命令失败: %w", err)
+	}
 	var pending map[string]string
 	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) != nil || pending["id"] != commandID {
 		var previous map[string]any
@@ -295,10 +297,10 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 		return fmt.Errorf("命令已被替换或不存在")
 	}
 	result, _ := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_"+machineCode: string(result)}); err != nil {
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + machineCode: string(result)}); err != nil {
 		return fmt.Errorf("保存命令结果失败: %w", err)
 	}
-	if err := a.store.DeleteSettings([]string{"agent_command_"+machineCode}); err != nil {
+	if err := a.store.DeleteSettings([]string{"agent_command_" + machineCode}); err != nil {
 		return fmt.Errorf("清除已执行命令失败: %w", err)
 	}
 	return nil
