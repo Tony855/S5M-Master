@@ -35,6 +35,8 @@ checks = {
     "instance creation trims and validates name, machine code, and HTTP API URL": "func validateInstance(in *Instance) string" in handlers and "url.ParseRequestURI(in.APIURL)" in handlers and "TestValidateInstance" in handlers_test,
     "Agent registration trims and bounds machine code and secret": "func validateAgentRegistrationInput(machineCode, secret string)" in handlers and "TestValidateAgentRegistrationInput" in handlers_test,
     "proxy validation rejects unknown modes and out-of-range ports": '"运行模式无效' in handlers and '"代理端口必须在 1-65535 之间"' in handlers and 'case "proxy", "china", "game":' in handlers,
+    "unbound proxies are explicitly labeled and never described as global sync entries": "未绑定（不会同步到节点）" in html and "未关联节点实例，不会同步到节点配置" in html and "全局节点" not in html and "同步至所有节点生成配置" not in html,
+    "node config generation excludes unbound proxies from every registered node": "return p.MachineCode == machineCode" in Path("source/internal/app/configgen.go").read_text(encoding="utf-8") and "TestBuildConfigForMachineExcludesUnboundProxy" in Path("source/internal/app/configgen_test.go").read_text(encoding="utf-8"),
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "mode: row.mode || 'proxy'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'proxy'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
