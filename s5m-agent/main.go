@@ -140,7 +140,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	}
 	oldData, err := os.ReadFile(mainPath)
 	if err != nil {
-		return false, fmt.Errorf("读取本地 Mihomo 配置失败: %w", err)
+		return false, fmt.Errorf("读取本地 Mihomo 配置失败")
 	}
 	var oldCfg map[string]interface{}
 	if err := yaml.Unmarshal(oldData, &oldCfg); err != nil {
@@ -166,7 +166,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 		return false, nil
 	}
 	if err := os.WriteFile(previousPath, oldData, 0600); err != nil {
-		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
+		return false, fmt.Errorf("备份旧 Mihomo 配置失败")
 	}
 	tmpPath := mainPath + ".tmp"
 	// Write the normalized configuration so the preserved local secret is
@@ -176,7 +176,7 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	}
 	if output, err := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
 		_ = os.Remove(tmpPath)
-		return false, fmt.Errorf("新配置未通过 Mihomo 校验: %w: %s", err, strings.TrimSpace(string(output)))
+		return false, fmt.Errorf("新配置未通过 Mihomo 校验（已隐藏底层路径详情）")
 	}
 	if err := os.Rename(tmpPath, mainPath); err != nil {
 		_ = os.Remove(tmpPath)
@@ -189,7 +189,7 @@ func rollbackConfigAfterReloadFailure() error {
 	mainPath := mihomoConfigPath()
 	oldData, err := os.ReadFile(mainPath + ".previous")
 	if err != nil {
-		return fmt.Errorf("读取旧配置备份失败: %w", err)
+		return fmt.Errorf("读取旧配置备份失败")
 	}
 	tmpPath := mainPath + ".restore"
 	if err := os.WriteFile(tmpPath, oldData, 0600); err != nil {
@@ -636,7 +636,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	defer gz.Close()
 	newBinary, err := os.CreateTemp(filepath.Dir(mihomoBinaryPath()), ".mihomo-update-*")
 	if err != nil {
-		return "", fmt.Errorf("创建内核临时文件失败: %w", err)
+		return "", fmt.Errorf("创建内核临时文件失败")
 	}
 	newPath := newBinary.Name()
 	defer os.Remove(newPath)
@@ -655,11 +655,11 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		return "", err
 	}
 	if output, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
-		return "", fmt.Errorf("新内核自检失败: %v: %s", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("新内核自检失败（已隐藏底层路径详情）")
 	}
 	configPath := mihomoConfigPath()
 	if output, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("新内核未通过当前配置校验: %v: %s", err, strings.TrimSpace(string(output)))
+		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
@@ -677,11 +677,11 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	backupPath := binaryPath + ".previous"
 	_ = os.Remove(backupPath)
 	if err := os.Rename(binaryPath, backupPath); err != nil {
-		return "", fmt.Errorf("备份现有 Mihomo 内核失败: %w", err)
+		return "", fmt.Errorf("备份现有 Mihomo 内核失败")
 	}
 	if err := os.Rename(newPath, binaryPath); err != nil {
 		_ = os.Rename(backupPath, binaryPath)
-		return "", fmt.Errorf("安装新 Mihomo 内核失败: %w", err)
+		return "", fmt.Errorf("安装新 Mihomo 内核失败")
 	}
 	expectedVersion := strings.TrimPrefix(cmd.Version, "v")
 	upgradeErr := verifyKernelUpgrade(
@@ -693,7 +693,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		return "", upgradeErr
 	}
 	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
-		return "", fmt.Errorf("新内核已通过健康检查，但删除旧内核备份失败: %w", err)
+		return "", fmt.Errorf("新内核已通过健康检查，但删除旧内核备份失败")
 	}
 	return "Mihomo 内核已更新到 " + cmd.Version, nil
 }
@@ -812,7 +812,7 @@ func restoreMihomoKernelWithRestart(binaryPath, backupPath string, restart func(
 	// Never remove the new binary before attempting replacement: if the rename
 	// fails, keep the currently installed executable available for recovery.
 	if err := replaceFileAtomically(backupPath, binaryPath); err != nil {
-		return fmt.Errorf("恢复旧内核文件失败: %w", err)
+		return fmt.Errorf("恢复旧内核文件失败")
 	}
 	if err := restart(); err != nil {
 		return fmt.Errorf("旧内核文件已恢复，但请求重启失败: %w", err)
@@ -876,14 +876,14 @@ func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
 		return id, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(storagePath), 0700); err != nil {
-		return "", fmt.Errorf("创建机器标识持久化目录失败: %w", err)
+		return "", fmt.Errorf("创建机器标识持久化目录失败")
 	}
 	if data, err := os.ReadFile(storagePath); err == nil {
 		if id := validStoredFallbackMachineID(data); id != "" {
 			return id[:11], nil
 		}
 	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("读取备用机器标识失败: %w", err)
+		return "", fmt.Errorf("读取备用机器标识失败")
 	}
 	randomID := make([]byte, 16)
 	if _, err := cryptorand.Read(randomID); err != nil {
@@ -892,13 +892,13 @@ func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
 	fullID := hex.EncodeToString(randomID)
 	tmp, err := os.CreateTemp(filepath.Dir(storagePath), ".machine-id-*")
 	if err != nil {
-		return "", fmt.Errorf("创建机器标识临时文件失败: %w", err)
+		return "", fmt.Errorf("创建机器标识临时文件失败")
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if err := tmp.Chmod(0600); err != nil {
 		_ = tmp.Close()
-		return "", fmt.Errorf("设置机器标识文件权限失败: %w", err)
+		return "", fmt.Errorf("设置机器标识文件权限失败")
 	}
 	if _, err := tmp.WriteString(fullID + "\n"); err != nil {
 		_ = tmp.Close()
@@ -917,7 +917,7 @@ func loadOrCreateMachineID(systemPath, storagePath string) (string, error) {
 				return id[:11], nil
 			}
 		}
-		return "", fmt.Errorf("持久化备用机器标识失败: %w", err)
+		return "", fmt.Errorf("持久化备用机器标识失败")
 	}
 	return fullID[:11], nil
 }
