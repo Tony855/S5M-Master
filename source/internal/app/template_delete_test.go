@@ -93,7 +93,7 @@ func TestDeleteMihomoTemplateVersionRejectsCurrentVersion(t *testing.T) {
 	seedTemplateDeleteTest(t, a, 4, 3, 4)
 	rec := callDeleteTemplateVersion(a, "4")
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+		t.Fatalf("status = %d, want 409; body=%s", rec.Code, rec.Body.String())
 	}
 	if !templateVersionExists(t, a, 4) {
 		t.Fatal("current template version was deleted despite conflict")
@@ -122,7 +122,7 @@ func TestDeleteMihomoTemplateVersionDeletesUnboundHistory(t *testing.T) {
 	seedTemplateDeleteTest(t, a, 4, 2, 4)
 	rec := callDeleteTemplateVersion(a, "2")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if templateVersionExists(t, a, 2) {
 		t.Fatal("historical template version still exists after successful delete")
