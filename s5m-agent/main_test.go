@@ -928,9 +928,9 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 }
 
 func TestProbeControllerHTTPOnlyChecksReachability(t *testing.T) {
-	called := false
+	called := make(chan struct{}, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
+		called <- struct{}{}
 		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/health" {
 			t.Errorf("unexpected probe request: %s %s", r.Method, r.URL.Path)
 		}
@@ -943,7 +943,9 @@ func TestProbeControllerHTTPOnlyChecksReachability(t *testing.T) {
 	if err := probeControllerHTTP(Config{CentralURL: server.URL}); err != nil {
 		t.Fatalf("probeControllerHTTP() error = %v", err)
 	}
-	if !called {
+	select {
+	case <-called:
+	default:
 		t.Fatal("controller reachability endpoint was not called")
 	}
 }
