@@ -85,7 +85,7 @@ createApp({
     const availableMachineCodes = computed(() => {
       const set = new Set();
       agentEntries.value.forEach(a => { if (a.code) set.add(a.code); });
-      proxies.value.forEach(p => { if (p.machine_code) set.add(p.machine_code); });
+      proxies.value.forEach(p => { if (p.machine_code && p.machine_code !== '__GLOBAL__') set.add(p.machine_code); });
       return Array.from(set).sort();
     });
     const proxyGroupCodes = computed(() => Array.from(new Set(
