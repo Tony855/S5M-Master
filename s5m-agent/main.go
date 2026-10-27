@@ -1187,13 +1187,17 @@ func main() {
 			localSum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
 			localHash = hex.EncodeToString(localSum[:])
 		}
+		// Report runtime status independently of configuration sync. A config
+		// WebSocket failure must not suppress the heartbeat and make a healthy
+		// Agent appear offline in the controller.
+		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
+			fmt.Printf("Agent 状态上报失败: %v\n", err)
+		}
+
 		newYml, unchanged, syncErr := fetchAgentConfigWebSocket(cfg, localHash)
 		if syncErr != nil {
 			fmt.Printf("❌ WebSocket 配置同步失败: %v\n", syncErr)
 			continue
-		}
-		if err := reportHeartbeat(cfg, collectMihomoStatus()); err != nil {
-			fmt.Printf("Agent 状态上报失败: %v\n", err)
 		}
 		if unchanged {
 			fmt.Println("主控端配置哈希未变化，跳过下载与重载")
