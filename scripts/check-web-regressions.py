@@ -154,6 +154,22 @@ instance_card_checks = {
 }
 checks.update(instance_card_checks)
 
+
+checks.update({
+    "desktop proxy association label handles global sentinel before generic machine code": (
+        'v-if="scope.row.machine_code === \'__GLOBAL__\'"' in html
+        and html.index('v-if="scope.row.machine_code === \'__GLOBAL__\'"')
+        < html.index('v-else-if="scope.row.machine_code"')
+        and "同步至所有已授权节点" in html
+    ),
+    "mobile proxy association label handles global sentinel before generic machine code": (
+        'v-if="item.machine_code === \'__GLOBAL__\'" in html
+        and html.index('v-if="item.machine_code === \'__GLOBAL__\'"')
+        < html.index('v-else-if="item.machine_code"')
+        and "未关联节点实例，不会同步到节点配置" in html
+    ),
+})
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
