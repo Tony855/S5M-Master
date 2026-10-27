@@ -98,7 +98,7 @@
               <tbody><tr v-for="node in overview.remote_nodes" :key="node.machine_code">
                 <td><div class="remote-mihomo-main"><span class="remote-dot" :class="node.healthy ? 'good' : (node.online ? 'warn' : 'bad')"></span><div class="remote-mihomo-name"><strong>{{ node.hostname || node.machine_code }}</strong><small>{{ node.machine_code }}</small></div></div></td>
                 <td><div class="remote-mihomo-state"><span :class="node.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ node.online ? 'Agent 在线' : 'Agent 离线' }}</span><span :class="node.healthy ? 'status-badge status-online' : (node.mihomo_api_online ? 'status-badge status-warning' : 'status-badge status-offline')">{{ node.healthy ? 'Mihomo 正常' : (node.mihomo_api_online ? '部分异常' : 'API 不可达') }}</span></div></td>
-                <td>{{ node.mihomo_version || '未知' }}</td><td>{{ node.connections ?? '—' }}</td>
+                <td><span :class="node.mihomo_version ? '' : 'status-badge status-unknown'">{{ node.mihomo_version || '版本未知' }}</span></td><td>{{ node.connections ?? '—' }}</td>
                 <td>{{ (node.online && node.mihomo_api_online) ? fmtSpeed(node.downloadSpeed || 0) : '—' }}</td><td>{{ (node.online && node.mihomo_api_online) ? fmtSpeed(node.uploadSpeed || 0) : '—' }}</td>
                 <td>{{ fmtBytes(node.downloadTotal || 0) }}</td><td>{{ fmtBytes(node.uploadTotal || 0) }}</td><td>{{ node.updated_at || '尚未上报' }}</td>
               </tr></tbody>
@@ -113,8 +113,8 @@
               </div>
               <div class="remote-node-statuses">
                 <span :class="node.online ? 'status-badge status-online' : 'status-badge status-offline'">Agent {{ node.online ? '在线' : '离线' }}</span>
-                <span :class="node.mihomo_api_online ? 'status-badge status-online' : 'status-badge status-offline'">Mihomo API {{ node.mihomo_api_online ? '可达' : '不可达' }}</span>
-                <span class="remote-node-version">{{ node.mihomo_version || '版本未知' }}</span>
+                <span :class="node.mihomo_api_online ? 'status-badge status-online' : (node.online ? 'status-badge status-warning' : 'status-badge status-offline')">Mihomo API {{ node.mihomo_api_online ? '可达' : (node.online ? '不可达/待检查' : '不可达') }}</span>
+                <span class="remote-node-version" :class="node.mihomo_version ? '' : 'status-badge status-unknown'">{{ node.mihomo_version || '版本未知' }}</span>
               </div>
               <div class="remote-node-metrics">
                 <div><small>连接数</small><strong>{{ node.connections ?? '—' }}</strong></div>
@@ -479,7 +479,7 @@
           <div class="settings-grid" style="margin:16px 0;">
             <div class="setting-item">
               <span class="setting-label">当前 Mihomo 版本</span>
-              <strong>{{ mainMihomoStatus.version || '未知' }}</strong>
+              <strong :class="mainMihomoStatus.version ? '' : 'status-text-unknown'">{{ mainMihomoStatus.version || '未知' }}</strong>
             </div>
             <div class="setting-item">
               <span class="setting-label">systemd 服务状态</span>
@@ -489,7 +489,7 @@
             </div>
             <div class="setting-item">
               <span class="setting-label">运行中 API 版本</span>
-              <strong>{{ mainMihomoStatus.api_version || '未知' }}</strong>
+              <strong :class="mainMihomoStatus.api_version ? '' : 'status-text-unknown'">{{ mainMihomoStatus.api_version || '未知' }}</strong>
               <el-tag :type="mainMihomoStatus.api_online && !mainMihomoStatus.version_mismatch ? 'success' : 'danger'" size="small">
                 {{ mainMihomoStatus.version_mismatch ? '版本不一致' : (mainMihomoStatus.api_online ? 'API 可达' : 'API 不可达') }}
               </el-tag>
