@@ -43,6 +43,24 @@ func websocketTestApp(t *testing.T) (*App, string, string) {
 	return app, code, token
 }
 
+
+// floatMap converts JSON-number-like test payloads to float64 values, matching
+// encoding/json's decoding behavior on the server.
+func floatMap(in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		switch number := value.(type) {
+		case int:
+			out[key] = float64(number)
+		case int64:
+			out[key] = float64(number)
+		default:
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func TestAgentWebSocketRejectsUnauthorizedHandshake(t *testing.T) {
 	app, _, _ := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
@@ -90,7 +108,7 @@ func TestAgentWebSocketAcceptsHeartbeatAndPersistsStatus(t *testing.T) {
 		"config_sha256":  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"last_error":     "",
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-1", "status": status}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-1", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
@@ -159,7 +177,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": status}); err != nil {
+	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on superseded connection: %v", err)
 	}
 	var response map[string]any
@@ -183,7 +201,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 		freshStatus[k] = v
 	}
 	freshStatus["mihomo_version"] = "current-connection"
-	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": freshStatus}); err != nil {
+	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": floatMap(freshStatus)}); err != nil {
 		t.Fatalf("send heartbeat on current connection: %v", err)
 	}
 	if err := newConn.ReadJSON(&response); err != nil {
@@ -331,7 +349,7 @@ func TestAgentWebSocketHeartbeatRecoversAfterControllerStateReset(t *testing.T) 
 		"config_sha256":  strings.Repeat("a", 64),
 		"last_error":     "",
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-recovery", "status": status}); err != nil {
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-recovery", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
