@@ -40,6 +40,11 @@ func TestBuildConfigMapsDisabledCIDRToEnabledEndpoint(t *testing.T) {
 	if !strings.Contains(got, "MATCH,DIRECT") {
 		t.Fatal("缺少默认 MATCH,DIRECT 规则")
 	}
+	for _, unwanted := range []string{"221111cdn", "^abc.*2222com"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("不应自动生成未配置的拦截规则 %q", unwanted)
+		}
+	}
 	if strings.Contains(got, "name: S5M-23049") {
 		t.Fatal("禁用的 ID 5 不应被写入代理出口列表")
 	}

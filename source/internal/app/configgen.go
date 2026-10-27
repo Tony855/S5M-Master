@@ -316,11 +316,6 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 			rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", domain, outs[0].Name))
 		}
 	}
-	rules = append(rules,
-		"DOMAIN-KEYWORD,221111cdn,REJECT",
-		"DOMAIN-SUFFIX,221111cdn,REJECT",
-		"DOMAIN-REGEX,^abc.*2222com,REJECT",
-	)
 	seenCIDR := map[string]string{}
 
 	for _, p := range proxies {

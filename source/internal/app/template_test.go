@@ -37,10 +37,7 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		"mixed-port: 8080",
 		"external-controller: 127.0.0.1:8088",
 		"listen: 0.0.0.0:5353",
-		"server: YOUR_PROXY_SERVER",
-		"type: socks5",
 		"enable: false",
-		"- MATCH,代理出口",
 	} {
 		if !strings.Contains(defaultMihomoTemplate, want) {
 			t.Errorf("default template missing %q", want)
@@ -49,6 +46,22 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 	if strings.Contains(defaultMihomoTemplate, "151.242.11.70") ||
 		strings.Contains(defaultMihomoTemplate, "0103da505e81003e") {
 		t.Fatal("starter template must not expose a user's proxy endpoint or API secret")
+	}
+
+	// Check only unindented, top-level section declarations. A substring check
+	// for "rules:" incorrectly matches the valid DNS option "respect-rules:".
+	for _, line := range strings.Split(defaultMihomoTemplate, "\n") {
+		switch strings.TrimSpace(line) {
+		case "proxies:", "proxy-groups:", "rules:":
+			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
+				t.Fatalf("default template must not define controller-managed top-level section %q", strings.TrimSpace(line))
+			}
+		}
+	}
+	for _, unwanted := range []string{"YOUR_PROXY_SERVER", "221111cdn"} {
+		if strings.Contains(defaultMihomoTemplate, unwanted) {
+			t.Fatalf("default template must not contain placeholder/hard-coded rule %q", unwanted)
+		}
 	}
 }
 
