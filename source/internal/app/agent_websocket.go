@@ -230,9 +230,19 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		now := strconv.FormatInt(receivedAt.Unix(), 10)
+		// Heartbeats use the same per-Agent operation lock as reconnects. This
+		// prevents a superseded socket from committing telemetry without holding
+		// the global generation mutex during a database write.
+		operationMu.Lock()
 		a.agentWSMu.Lock()
-		if a.agentWSGeneration[machineCode] != generation {
-			a.agentWSMu.Unlock()
+		isCurrentGeneration = a.agentWSGeneration[machineCode] == generation
+		if a.agentHeartbeatAt == nil {
+			a.agentHeartbeatAt = make(map[string]int64)
+		}
+		isNewerHeartbeat := receivedAt.UnixNano() >= a.agentHeartbeatAt[machineCode]
+		a.agentWSMu.Unlock()
+		if !isCurrentGeneration {
+			operationMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -240,11 +250,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if a.agentHeartbeatAt == nil {
-			a.agentHeartbeatAt = make(map[string]int64)
-		}
-		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
-			a.agentWSMu.Unlock()
+		if !isNewerHeartbeat {
+			operationMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -256,7 +263,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			"agent_lastseen_" + machineCode: now,
 			"agent_status_" + machineCode:   string(payload),
 		}); err != nil {
-			a.agentWSMu.Unlock()
+			operationMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -264,8 +271,10 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
+		a.agentWSMu.Lock()
 		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
 		a.agentWSMu.Unlock()
+		operationMu.Unlock()
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := conn.WriteJSON(map[string]any{
 			"type": "heartbeat.ack",
