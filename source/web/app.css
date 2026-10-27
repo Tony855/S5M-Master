@@ -975,3 +975,33 @@ html, body, #app {
   .instance-row { transition: none; }
   .instance-row:hover { transform: none; }
 }
+
+
+/* Compact instance cards: reduce vertical noise and use restrained controls. */
+.instance-row { padding: 13px; border-radius: 12px; box-shadow: 0 2px 8px rgba(16,24,40,.025); }
+.instance-row:hover { box-shadow: 0 5px 14px rgba(16,24,40,.05); }
+.instance-row .instance-summary { margin-top: 9px; padding: 10px 12px; border-radius: 9px; }
+.instance-row .instance-summary-secondary { margin-top: 6px; gap: 6px 14px; }
+.instance-row .instance-summary-updated { margin-top: 5px; font-size: 10px; }
+.instance-row .instance-details { margin-top: 8px; }
+.instance-row .instance-details > summary { padding: 8px 11px; }
+.instance-row .instance-details-content { padding: 10px 11px; gap: 8px; }
+.instance-row .instance-detail-item { gap: 8px; font-size: 12px; line-height: 1.45; }
+.instance-row .instance-detail-note { font-size: 11px; line-height: 1.45; }
+.instance-row .instance-actions { gap: 7px; margin-top: 10px; padding-top: 10px; }
+.instance-row .instance-actions .el-button { min-height: 30px; font-weight: 550; }
+.instance-row .instance-actions .el-button--primary.is-plain { --el-button-bg-color: #f0f6ff; --el-button-border-color: #cfe0ff; --el-button-text-color: #326bc5; }
+.instance-row .instance-actions .el-button--warning.is-plain { --el-button-bg-color: #fff8ed; --el-button-border-color: #f3dfbd; --el-button-text-color: #a96a16; }
+.instance-row .instance-actions .el-button--danger.is-plain { --el-button-bg-color: #fff3f3; --el-button-border-color: #f4d0d0; --el-button-text-color: #bf4545; }
+@media (min-width: 761px) {
+  .instance-row .instance-actions .el-button { flex: 1 1 calc(50% - 7px); }
+}
+@media (max-width: 760px) {
+  .instance-row { padding: 11px; }
+  .instance-row .instance-summary { margin-top: 8px; padding: 9px 10px; }
+  .instance-row .instance-summary-primary { gap: 4px 10px; }
+  .instance-row .instance-summary-secondary { gap: 5px; margin-top: 6px; }
+  .instance-row .instance-summary-updated { margin-top: 4px; }
+  .instance-row .instance-actions { gap: 7px; margin-top: 9px; padding-top: 9px; }
+  .instance-row .instance-actions .el-button { min-height: 34px; font-size: 12px; }
+}
