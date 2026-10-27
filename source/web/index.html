@@ -97,7 +97,7 @@
               <thead><tr><th>远程服务器</th><th>Agent / Mihomo 状态</th><th>版本</th><th>连接数</th><th>实时下载</th><th>实时上传</th><th>累计下载</th><th>累计上传</th><th>最后上报</th></tr></thead>
               <tbody><tr v-for="node in overview.remote_nodes" :key="node.machine_code">
                 <td><div class="remote-mihomo-main"><span class="remote-dot" :class="node.healthy ? 'good' : (node.online ? 'warn' : 'bad')"></span><div class="remote-mihomo-name"><strong>{{ node.hostname || node.machine_code }}</strong><small>{{ node.machine_code }}</small></div></div></td>
-                <td><div class="remote-mihomo-state"><span :class="node.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ node.online ? 'Agent 在线' : 'Agent 离线' }}</span><span :class="node.healthy ? 'status-badge status-online' : 'status-badge status-offline'">{{ node.healthy ? 'Mihomo 正常' : (node.mihomo_api_online ? '部分异常' : 'API 不可达') }}</span></div></td>
+                <td><div class="remote-mihomo-state"><span :class="node.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ node.online ? 'Agent 在线' : 'Agent 离线' }}</span><span :class="node.healthy ? 'status-badge status-online' : (node.mihomo_api_online ? 'status-badge status-warning' : 'status-badge status-offline')">{{ node.healthy ? 'Mihomo 正常' : (node.mihomo_api_online ? '部分异常' : 'API 不可达') }}</span></div></td>
                 <td>{{ node.mihomo_version || '未知' }}</td><td>{{ node.connections ?? '—' }}</td>
                 <td>{{ (node.online && node.mihomo_api_online) ? fmtSpeed(node.downloadSpeed || 0) : '—' }}</td><td>{{ (node.online && node.mihomo_api_online) ? fmtSpeed(node.uploadSpeed || 0) : '—' }}</td>
                 <td>{{ fmtBytes(node.downloadTotal || 0) }}</td><td>{{ fmtBytes(node.uploadTotal || 0) }}</td><td>{{ node.updated_at || '尚未上报' }}</td>
@@ -109,7 +109,7 @@
               <div class="remote-node-card-head">
                 <span class="remote-dot" :class="node.healthy ? 'good' : (node.online ? 'warn' : 'bad')"></span>
                 <div class="remote-node-card-name"><strong>{{ node.hostname || node.machine_code }}</strong><small>{{ node.machine_code }}</small></div>
-                <span :class="node.healthy ? 'status-badge status-online' : 'status-badge status-offline'">{{ node.healthy ? '健康' : (node.online ? '异常' : '离线') }}</span>
+                <span :class="node.healthy ? 'status-badge status-online' : (node.online ? 'status-badge status-warning' : 'status-badge status-offline')">{{ node.healthy ? '健康' : (node.online ? '异常' : '离线') }}</span>
               </div>
               <div class="remote-node-statuses">
                 <span :class="node.online ? 'status-badge status-online' : 'status-badge status-offline'">Agent {{ node.online ? '在线' : '离线' }}</span>
@@ -302,7 +302,7 @@
                   <span>{{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</span>
                 </div>
                 <div class="instance-summary-secondary">
-                  <span class="instance-summary-mihomo" :class="item.mihomoRunning ? 'is-running' : 'is-stopped'">
+                  <span class="instance-summary-mihomo" :class="item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown')">
                     Mihomo：{{ item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知') }}{{ item.mihomoVersion ? ' · v' + item.mihomoVersion : '' }}
                   </span>
                   <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
@@ -315,7 +315,7 @@
                 <div class="instance-details-content">
                   <div class="instance-detail-item">
                     <span class="instance-detail-label">专属 Token</span>
-                    <span>{{ item.tokenConfigured ? '已分配（列表不显示明文）' : '未分配' }}</span>
+                    <span class="instance-token-state" :class="item.tokenConfigured ? 'is-configured' : 'is-missing'">{{ item.tokenConfigured ? '已分配（列表不显示明文）' : '未分配' }}</span>
                   </div>
                   <div class="instance-detail-item">
                     <span class="instance-detail-label">主机与系统</span>
@@ -325,7 +325,7 @@
                     <span class="instance-detail-label">状态更新时间</span>
                     <span>{{ item.updated_at || '暂无记录' }}</span>
                   </div>
-                  <div v-if="!item.runtimeReported" class="instance-detail-note">{{ item.runtimeMessage || '尚未收到有效运行状态' }}</div>
+                  <div v-if="!item.runtimeReported" class="instance-detail-note is-unknown">{{ item.runtimeMessage || '尚未收到有效运行状态' }}</div>
                   <div v-if="item.lastError" class="instance-detail-note is-error">Agent 状态/错误信息：{{ item.lastError }}</div>
                   <div v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'" class="instance-detail-note">
                     Mihomo 更新：<el-tag type="warning" size="small">待 Agent 确认</el-tag> · 目标版本 {{ item.pendingCommand.version || '未知' }}
@@ -337,7 +337,7 @@
                     </el-tag>
                     · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
                   </div>
-                  <div v-else class="instance-detail-note">暂无 Mihomo 更新记录</div>
+                  <div v-else class="instance-detail-note is-unknown">暂无 Mihomo 更新记录</div>
                 </div>
               </details>
               <div class="instance-actions">
