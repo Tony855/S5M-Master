@@ -1284,12 +1284,12 @@ func runAgentWebSocketSession(cfg Config) error {
 			}
 			changed, applyErr := mergeConfig([]byte(configResponse.YAML))
 			if applyErr != nil {
-				fmt.Printf("WebSocket 配置校验/写入失败: %v\\n", applyErr)
+				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
 				break
 			}
 			if changed {
 				if reloadErr := reloadMihomo(); reloadErr != nil {
-					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\\n", reloadErr)
+					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
 					}
@@ -1366,7 +1366,7 @@ func runAgentWebSocketSession(cfg Config) error {
 				return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
 			}
 			if commandErr != nil {
-				fmt.Printf("Agent 命令 %s 执行失败: %v\\n", cmd.ID, commandErr)
+				fmt.Printf("Agent 命令 %s 执行失败: %v\n", cmd.ID, commandErr)
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 命令响应类型: %s", commandEnvelope.Type)
@@ -1516,13 +1516,13 @@ func main() {
 			continue
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
-			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\\n", err)
+			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\n", err)
 			time.Sleep(backoff)
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
 		if err := runAgentWebSocketSession(cfg); err != nil {
-			fmt.Printf("Agent WebSocket 会话断开: %v\\n", err)
+			fmt.Printf("Agent WebSocket 会话断开: %v\n", err)
 		}
 		time.Sleep(backoff)
 		backoff = nextReconnectDelay(backoff)
