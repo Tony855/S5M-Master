@@ -1069,3 +1069,46 @@ func TestAgentWebSocketHeartbeatRevalidatesAuthorizationAfterBindingRemoval(t *t
 		t.Fatalf("heartbeat after binding removal was persisted: %#v", settings)
 	}
 }
+
+
+func TestLegacyHTTPAgentEndpointsRejectRevokedBinding(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_command_" + code: `{"id":"cmd-after-revoke","type":"update_mihomo"}`,
+	}); err != nil {
+		t.Fatalf("seed pending command: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{name: "config", handler: app.handleAgentConfig},
+		{name: "command", handler: app.handleAgentCommand},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/"+tc.name, nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			tc.handler(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings["agent_lastseen_"+code] != "" || settings["agent_command_"+code] != "" {
+		t.Fatalf("revoked Agent state was recreated or command remained: %#v", settings)
+	}
+}
