@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -275,6 +276,74 @@ func (a *App) handlePublishMihomoTemplate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, 200, map[string]any{"message": "模板已发布；已有节点不会自动更新", "version": next, "sha256": hashConfig(draft)})
+}
+
+// handleDeleteMihomoTemplateVersion removes only an unused historical template version.
+func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.Request) {
+	version, err := strconv.Atoi(strings.TrimSpace(r.PathValue("version")))
+	if err != nil || version < 1 {
+		writeErr(w, http.StatusBadRequest, "模板版本号无效")
+		return
+	}
+
+	tx, err := a.store.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "开始删除模板版本事务失败")
+		return
+	}
+	defer tx.Rollback()
+
+	var currentRaw string
+	if err := tx.QueryRowContext(r.Context(), "SELECT value FROM settings WHERE key='mihomo_template_current_version'").Scan(&currentRaw); err != nil && err != sql.ErrNoRows {
+		writeErr(w, http.StatusInternalServerError, "读取当前模板版本失败")
+		return
+	}
+	var current int
+	fmt.Sscanf(currentRaw, "%d", &current)
+	if version == current {
+		writeErr(w, http.StatusConflict, "不能删除当前发布版本；请先发布新版本")
+		return
+	}
+
+	var exists int
+	if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM mihomo_template_versions WHERE version=?", version).Scan(&exists); err != nil {
+		writeErr(w, http.StatusInternalServerError, "检查模板版本失败")
+		return
+	}
+	if exists == 0 {
+		writeErr(w, http.StatusNotFound, "模板版本不存在")
+		return
+	}
+
+	var bound int
+	if err := tx.QueryRowContext(r.Context(), "SELECT COUNT(*) FROM node_template_bindings WHERE source='template' AND template_version=?", version).Scan(&bound); err != nil {
+		writeErr(w, http.StatusInternalServerError, "检查节点模板绑定失败")
+		return
+	}
+	if bound > 0 {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("该版本仍被 %d 个节点使用，不能删除；请先将这些节点迁移到其他版本或独立配置", bound))
+		return
+	}
+
+	result, err := tx.ExecContext(r.Context(), "DELETE FROM mihomo_template_versions WHERE version=?", version)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "删除模板版本失败")
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "确认模板版本删除结果失败")
+		return
+	}
+	if affected == 0 {
+		writeErr(w, http.StatusNotFound, "模板版本不存在")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, "提交模板版本删除失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": fmt.Sprintf("模板历史版本 v%d 已删除", version), "version": version})
 }
 
 func (a *App) handleGetNodeTemplateStatus(w http.ResponseWriter, r *http.Request) {

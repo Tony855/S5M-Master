@@ -7,11 +7,16 @@ app_js = Path("source/web/app.js").read_text(encoding="utf-8")
 configgen = Path("source/internal/app/configgen.go").read_text(encoding="utf-8")
 handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
 handlers_test = Path("source/internal/app/handlers_test.go").read_text(encoding="utf-8")
+template_source = Path("source/internal/app/template.go").read_text(encoding="utf-8")
+router = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 import_handler = handlers[handlers.index("func (a *App) handleImportProxies"):handlers.index("func (a *App) handleAgentRegister")]
 rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.index("func (a *App) Rollback")+5000]
 ui = html + "\n" + app_js
 
 checks = {
+    "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in template_source and "不能删除当前发布版本" in template_source and "FROM node_template_bindings WHERE source='template' AND template_version=?" in template_source and '"DELETE /api/v1/mihomo/template/{version}"' in router,
+    "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
+
     "Agent runtime status explains missing telemetry and reports last_error": "let runtimeMessage" in app_js and "runtimeMessage = last > 0" in app_js and "item.runtimeMessage" in html and "Agent 状态/错误信息：" in html and "有认证通信记录，但没有有效运行状态" in app_js,
     "Agent online state rejects future heartbeat timestamps without container runtime API": "const ageSeconds = now - last;" in app_js and "const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;" in app_js and "/api/v1/container/" not in app_js and "dockerTask" not in app_js and "routerOSCommand" not in app_js,
     "container-management routes, handlers, and Agent task polling remain removed": not Path("source/internal/app/container_handlers.go").exists() and not Path("source/internal/app/container_auth.go").exists() and "/api/v1/container/" not in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "processContainerTask" not in Path("s5m-agent/main.go").read_text(encoding="utf-8") and "reportContainerStatus" not in Path("s5m-agent/main.go").read_text(encoding="utf-8"),
@@ -77,6 +82,7 @@ if missing_handlers:
 
 # Keep frontend API calls and backend route declarations in sync. This catches
 # accidental path/method drift when either the Vue UI or Go router is refactored.
+template_source = Path("source/internal/app/template.go").read_text(encoding="utf-8")
 router_source = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 route_patterns = set(
     (method, path)
