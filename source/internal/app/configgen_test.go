@@ -6,6 +6,58 @@ import (
 	"testing"
 )
 
+func TestSaveNodeConfigsRollsBackEntireBatchOnWriteFailure(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-atomic.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.SaveNodeConfig("node-a", "mode: old\n"); err != nil {
+		t.Fatalf("seed node-a config: %v", err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_node_b_config BEFORE INSERT ON node_configs
+		WHEN NEW.machine_code = 'node-b'
+		BEGIN SELECT RAISE(ABORT, 'simulated node-b write failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	err = store.SaveNodeConfigs(map[string]string{
+		"node-a": "mode: updated\n",
+		"node-b": "mode: new\n",
+	})
+	if err == nil {
+		t.Fatal("SaveNodeConfigs should fail when one batch write fails")
+	}
+
+	got, err := store.GetNodeConfig("node-a")
+	if err != nil {
+		t.Fatalf("read node-a after failed batch: %v", err)
+	}
+	if got == nil || got.YAML != "mode: old\n" {
+		t.Fatalf("failed batch partially changed node-a config: got=%+v", got)
+	}
+	nodeB, err := store.GetNodeConfig("node-b")
+	if err != nil {
+		t.Fatalf("read node-b after failed batch: %v", err)
+	}
+	if nodeB != nil {
+		t.Fatalf("failed batch unexpectedly persisted node-b config: %+v", nodeB)
+	}
+}
+
+func TestSaveNodeConfigsEmptyBatchIsNoOp(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-empty.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.SaveNodeConfigs(map[string]string{}); err != nil {
+		t.Fatalf("empty batch should be a no-op: %v", err)
+	}
+}
+
 func TestBuildConfigMapsDisabledCIDRToEnabledEndpoint(t *testing.T) {
 	proxies := []Proxy{
 		{
