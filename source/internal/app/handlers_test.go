@@ -713,7 +713,6 @@ func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
 	}
 }
 
-
 func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "proxy-import-integration.db"))
 	if err != nil {
@@ -742,9 +741,9 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var result struct {
-		Success   int    `json:"success"`
-		Fail      int    `json:"fail"`
-		SyncFailed bool  `json:"sync_failed"`
+		Success    int  `json:"success"`
+		Fail       int  `json:"fail"`
+		SyncFailed bool `json:"sync_failed"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
 		t.Fatalf("decode import response: %v", err)
