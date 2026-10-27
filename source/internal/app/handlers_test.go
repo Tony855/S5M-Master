@@ -712,3 +712,71 @@ func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
 		})
 	}
 }
+
+
+func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "proxy-import-integration.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	app := &App{store: store}
+	content := `{
+		"protocol":"socks5",
+		"authentication":{"enabled":true,"username":"import-user","password":"import-pass"},
+		"servers":[
+			{"name":"imported-proxy-a","server":"192.0.2.10","port":1080,"udp":true},
+			{"name":"imported-proxy-b","server":"192.0.2.11","port":1081,"udp":false}
+		]
+	}`
+	body, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(string(body)))
+	rec := httptest.NewRecorder()
+	app.handleImportProxies(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var result struct {
+		Success   int    `json:"success"`
+		Fail      int    `json:"fail"`
+		SyncFailed bool  `json:"sync_failed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode import response: %v", err)
+	}
+	if result.Success != 2 || result.Fail != 0 || result.SyncFailed {
+		t.Fatalf("unexpected import result: %+v", result)
+	}
+
+	proxies, err := store.ListProxies()
+	if err != nil {
+		t.Fatalf("ListProxies: %v", err)
+	}
+	if len(proxies) != 2 {
+		t.Fatalf("stored proxy count = %d, want 2", len(proxies))
+	}
+	generated, err := buildConfigFromProxies(proxies, "", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies: %v", err)
+	}
+	for _, want := range []string{
+		"name: imported-proxy-a",
+		"name: imported-proxy-b",
+		"server: 192.0.2.10",
+		"server: 192.0.2.11",
+		"DOMAIN-SUFFIX,dns.alidns.com,imported-proxy-a",
+		"MATCH,DIRECT",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("generated config missing %q:\\n%s", want, generated)
+		}
+	}
+	if strings.Contains(generated, "import-pass") {
+		t.Fatal("generated config unexpectedly exposed the raw imported password")
+	}
+}
