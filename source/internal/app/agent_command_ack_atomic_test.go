@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"testing"
@@ -67,5 +68,15 @@ func TestAgentCommandAckConcurrentHTTPAndWebSocketAreIdempotent(t *testing.T) {
 	}
 	if settings["agent_command_"+code] != "" {
 		t.Fatalf("pending command remains after concurrent ACKs: %q", settings["agent_command_"+code])
+	}
+	var result struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode persisted command result: %v", err)
+	}
+	if result.ID != "cmd-race" || result.Status != "success" {
+		t.Fatalf("persisted command result = %+v, want ID cmd-race and status success", result)
 	}
 }
