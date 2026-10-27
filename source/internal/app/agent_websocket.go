@@ -164,26 +164,43 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if msg.Type == "config.request" {
-			if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
-			}
-			continue
-		}
-		if msg.Type == "command.request" {
-			if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
-			}
-			continue
-		}
-		if msg.Type == "command.ack" {
-			if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
-				continue
-			}
-			if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+		// Serialize non-heartbeat operations with connection replacement. The
+		// generation check and the operation's side effects must share one lock;
+		// checking then unlocking here would leave a TOCTOU window.
+		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
+			a.agentWSMu.Lock()
+			if a.agentWSGeneration[machineCode] != generation {
+				a.agentWSMu.Unlock()
+				_ = conn.WriteJSON(map[string]string{
+					"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代",
+				})
 				return
 			}
+			switch msg.Type {
+			case "config.request":
+				if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
+					a.agentWSMu.Unlock()
+					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
+					continue
+				}
+			case "command.request":
+				if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
+					a.agentWSMu.Unlock()
+					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
+					continue
+				}
+			case "command.ack":
+				if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
+					a.agentWSMu.Unlock()
+					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
+					continue
+				}
+				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+					a.agentWSMu.Unlock()
+					return
+				}
+			}
+			a.agentWSMu.Unlock()
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
