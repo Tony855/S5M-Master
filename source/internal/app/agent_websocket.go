@@ -36,6 +36,8 @@ type agentWSMessage struct {
 	ID     string         `json:"id,omitempty"`
 	Status map[string]any `json:"status,omitempty"`
 	ConfigHash string `json:"config_sha256,omitempty"`
+	CommandStatus string `json:"status,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // validateAgentWSStatus rejects malformed telemetry before it reaches persistent
@@ -153,6 +155,14 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
+		if msg.Type == "command.ack" {
+			if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
+				continue
+			}
+			if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil { return }
+			continue
+		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
 			_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
 			continue
@@ -265,4 +275,31 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 		return fmt.Errorf("解析待执行命令失败: %w", err)
 	}
 	return conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command})
+}
+
+
+// ackAgentWSCommand persists an ACK only for the currently pending command.
+// Duplicate ACKs are accepted only when the prior result has the same command ID.
+func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) error {
+	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
+		return fmt.Errorf("命令 ID、状态或结果消息无效")
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil { return fmt.Errorf("读取待执行命令失败: %w", err) }
+	var pending map[string]string
+	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) != nil || pending["id"] != commandID {
+		var previous map[string]any
+		if json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &previous) == nil && previous["id"] == commandID {
+			return nil
+		}
+		return fmt.Errorf("命令已被替换或不存在")
+	}
+	result, _ := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
+	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_"+machineCode: string(result)}); err != nil {
+		return fmt.Errorf("保存命令结果失败: %w", err)
+	}
+	if err := a.store.DeleteSettings([]string{"agent_command_"+machineCode}); err != nil {
+		return fmt.Errorf("清除已执行命令失败: %w", err)
+	}
+	return nil
 }
