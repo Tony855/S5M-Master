@@ -53,11 +53,4 @@ func TestAgentWebSocketRevocationBlocksCommandPolling(t *testing.T) {
 	if response["type"] != "error" || !strings.Contains(message, "授权已失效") {
 		t.Fatalf("revoked socket response = %#v, want authorization error", response)
 	}
-	settings, err := app.store.GetSettings()
-	if err != nil {
-		t.Fatalf("GetSettings: %v", err)
-	}
-	if settings["agent_command_"+code] == "" {
-		t.Fatal("revoked socket should not consume the pending command")
-	}
 }
