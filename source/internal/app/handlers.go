@@ -267,6 +267,11 @@ func (a *App) validateProxy(p *Proxy) string {
 	if p.Name == "" {
 		return "名称不能为空"
 	}
+	p.MachineCode = strings.TrimSpace(p.MachineCode)
+	if p.MachineCode != "" && p.MachineCode != "__GLOBAL__" &&
+		(len(p.MachineCode) > 64 || !regexp.MustCompile("^[A-Za-z0-9_-]+$").MatchString(p.MachineCode)) {
+		return "关联机器码格式错误；留空表示未绑定，或选择全局节点"
+	}
 	p.Mode = strings.TrimSpace(p.Mode)
 	if p.Mode == "" {
 		p.Mode = "proxy"
