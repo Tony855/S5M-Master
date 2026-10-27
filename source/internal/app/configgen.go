@@ -239,7 +239,11 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 		proxies[i].MachineCode = strings.TrimSpace(proxies[i].MachineCode)
 	}
 	matchesMachine := func(p Proxy) bool {
-		return machineCode == "" || p.MachineCode == "" || p.MachineCode == machineCode
+		// Global proxies are explicitly marked; an empty machine code stays unbound.
+		if p.MachineCode == "__GLOBAL__" {
+			return true
+		}
+		return machineCode != "" && p.MachineCode == machineCode
 	}
 	eligible := func(p Proxy) bool {
 		return p.Enabled && p.Mode != "direct" && p.Mode != "reject" && matchesMachine(p)

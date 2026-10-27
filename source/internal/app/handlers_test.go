@@ -759,6 +759,9 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 	if len(proxies) != 2 {
 		t.Fatalf("stored proxy count = %d, want 2", len(proxies))
 	}
+	for i := range proxies {
+		proxies[i].MachineCode = "__GLOBAL__"
+	}
 	generated, err := buildConfigFromProxies(proxies, "", "test-secret")
 	if err != nil {
 		t.Fatalf("buildConfigFromProxies: %v", err)

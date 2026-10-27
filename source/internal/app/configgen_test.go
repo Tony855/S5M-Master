@@ -11,17 +11,17 @@ func TestBuildConfigMapsDisabledCIDRToEnabledEndpoint(t *testing.T) {
 		{
 			ID: 5, Name: "S5M-23049", Mode: "proxy",
 			Type: "socks5", Server: "151.242.11.70", Port: 23049,
-			SourceCIDR: "192.168.1.250/32", Enabled: false,
+			MachineCode: "__GLOBAL__", SourceCIDR: "192.168.1.250/32", Enabled: false,
 		},
 		{
 			ID: 7, Name: "socks5-151.242.11.70:23049", Mode: "proxy",
 			Type: "socks5", Server: "151.242.11.70", Port: 23049,
-			SourceCIDR: "0.0.0.0/0", Enabled: true,
+			MachineCode: "__GLOBAL__", SourceCIDR: "0.0.0.0/0", Enabled: true,
 		},
 		{
 			ID: 8, Name: "socks5-2401:b60:e00e:7244:::23050", Mode: "proxy",
 			Type: "socks5", Server: "2401:b60:e00e:7244::", Port: 23050,
-			SourceCIDR: "0.0.0.0/0", Enabled: true,
+			MachineCode: "__GLOBAL__", SourceCIDR: "0.0.0.0/0", Enabled: true,
 		},
 	}
 
@@ -55,12 +55,12 @@ func TestBuildConfigRejectsDuplicateCIDR(t *testing.T) {
 		{
 			Name: "proxy-a", Mode: "proxy", Type: "socks5",
 			Server: "192.0.2.10", Port: 1080,
-			SourceCIDR: "192.168.1.250/32", Enabled: true,
+			MachineCode: "__GLOBAL__", SourceCIDR: "192.168.1.250/32", Enabled: true,
 		},
 		{
 			Name: "proxy-b", Mode: "proxy", Type: "socks5",
 			Server: "192.0.2.11", Port: 1080,
-			SourceCIDR: "192.168.1.250/32", Enabled: true,
+			MachineCode: "__GLOBAL__", SourceCIDR: "192.168.1.250/32", Enabled: true,
 		},
 	}
 
@@ -74,7 +74,7 @@ func TestBuildConfigRejectsInvalidCIDR(t *testing.T) {
 		{
 			Name: "proxy-a", Mode: "proxy", Type: "socks5",
 			Server: "192.0.2.10", Port: 1080,
-			SourceCIDR: "not-a-cidr", Enabled: true,
+			MachineCode: "__GLOBAL__", SourceCIDR: "not-a-cidr", Enabled: true,
 		},
 	}
 
@@ -88,12 +88,12 @@ func TestBuildConfigRejectsInvalidPersistedProxy(t *testing.T) {
 		name  string
 		proxy Proxy
 	}{
-		{name: "empty name", proxy: Proxy{Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 1080, Enabled: true}},
-		{name: "unsupported type", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "vmess+ws", Server: "proxy.example", Port: 1080, Enabled: true}},
-		{name: "invalid mode", proxy: Proxy{Name: "proxy-a", Mode: "unknown", Type: "socks5", Server: "proxy.example", Port: 1080, Enabled: true}},
-		{name: "empty server", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Port: 1080, Enabled: true}},
-		{name: "server contains whitespace", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy example", Port: 1080, Enabled: true}},
-		{name: "invalid port", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 65536, Enabled: true}},
+		{name: "empty name", proxy: Proxy{Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true}},
+		{name: "unsupported type", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "vmess+ws", Server: "proxy.example", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true}},
+		{name: "invalid mode", proxy: Proxy{Name: "proxy-a", Mode: "unknown", Type: "socks5", Server: "proxy.example", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true}},
+		{name: "empty server", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true}},
+		{name: "server contains whitespace", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy example", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true}},
+		{name: "invalid port", proxy: Proxy{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "proxy.example", Port: 65536, MachineCode: "__GLOBAL__", Enabled: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestBuildConfigRejectsInvalidPersistedProxy(t *testing.T) {
 func TestBuildConfigNormalizesPersistedProxyFields(t *testing.T) {
 	proxy := Proxy{
 		Name: " proxy-a ", Mode: " proxy ", Type: " SOCKS5 ",
-		Server: " proxy.example ", Port: 1080, Enabled: true,
+		Server: " proxy.example ", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true,
 	}
 	got, err := buildConfigFromProxies([]Proxy{proxy}, "", "test-secret")
 	if err != nil {
@@ -187,10 +187,57 @@ func TestGetOrCreateMihomoSecretReusesConfiguredSecret(t *testing.T) {
 	}
 }
 
+func TestBuildConfigForMachineExcludesUnboundProxy(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "bound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "unbound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.11", Port: 1081, Enabled: true},
+	}
+	got, err := buildConfigFromProxies(proxies, "node-a", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	if !strings.Contains(got, "bound-proxy") {
+		t.Fatal("node-specific config should include its bound proxy")
+	}
+	if strings.Contains(got, "unbound-proxy") {
+		t.Fatal("node-specific config must exclude unbound proxies")
+	}
+}
+
+func TestBuildConfigSupportsExplicitGlobalAndUnboundProxies(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "global-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+		{Name: "bound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.11", Port: 1081, MachineCode: "node-a", Enabled: true},
+		{Name: "unbound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.12", Port: 1082, Enabled: true},
+	}
+	nodeConfig, err := buildConfigFromProxies(proxies, "node-a", "test-secret")
+	if err != nil {
+		t.Fatalf("node config error = %v", err)
+	}
+	for _, want := range []string{"global-proxy", "bound-proxy"} {
+		if !strings.Contains(nodeConfig, want) {
+			t.Errorf("node config missing %q", want)
+		}
+	}
+	if strings.Contains(nodeConfig, "unbound-proxy") {
+		t.Fatal("node config must exclude unbound proxy")
+	}
+	globalConfig, err := buildConfigFromProxies(proxies, "", "test-secret")
+	if err != nil {
+		t.Fatalf("global config error = %v", err)
+	}
+	if !strings.Contains(globalConfig, "global-proxy") {
+		t.Fatal("global config must include explicitly global proxy")
+	}
+	if strings.Contains(globalConfig, "bound-proxy") || strings.Contains(globalConfig, "unbound-proxy") {
+		t.Fatal("global/default config must exclude machine-bound and unbound proxies")
+	}
+}
+
 func TestBuildConfigRoutesConfiguredDoHThroughProxy(t *testing.T) {
 	proxies := []Proxy{{
 		Name: "proxy-a", Mode: "proxy", Type: "socks5",
-		Server: "192.0.2.10", Port: 1080, Enabled: true,
+		Server: "192.0.2.10", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true,
 	}}
 	got, err := buildConfigFromProxies(proxies, "", "test-secret")
 	if err != nil {
