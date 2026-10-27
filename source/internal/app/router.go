@@ -76,10 +76,6 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
-	mux.HandleFunc("GET /api/v1/agent/config", a.handleAgentConfig)
-	mux.HandleFunc("POST /api/v1/agent/heartbeat", a.handleAgentHeartbeat)
-	mux.HandleFunc("GET /api/v1/agent/command", a.handleAgentCommand)
-	mux.HandleFunc("POST /api/v1/agent/command/ack", a.handleAgentCommandAck)
 	mux.HandleFunc("GET /api/v1/agent/ws", a.handleAgentWebSocket)
 
 	authed := map[string]http.HandlerFunc{
