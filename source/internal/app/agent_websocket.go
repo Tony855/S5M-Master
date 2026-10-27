@@ -204,7 +204,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
-					a.agentWSMu.Unlock()
+					operationMu.Unlock()
 					return
 				}
 			}
