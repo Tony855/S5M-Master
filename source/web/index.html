@@ -366,7 +366,8 @@
             <el-button type="primary" :loading="publishingTemplate" @click="publishMihomoTemplate">发布新版本</el-button>
           </div>
           <div style="margin-top:16px;font-weight:600;">模板历史版本</div>
-          <el-table :data="templateVersions" size="small" style="width:100%;margin-top:8px;">
+          <div class="template-table-wrap" style="width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;">
+          <el-table :data="templateVersions" size="small" style="width:100%;min-width:760px;">
             <el-table-column prop="version" label="版本" width="82">
               <template #default="scope">v{{ scope.row.version }}</template>
             </el-table-column>
@@ -386,8 +387,10 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
           <div style="margin-top:18px;font-weight:600;">节点模板版本状态</div>
-          <el-table :data="templateNodes" size="small" style="width:100%;margin-top:8px;">
+          <div class="template-table-wrap" style="width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:8px;">
+          <el-table :data="templateNodes" size="small" style="width:100%;min-width:620px;">
             <el-table-column prop="machine_code" label="机器码" min-width="150"></el-table-column>
             <el-table-column label="绑定版本" width="100">
               <template #default="scope">{{ scope.row.source === 'independent' ? '独立配置' : (scope.row.template_version ? 'v' + scope.row.template_version : '未追踪') }}</template>
@@ -405,6 +408,7 @@
               </template>
             </el-table-column>
           </el-table>
+          </div>
           <div style="margin-top:18px;font-weight:600;">显式应用模板到节点</div>
           <p class="import-note">应用会替换所选节点的完整 YAML，并先保存原配置快照。请确认节点和版本后再执行。</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
