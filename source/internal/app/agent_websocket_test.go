@@ -43,7 +43,6 @@ func websocketTestApp(t *testing.T) (*App, string, string) {
 	return app, code, token
 }
 
-
 // floatMap converts JSON-number-like test payloads to float64 values, matching
 // encoding/json's decoding behavior on the server.
 func floatMap(in map[string]any) map[string]any {
