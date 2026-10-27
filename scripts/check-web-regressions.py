@@ -12,6 +12,9 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in handlers and "不能删除当前发布版本" in handlers and "node_template_bindings WHERE source='template' AND template_version=?" in handlers and '"DELETE /api/v1/mihomo/template/{version}"' in router,
+    "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
+
     "Agent runtime status explains missing telemetry and reports last_error": "let runtimeMessage" in app_js and "runtimeMessage = last > 0" in app_js and "item.runtimeMessage" in html and "Agent 状态/错误信息：" in html and "有认证通信记录，但没有有效运行状态" in app_js,
     "Agent online state rejects future heartbeat timestamps without container runtime API": "const ageSeconds = now - last;" in app_js and "const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;" in app_js and "/api/v1/container/" not in app_js and "dockerTask" not in app_js and "routerOSCommand" not in app_js,
     "container-management routes, handlers, and Agent task polling remain removed": not Path("source/internal/app/container_handlers.go").exists() and not Path("source/internal/app/container_auth.go").exists() and "/api/v1/container/" not in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "processContainerTask" not in Path("s5m-agent/main.go").read_text(encoding="utf-8") and "reportContainerStatus" not in Path("s5m-agent/main.go").read_text(encoding="utf-8"),
