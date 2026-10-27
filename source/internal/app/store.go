@@ -227,6 +227,7 @@ func (s *Store) AckAgentCommand(machineCode, commandID, status, message string, 
 	resultKey := "agent_command_result_" + machineCode
 	var raw string
 	err = tx.QueryRow(`SELECT value FROM settings WHERE key=?`, pendingKey).Scan(&raw)
+	pendingExists := err == nil
 	if err == sql.ErrNoRows {
 		raw = ""
 	} else if err != nil {
@@ -252,6 +253,13 @@ func (s *Store) AckAgentCommand(machineCode, commandID, status, message string, 
 			return false, false, err
 		}
 		return false, true, nil
+	}
+
+	// A different or malformed pending command takes precedence over an old
+	// result: an ACK for that old ID must not be accepted as a duplicate while
+	// a replacement command is waiting for acknowledgement.
+	if pendingExists {
+		return false, false, nil
 	}
 
 	var previous string
