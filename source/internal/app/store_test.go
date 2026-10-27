@@ -3,6 +3,8 @@ package app
 import (
 	"path/filepath"
 	"testing"
+	"database/sql"
+	"errors"
 )
 
 func TestSaveNodeConfigIfEmptyPreservesExistingYAML(t *testing.T) {
@@ -148,11 +150,10 @@ func TestDeleteAgentBindingRemovesLiveTemplateBindingAndAgentSettings(t *testing
 
 	for _, key := range []string{"agent_machine_node-a", "agent_lastseen_node-a", "agent_status_node-a", "agent_secret_node-a", "agent_mihomo_secret_node-a", "agent_command_node-a", "agent_command_result_node-a"} {
 		value, err := store.GetSetting(key)
-		if err != nil {
+		if err == nil && value != "" {
+			t.Errorf("setting %q = %q, want deleted or empty after deletion", key, value)
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			t.Fatalf("GetSetting(%q): %v", key, err)
-		}
-		if value != "" {
-			t.Errorf("setting %q = %q, want empty after deletion", key, value)
 		}
 	}
 	if value, err := store.GetSetting("agent_machine_node-b"); err != nil || value != "keep-token" {
