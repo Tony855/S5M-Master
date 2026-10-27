@@ -286,3 +286,35 @@ func TestRemovedContainerManagementEndpointsReturnNotFound(t *testing.T) {
 		})
 	}
 }
+
+
+func TestDeleteMihomoTemplateVersionRequiresAdminRole(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "template-delete-auth.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.CreateUser("operator", "test-hash", "operator"); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+	operator, err := store.UserByUsername("operator")
+	if err != nil {
+		t.Fatalf("UserByUsername: %v", err)
+	}
+	a := &App{cfg: Config{DBPath: dbPath}, store: store, jwtKey: []byte("test-signing-key")}
+	token, err := a.signToken(operator)
+	if err != nil {
+		t.Fatalf("signToken: %v", err)
+	}
+
+	handler := a.Router(fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("test")}})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/mihomo/template/2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("operator template deletion returned HTTP %d, want %d; body=%s", response.Code, http.StatusForbidden, response.Body.String())
+	}
+}
