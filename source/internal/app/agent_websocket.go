@@ -113,6 +113,10 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	// A newly authenticated connection supersedes any older connection for the
 	// same Agent. Older sockets may still be blocked in ReadJSON, so every
 	// heartbeat must verify its generation before it can mutate persisted state.
+	// Serialize generation changes only with operations for this Agent. Other
+	// Agents remain independent and are not blocked by a slow config/store call.
+	operationMu := a.agentWSOperationLock(machineCode)
+	operationMu.Lock()
 	a.agentWSMu.Lock()
 	if a.agentWSGeneration == nil {
 		a.agentWSGeneration = make(map[string]uint64)
@@ -120,6 +124,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
 	a.agentWSMu.Unlock()
+	operationMu.Unlock()
 	// Keep the generation counter after disconnect. Deleting it would let a
 	// later reconnect reuse generation 1 and accidentally re-authorize an old
 	// still-open socket (an ABA problem).
@@ -168,9 +173,12 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		// generation check and the operation's side effects must share one lock;
 		// checking then unlocking here would leave a TOCTOU window.
 		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
+			operationMu.Lock()
 			a.agentWSMu.Lock()
-			if a.agentWSGeneration[machineCode] != generation {
-				a.agentWSMu.Unlock()
+			isCurrentGeneration = a.agentWSGeneration[machineCode] == generation
+			a.agentWSMu.Unlock()
+			if !isCurrentGeneration {
+				operationMu.Unlock()
 				_ = conn.WriteJSON(map[string]string{
 					"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代",
 				})
@@ -179,19 +187,19 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			switch msg.Type {
 			case "config.request":
 				if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
-					a.agentWSMu.Unlock()
+					operationMu.Unlock()
 					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
 					continue
 				}
 			case "command.request":
 				if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
-					a.agentWSMu.Unlock()
+					operationMu.Unlock()
 					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
 					continue
 				}
 			case "command.ack":
 				if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
-					a.agentWSMu.Unlock()
+					operationMu.Unlock()
 					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
 					continue
 				}
@@ -200,7 +208,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			a.agentWSMu.Unlock()
+			operationMu.Unlock()
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
