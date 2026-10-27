@@ -739,3 +739,33 @@ func TestHTTPAgentHeartbeatRejectsRevokedAuthorization(t *testing.T) {
 		t.Fatalf("revoked HTTP heartbeat was persisted: %#v", settings)
 	}
 }
+
+
+func TestAgentWebSocketCommandRequestReturnsNoneWhenQueueEmpty(t *testing.T) {
+	app, _, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "cmd-poll-1"}); err != nil {
+		t.Fatalf("request command: %v", err)
+	}
+	var response map[string]any
+	if err := conn.ReadJSON(&response); err != nil {
+		t.Fatalf("read command response: %v", err)
+	}
+	if response["type"] != "command.none" || response["id"] != "cmd-poll-1" {
+		t.Fatalf("unexpected command response: %#v", response)
+	}
+}
