@@ -859,3 +859,69 @@ func TestAgentWebSocketDeliversAndAcknowledgesPendingCommand(t *testing.T) {
 		t.Fatalf("unexpected persisted command result: %#v", result)
 	}
 }
+
+func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	configYAML := strings.TrimSpace("mixed-port: 7890\nsecret: test-secret\ntun:\n  enable: true\ndns:\n  enable: true\n")
+	if err := app.store.SaveNodeConfig(code, configYAML); err != nil {
+		t.Fatalf("save node config: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if welcome["type"] != "welcome" {
+		t.Fatalf("welcome type = %#v, want welcome", welcome["type"])
+	}
+
+	requestID := "config-request-1"
+	if err := conn.WriteJSON(map[string]any{
+		"type": "config.request", "id": requestID, "config_sha256": "",
+	}); err != nil {
+		t.Fatalf("request initial config: %v", err)
+	}
+	var first map[string]any
+	if err := conn.ReadJSON(&first); err != nil {
+		t.Fatalf("read initial config response: %v", err)
+	}
+	sum := sha256.Sum256([]byte(configYAML))
+	expectedHash := hex.EncodeToString(sum[:])
+	if first["type"] != "config.sync" || first["id"] != requestID ||
+		first["sha256"] != expectedHash || first["yaml"] != configYAML {
+		t.Fatalf("unexpected initial config response: %#v", first)
+	}
+
+	if err := conn.WriteJSON(map[string]any{
+		"type": "config.request", "id": "config-request-2", "config_sha256": expectedHash,
+	}); err != nil {
+		t.Fatalf("request unchanged config: %v", err)
+	}
+	var second map[string]any
+	if err := conn.ReadJSON(&second); err != nil {
+		t.Fatalf("read unchanged config response: %v", err)
+	}
+	if second["type"] != "config.unchanged" || second["id"] != "config-request-2" ||
+		second["sha256"] != expectedHash {
+		t.Fatalf("unexpected unchanged config response: %#v", second)
+	}
+
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if settings["agent_lastseen_"+code] == "" {
+		t.Fatal("config request did not update Agent last-seen timestamp")
+	}
+}
