@@ -324,8 +324,9 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 	rows.Close()
 	if len(boundNodes) > 0 {
 		writeJSON(w, http.StatusConflict, map[string]any{
-			"error": fmt.Sprintf("模板 v%d 仍被 %d 个节点绑定，不能删除", version, len(boundNodes)),
-			"version": version, "bound_nodes": boundNodes,
+			"error":      fmt.Sprintf("模板 v%d 仍被 %d 个节点绑定，不能删除", version, len(boundNodes)),
+			"version":    version,
+			"bound_nodes": boundNodes,
 			"message": "请先将这些节点迁移到其他模板版本或改为独立配置",
 		})
 		return
