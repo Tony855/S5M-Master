@@ -401,6 +401,12 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 			return err
 		}
 	}
+	// Remove the live template binding in the same transaction as revoking the
+	// machine credential. Keep node_configs and node_template_history for audit
+	// and possible re-registration; only the active binding must disappear.
+	if _, err := tx.Exec(`DELETE FROM node_template_bindings WHERE machine_code=?`, machineCode); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
