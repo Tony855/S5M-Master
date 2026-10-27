@@ -728,20 +728,15 @@ func newMihomoRestartRequest(secret string) (*http.Request, error) {
 	return req, nil
 }
 
-// restartMihomo asks the local external controller to restart Mihomo.
+// restartMihomo asks s6-supervise to restart only the Mihomo process from
+// /usr/local/bin/mihomo. Do not take the service down through s6-rc: the Agent
+// declares a dependency on Mihomo, so a dependency-aware down operation may also
+// stop the Agent while it is processing this command and prevent its ACK.
 func restartMihomo(secret string) error {
-	restartReq, err := newMihomoRestartRequest(secret)
+	_ = secret // Retained in the signature for compatibility with update flow.
+	output, err := exec.Command("s6-svc", "-r", "/run/service/mihomo").CombinedOutput()
 	if err != nil {
-		return err
-	}
-	restartResp, err := (&http.Client{Timeout: 20 * time.Second}).Do(restartReq)
-	if err != nil {
-		return fmt.Errorf("请求 Mihomo 重启失败: %w", err)
-	}
-	defer restartResp.Body.Close()
-	if restartResp.StatusCode < 200 || restartResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(restartResp.Body, 2048))
-		return fmt.Errorf("Mihomo 重启返回 HTTP %d: %s", restartResp.StatusCode, strings.TrimSpace(string(body)))
+		return fmt.Errorf("请求 s6 重启 Mihomo 服务失败: %v: %s", err, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
