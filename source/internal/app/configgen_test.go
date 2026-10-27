@@ -187,6 +187,23 @@ func TestGetOrCreateMihomoSecretReusesConfiguredSecret(t *testing.T) {
 	}
 }
 
+func TestBuildConfigForMachineExcludesUnboundProxy(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "bound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "unbound-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.11", Port: 1081, Enabled: true},
+	}
+	got, err := buildConfigFromProxies(proxies, "node-a", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies() error = %v", err)
+	}
+	if !strings.Contains(got, "bound-proxy") {
+		t.Fatal("node-specific config should include its bound proxy")
+	}
+	if strings.Contains(got, "unbound-proxy") {
+		t.Fatal("node-specific config must exclude unbound proxies")
+	}
+}
+
 func TestBuildConfigRoutesConfiguredDoHThroughProxy(t *testing.T) {
 	proxies := []Proxy{{
 		Name: "proxy-a", Mode: "proxy", Type: "socks5",
