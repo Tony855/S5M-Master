@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/hex"
 	"encoding/json"
+	"crypto/sha256"
 	"fmt"
 	"math"
 	"net/http"
@@ -34,6 +35,7 @@ type agentWSMessage struct {
 	Type   string         `json:"type"`
 	ID     string         `json:"id,omitempty"`
 	Status map[string]any `json:"status,omitempty"`
+	ConfigHash string `json:"config_sha256,omitempty"`
 }
 
 // validateAgentWSStatus rejects malformed telemetry before it reaches persistent
@@ -139,11 +141,20 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&msg); err != nil {
 			return
 		}
+		if msg.Type == "config.request" {
+			if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
+			}
+			continue
+		}
+		if msg.Type == "command.request" {
+			if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
+			}
+			continue
+		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
-			_ = conn.WriteJSON(map[string]string{
-				"type":    "error",
-				"message": "当前 WebSocket 阶段仅接受 heartbeat 消息",
-			})
+			_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
 			continue
 		}
 		if err := validateAgentWSStatus(msg.Status); err != nil {
@@ -206,4 +217,52 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+
+// sendAgentWSConfig returns only the configuration assigned to the authenticated machine.
+func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, clientHash string) error {
+	nodeConfig, err := a.store.GetNodeConfig(machineCode)
+	if err != nil {
+		return err
+	}
+	yml := ""
+	if nodeConfig != nil {
+		yml = strings.TrimSpace(nodeConfig.YAML)
+	}
+	if yml == "" {
+		yml, err = a.BuildConfigForMachine(machineCode)
+		if err != nil {
+			return err
+		}
+		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
+			return err
+		}
+	}
+	sum := sha256.Sum256([]byte(yml))
+	hash := hex.EncodeToString(sum[:])
+	if err := a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: strconv.FormatInt(time.Now().Unix(), 10)}); err != nil {
+		return err
+	}
+	if clientHash == hash {
+		return conn.WriteJSON(map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash})
+	}
+	return conn.WriteJSON(map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml})
+}
+
+// sendAgentWSCommand redelivers the persisted pending command until an ACK is stored.
+func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID string) error {
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return err
+	}
+	raw := strings.TrimSpace(settings["agent_command_" + machineCode])
+	if raw == "" {
+		return conn.WriteJSON(map[string]any{"type": "command.none", "id": requestID})
+	}
+	var command map[string]any
+	if err := json.Unmarshal([]byte(raw), &command); err != nil {
+		return fmt.Errorf("解析待执行命令失败: %w", err)
+	}
+	return conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command})
 }
