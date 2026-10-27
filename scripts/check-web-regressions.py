@@ -12,7 +12,7 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
-    "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in handlers and "不能删除当前发布版本" in handlers and "FROM node_template_bindings WHERE source='template' AND template_version=?" in handlers and '"DELETE /api/v1/mihomo/template/{version}"' in router,
+    "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in template_source and "不能删除当前发布版本" in template_source and "FROM node_template_bindings WHERE source='template' AND template_version=?" in template_source and '"DELETE /api/v1/mihomo/template/{version}"' in router,
     "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
 
     "Agent runtime status explains missing telemetry and reports last_error": "let runtimeMessage" in app_js and "runtimeMessage = last > 0" in app_js and "item.runtimeMessage" in html and "Agent 状态/错误信息：" in html and "有认证通信记录，但没有有效运行状态" in app_js,
@@ -80,6 +80,7 @@ if missing_handlers:
 
 # Keep frontend API calls and backend route declarations in sync. This catches
 # accidental path/method drift when either the Vue UI or Go router is refactored.
+template_source = Path("source/internal/app/template.go").read_text(encoding="utf-8")
 router_source = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 route_patterns = set(
     (method, path)
