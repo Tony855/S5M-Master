@@ -713,6 +713,45 @@ func TestHandleAgentMihomoUpdateInfoUsesHeartbeatSettings(t *testing.T) {
 	}
 }
 
+func TestImportedProxiesRemainUnboundUntilExplicitlyAssociated(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "proxy-import-unbound.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	app := &App{store: store}
+	content := `{"protocol":"socks5","servers":[{"name":"imported-unbound","server":"192.0.2.20","port":1080}]}`
+	body, err := json.Marshal(map[string]string{"content": content})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(string(body)))
+	rec := httptest.NewRecorder()
+	app.handleImportProxies(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	proxies, err := store.ListProxies()
+	if err != nil {
+		t.Fatalf("ListProxies: %v", err)
+	}
+	if len(proxies) != 1 {
+		t.Fatalf("stored proxy count = %d, want 1", len(proxies))
+	}
+	if proxies[0].MachineCode != "" {
+		t.Fatalf("imported proxy machine_code = %q, want empty/unbound", proxies[0].MachineCode)
+	}
+	generated, err := buildConfigFromProxies(proxies, "node-a", "test-secret")
+	if err != nil {
+		t.Fatalf("buildConfigFromProxies: %v", err)
+	}
+	if strings.Contains(generated, "imported-unbound") {
+		t.Fatal("imported proxy without an association must not enter any node config")
+	}
+}
+
 func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "proxy-import-integration.db"))
 	if err != nil {
