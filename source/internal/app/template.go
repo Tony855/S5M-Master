@@ -294,17 +294,19 @@ func (a *App) handleDeleteMihomoTemplateVersion(w http.ResponseWriter, r *http.R
 	defer tx.Rollback()
 
 	var currentRaw string
-	if err := tx.QueryRowContext(r.Context(), "SELECT value FROM settings WHERE key='mihomo_template_current_version'").Scan(&currentRaw); err != nil && err != sql.ErrNoRows {
-		writeErr(w, http.StatusInternalServerError, "读取当前模板版本失败")
+	if err := tx.QueryRowContext(r.Context(), "SELECT value FROM settings WHERE key='mihomo_template_current_version'").Scan(&currentRaw); err != nil {
+		if err == sql.ErrNoRows {
+			writeErr(w, http.StatusInternalServerError, "当前模板版本记录缺失，拒绝删除")
+		} else {
+			writeErr(w, http.StatusInternalServerError, "读取当前模板版本失败")
+		}
 		return
 	}
-	var current int
-	if strings.TrimSpace(currentRaw) != "" {
-		current, err = strconv.Atoi(strings.TrimSpace(currentRaw))
-		if err != nil || current < 1 {
-			writeErr(w, http.StatusInternalServerError, "当前模板版本记录无效，拒绝删除")
-			return
-		}
+	currentRaw = strings.TrimSpace(currentRaw)
+	current, err := strconv.Atoi(currentRaw)
+	if err != nil || current < 1 {
+		writeErr(w, http.StatusInternalServerError, "当前模板版本记录无效，拒绝删除")
+		return
 	}
 	if version == current {
 		writeErr(w, http.StatusConflict, "不能删除当前发布版本；请先发布新版本")
