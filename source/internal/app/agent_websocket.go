@@ -19,7 +19,7 @@ import (
 
 const (
 	agentWSMaxMessageBytes = 16 << 10
-	agentWSHeartbeatTTL    = 10 * time.Minute
+	agentWSHeartbeatTTL    = 75 * time.Second
 	agentWSMaxVersionBytes = 128
 	agentWSMaxErrorBytes   = 2048
 )
