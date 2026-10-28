@@ -1214,7 +1214,6 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 	}
 }
 
-
 // TestAgentWebSocketCommandAckIsIdempotentAndProtectsReplacement verifies that a
 // lost ACK confirmation can be retried safely, while an old ACK cannot consume a
 // different command that is now pending.
