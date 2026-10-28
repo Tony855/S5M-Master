@@ -293,7 +293,6 @@ createApp({
             } else {
               loadAgentsData();
             }
-            if (page.value === 'dashboard') loadOverview();
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
             loadAgentsData();
           }
@@ -1186,11 +1185,6 @@ const safeCopy = async (text) => {
       if (token.value) {
         fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
         switchPage('dashboard');
-        if (overviewTimer === null) {
-          overviewTimer = setInterval(() => {
-            if (token.value && page.value === 'dashboard') loadOverview();
-          }, 3000);
-        }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
         browserEventsStopped = false;
         connectBrowserEvents();
