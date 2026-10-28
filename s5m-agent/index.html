@@ -74,19 +74,10 @@
       const data = await res.json();
       if (data.central_url) document.getElementById('url').value = data.central_url;
       else document.getElementById('url').value = 'https://';
-      refreshBindingStatus();
+      // Use one authoritative status read. Do not overwrite its result with the
+      // potentially stale /api/config response fetched earlier during page load.
+      await refreshBindingStatus();
       window.setInterval(refreshBindingStatus, 3000);
-
-      if (data.has_token) {
-        document.getElementById('btn').innerText = '重新绑定';
-        if (data.connected) {
-          setStatus('active', '授权已保存，节点设备绑定成功');
-        } else {
-          setStatus('error', '尚未连接，请检查网络');
-        }
-      } else {
-        setStatus('', '等待绑定');
-      }
     } catch(e) { document.getElementById('machineId').innerText = '获取失败'; if (!document.getElementById('hostname').innerText || document.getElementById('hostname').innerText === '读取主机名中...') document.getElementById('hostname').innerText = '读取失败'; setStatus('error', 'Agent 后端无响应'); }
   };
   let bindingStatusRequest = false;
@@ -137,11 +128,19 @@
       try { data = JSON.parse(text); } catch { data = { message: text }; }
       if (!res.ok) throw new Error(data.error || data.message || '绑定失败');
       showMsg(data.message || '绑定凭据已保存，正在建立实时连接', true);
-      btn.innerText = '重新绑定';
       document.getElementById('secret').value = '';
-      setStatus('', '绑定凭据已保存，正在连接主控端…');
+      // Registration only persists credentials; the WebSocket connects asynchronously.
+      // Re-enable the button so a failed/expired connection can be retried without reload.
+      btn.disabled = false;
+      btn.innerText = '重新绑定';
       await refreshBindingStatus();
-    } catch (e) { showMsg(e.message, false); btn.innerText = '重试绑定'; btn.disabled = false; setStatus('error', '绑定失败'); }
+    } catch (e) {
+      showMsg(e.message, false);
+      btn.innerText = '重试绑定';
+      setStatus('error', '绑定失败');
+    } finally {
+      btn.disabled = false;
+    }
   }
   function showMsg(text, isSuccess) { const msg = document.getElementById('msg'); msg.innerText = text; msg.className = isSuccess ? 'msg-success' : 'msg-error'; msg.style.display = 'block'; }
 </script>
