@@ -66,16 +66,25 @@ func mihomoHome() string {
 	return strings.TrimRight(home, "/")
 }
 
-// validateCentralURL rejects malformed URLs and URL userinfo/query/fragment fields.
+// validateCentralURL rejects malformed URLs and requires TLS by default.
+// Plain HTTP is permitted only when an operator explicitly opts in for a trusted
+// private network using S5M_ALLOW_INSECURE_HTTP=1. Registration sends the
+// dedicated Agent credential in the request body, so transport encryption matters.
 func validateCentralURL(raw string) (string, error) {
 	centralURL := strings.TrimRight(strings.TrimSpace(raw), "/")
-	if !strings.HasPrefix(centralURL, "https://") && !strings.HasPrefix(centralURL, "http://") {
-		return "", fmt.Errorf("主控地址必须使用 HTTP(S)")
-	}
 	parsedURL, err := url.Parse(centralURL)
 	if err != nil || parsedURL.Host == "" || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" ||
 		strings.ContainsAny(centralURL, "\r\n") {
 		return "", fmt.Errorf("主控地址格式无效")
+	}
+	switch strings.ToLower(parsedURL.Scheme) {
+	case "https":
+	case "http":
+		if strings.TrimSpace(os.Getenv("S5M_ALLOW_INSECURE_HTTP")) != "1" {
+			return "", fmt.Errorf("为保护 Agent 专属 Token，默认必须使用 HTTPS；仅可信内网可显式设置 S5M_ALLOW_INSECURE_HTTP=1")
+		}
+	default:
+		return "", fmt.Errorf("主控地址必须使用 HTTPS")
 	}
 	return centralURL, nil
 }
@@ -1467,7 +1476,7 @@ func main() {
 			}
 			centralURL, urlErr := validateCentralURL(in.CentralURL)
 			if urlErr != nil || strings.TrimSpace(in.Secret) == "" {
-				http.Error(w, "主控地址或授权密钥无效；地址必须是完整的 HTTP(S) URL，不能包含凭据、查询参数或片段", http.StatusBadRequest)
+				http.Error(w, "主控地址或授权密钥无效；默认要求 HTTPS，可信内网如需 HTTP 必须显式设置 S5M_ALLOW_INSECURE_HTTP=1；地址不能包含凭据、查询参数或片段", http.StatusBadRequest)
 				return
 			}
 			machineID, machineErr := getMachineID()

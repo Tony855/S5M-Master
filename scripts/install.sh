@@ -10,6 +10,18 @@ if [[ -f "$ROOT/source/main.go" ]]; then SRC="$ROOT/source"; elif [[ -f "$ROOT/m
 ENV_FILE="/etc/s5m-server.env"
 OLD_ENV_FILE="/etc/s5m-server/server.env"
 DB_DIR="/var/lib/s5m-server"
+# Optional Let's Encrypt setup: S5M_DOMAIN must resolve to this server and ports 80/443 must be reachable.
+S5M_DOMAIN="${S5M_DOMAIN:-}"
+S5M_EMAIL="${S5M_EMAIL:-}"
+if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
+if [[ -n "$S5M_DOMAIN" && ! "$S5M_DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
+  echo "❌ S5M_DOMAIN 格式无效：$S5M_DOMAIN" >&2
+  exit 1
+fi
+if [[ -n "$S5M_DOMAIN" && -z "$S5M_EMAIL" ]]; then
+  echo "❌ 配置 HTTPS 证书时必须同时设置 S5M_EMAIL，例如 S5M_DOMAIN=panel.example.com S5M_EMAIL=admin@example.com bash scripts/install.sh" >&2
+  exit 1
+fi
 BIN="/opt/S5M-Server/S5M-Server"
 
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
@@ -25,7 +37,9 @@ done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl python3 gzip > /dev/null
+apt_packages=(ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl python3 gzip)
+if [[ -n "$S5M_DOMAIN" ]]; then apt_packages+=(nginx certbot python3-certbot-nginx); fi
+apt-get install -y -qq "${apt_packages[@]}" > /dev/null
 
 # === 新增：智能处理端口占用 ===
 PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
@@ -40,6 +54,8 @@ if ss -lntp 2>/dev/null | grep -q ":${PORT_TO_USE} "; then
         echo "🔄 检测到旧版 S5M-Server 正在运行 (PID: $OLD_PID)，自动停止以释放端口..."
         systemctl stop s5m-server || kill "$OLD_PID" || true
         sleep 1
+    elif [[ -n "$S5M_DOMAIN" && "$OLD_CMD" == *"nginx"* ]]; then
+        echo "ℹ️ 检测到现有 Nginx，保留其服务并添加 S5M 域名虚拟主机。"
     else
         echo "❌ 端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: $OLD_PID) 占用！" >&2
         echo "请手动停止该程序，或修改 $ENV_FILE 中的端口后重试。" >&2
@@ -180,6 +196,24 @@ else
   : > "$BACKUP/mihomo-service-absent"
 fi
 
+# When HTTPS is requested, snapshot both the Nginx site file and its enabled
+# symlink before any changes. A failed Certbot run can otherwise leave a broken
+# or partially TLS-configured virtual host behind after the application rolls back.
+NGINX_SITE="/etc/nginx/sites-available/s5m-server"
+NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
+if [[ -n "$S5M_DOMAIN" ]]; then
+  if [[ -e "$NGINX_SITE" || -L "$NGINX_SITE" ]]; then
+    cp -a "$NGINX_SITE" "$BACKUP/nginx-s5m-server.conf"
+  else
+    : > "$BACKUP/nginx-site-absent"
+  fi
+  if [[ -e "$NGINX_ENABLED" || -L "$NGINX_ENABLED" ]]; then
+    cp -a "$NGINX_ENABLED" "$BACKUP/nginx-s5m-server.enabled"
+  else
+    : > "$BACKUP/nginx-enabled-absent"
+  fi
+fi
+
 # Shared rollback for failures after the snapshot has been created. The database
 # backup is deliberately not copied over a live DB; preserve it for controlled recovery.
 rollback_install() {
@@ -205,6 +239,23 @@ rollback_install() {
   if [[ -f "$BACKUP/s5m-server.env" ]]; then cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"; elif [[ -f "$BACKUP/env-file-absent" ]]; then rm -f "$ENV_FILE"; fi
   if [[ -f "$BACKUP/legacy-server.env" ]]; then install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"; cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"; elif [[ -f "$BACKUP/legacy-env-absent" ]]; then rm -f "$OLD_ENV_FILE"; fi
   if [[ -f "$BACKUP/config.yaml" ]]; then cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"; elif [[ -f "$BACKUP/config-file-absent" ]]; then rm -f "$DB_DIR/config.yaml"; fi
+  if [[ -n "$S5M_DOMAIN" ]]; then
+    if [[ -f "$BACKUP/nginx-s5m-server.conf" ]]; then
+      rm -f "$NGINX_SITE"
+      cp -a "$BACKUP/nginx-s5m-server.conf" "$NGINX_SITE"
+    elif [[ -f "$BACKUP/nginx-site-absent" ]]; then
+      rm -f "$NGINX_SITE"
+    fi
+    if [[ -e "$BACKUP/nginx-s5m-server.enabled" || -L "$BACKUP/nginx-s5m-server.enabled" ]]; then
+      rm -f "$NGINX_ENABLED"
+      cp -a "$BACKUP/nginx-s5m-server.enabled" "$NGINX_ENABLED"
+    elif [[ -f "$BACKUP/nginx-enabled-absent" ]]; then
+      rm -f "$NGINX_ENABLED"
+    fi
+    if command -v nginx >/dev/null 2>&1 && nginx -t; then
+      systemctl reload nginx 2>/dev/null || true
+    fi
+  fi
   systemctl daemon-reload
   if [[ -f "$BACKUP/mihomo.service" ]]; then
     systemctl restart mihomo || echo "❌ Mihomo 回滚启动失败，请检查 journalctl -u mihomo" >&2
@@ -224,7 +275,7 @@ elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_E
 if [[ ! -f "$ENV_FILE" ]]; then
   ADMIN_PASS="$(openssl rand -hex 24)"
   cat > "$ENV_FILE" <<ENVEOF
-S5M_ADDR=:80
+S5M_ADDR=$([[ -n "$S5M_DOMAIN" ]] && echo "127.0.0.1:8080" || echo ":80")
 S5M_DB=$DB_DIR/s5m.db
 S5M_CONFIG=$DB_DIR/config.yaml
 S5M_BACKUP=$DB_DIR/backups
@@ -241,7 +292,14 @@ ENVEOF
 fi
 
 # Backfill required S5M paths/address for older environment files as well.
-# Keep existing user choices intact; missing values use the native-install defaults.
+# Keep existing user choices intact except when HTTPS reverse proxy is explicitly enabled.
+if [[ -n "$S5M_DOMAIN" ]]; then
+  if grep -qE '^S5M_ADDR=' "$ENV_FILE"; then
+    sed -i 's#^S5M_ADDR=.*#S5M_ADDR=127.0.0.1:8080#' "$ENV_FILE"
+  else
+    printf '\nS5M_ADDR=127.0.0.1:8080\n' >> "$ENV_FILE"
+  fi
+fi
 for entry in \
   "S5M_ADDR=:80" \
   "S5M_DB=$DB_DIR/s5m.db" \
@@ -420,6 +478,46 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
   exit 1
 fi
 
+if [[ -n "$S5M_DOMAIN" ]]; then
+  
+  cat > "$NGINX_SITE" <<NGINXEOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $S5M_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+NGINXEOF
+  ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
+  # Keep any existing default site intact; the S5M virtual host is selected by server_name.
+  if ! nginx -t || ! systemctl enable --now nginx; then
+    rollback_install "Nginx HTTPS 反向代理配置失败"
+    exit 1
+  fi
+  if ! certbot --nginx --non-interactive --agree-tos --redirect --email "$S5M_EMAIL" -d "$S5M_DOMAIN"; then
+    echo "❌ Let's Encrypt 证书签发失败。请确认域名 DNS 已指向本机，且 TCP 80/443 可从公网访问。" >&2
+    rollback_install "HTTPS 证书签发失败"
+    exit 1
+  fi
+  if ! curl -fsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
+    rollback_install "HTTPS 端点健康检查失败"
+    exit 1
+  fi
+  echo "🔐 HTTPS 证书已签发并配置自动续期： https://$S5M_DOMAIN"
+fi
+
 echo "✅ S5M-Server 安装成功"
 echo "   服务: $UNIT（端口 $PORT）"
 echo "   健康: $(cat /tmp/s5m-server-health.json)"
+if [[ -n "$S5M_DOMAIN" ]]; then echo "   HTTPS: https://$S5M_DOMAIN"; else echo "   HTTPS: 未配置（设置 S5M_DOMAIN 与 S5M_EMAIL 可启用 Let's Encrypt）"; fi

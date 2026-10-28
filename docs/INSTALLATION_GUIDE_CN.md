@@ -28,6 +28,28 @@ cd S5M-Master
 sudo bash scripts/install.sh
 ```
 
+### 一键安装同时配置 HTTPS 证书（推荐）
+
+如果主控需要通过公网供 Agent 绑定，建议使用域名并在安装时自动申请 Let's Encrypt 证书。先将域名的 A/AAAA 记录指向主控服务器，并确保公网 TCP 80、443 未被安全组/防火墙拦截：
+
+```bash
+cd S5M-Master
+sudo env S5M_DOMAIN=panel.example.com S5M_EMAIL=admin@example.com bash scripts/install.sh
+```
+
+将 `panel.example.com` 和 `admin@example.com` 替换为你自己的域名和有效邮箱。脚本会安装 Nginx、Certbot，配置反向代理与 WebSocket Upgrade，申请并安装证书、启用 HTTP 到 HTTPS 重定向，并检查 `https://域名/api/v1/health`。Certbot 会配置证书自动续期。若签发或 HTTPS 健康检查失败，脚本会执行回滚；请查看终端输出及 `/var/log/letsencrypt/`。
+
+安装后验证：
+
+```bash
+sudo nginx -t
+sudo certbot certificates
+sudo systemctl status certbot.timer --no-pager
+curl -fsS https://panel.example.com/api/v1/health
+```
+
+没有可用域名时，脚本仍可按原方式安装，但不会自动签发公网证书。不要把自签名证书当作公网 Agent 的默认方案。
+
 脚本成功后检查服务、端口、健康接口：
 
 ```bash
@@ -73,11 +95,11 @@ sudo systemctl is-enabled s5m-server mihomo
 
 1. 登录主控 Web 管理界面，进入 Agent/节点管理，创建或查看该节点的注册授权密钥。授权密钥是敏感信息，只在受信任的管理通道中传递。
 2. 在浏览器打开 `http://节点IP:81/`。如果 Agent 页面无法访问，先检查容器状态、宿主机端口映射和防火墙。
-3. 在绑定页面填入主控完整地址，例如 `http://主控IP` 或已配置 TLS 的 `https://主控域名`，以及该节点的授权密钥，然后提交。
+3. 在绑定页面填入主控完整地址，默认应使用已配置 TLS 的 `https://主控域名`，以及该节点的授权密钥，然后提交。Agent 默认拒绝通过明文 HTTP 发送注册密钥。
 4. 页面应提示绑定成功；返回主控节点列表确认节点状态。
 5. 等待一个心跳周期（约 30 秒），检查 Agent 日志和主控节点状态。绑定成功代表凭据已保存；后续心跳、配置下发和状态上报成功才代表实际通信正常。
 
-主控地址不要包含用户名/密码、查询参数或 URL fragment。跨公网部署应优先使用 HTTPS 或 VPN/管理网，避免明文传输授权密钥。
+主控地址不要包含用户名/密码、查询参数或 URL fragment。Agent 默认只允许 HTTPS 主控地址。只有确实无法配置 TLS、且主控与 Agent 之间处于可信隔离内网时，才可在 Agent 容器启动环境中显式设置 `S5M_ALLOW_INSECURE_HTTP=1`，并使用 `http://` 地址；此模式会明文传输专属 Token，不适用于公网或不可信网络。
 
 ## 5. Agent 本地编译与交叉编译
 

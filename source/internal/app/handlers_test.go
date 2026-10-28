@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -959,5 +960,94 @@ func TestHandleAgentCommandSerializesWithQueueAndAck(t *testing.T) {
 	}
 	if body.Command["id"] != "cmd-http-1" {
 		t.Fatalf("command ID = %q, want cmd-http-1", body.Command["id"])
+	}
+}
+
+// TestAgentTokenGenerateAndRegisterLifecycle covers the full dedicated-token
+// issuance and registration path, including duplicate issuance and global-token rejection.
+func TestAgentTokenGenerateAndRegisterLifecycle(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-token-lifecycle.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "a1b2c3d4e5f"
+	const globalToken = "global-token-for-test"
+	app := &App{store: store, jwtKey: []byte("test-agent-jwt-signing-key")}
+	if err := store.UpdateSettings(map[string]string{"agent_token": globalToken}); err != nil {
+		t.Fatalf("seed global token: %v", err)
+	}
+
+	requestGenerate := func(code string) *httptest.ResponseRecorder {
+		body := strings.NewReader(`{"machine_code":` + strconv.Quote(code) + `}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", body)
+		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role: "admin"}))
+		rec := httptest.NewRecorder()
+		app.handleGenerateAgentToken(rec, req)
+		return rec
+	}
+
+	generated := requestGenerate(machineCode)
+	if generated.Code != http.StatusOK {
+		t.Fatalf("generate status = %d, body=%s", generated.Code, generated.Body.String())
+	}
+	var issued struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(generated.Body.Bytes(), &issued); err != nil || strings.TrimSpace(issued.Token) == "" {
+		t.Fatalf("decode generated token: token=%q err=%v", issued.Token, err)
+	}
+
+	// A second generation must not rotate or overwrite the credential.
+	duplicate := requestGenerate(machineCode)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate generate status = %d, want %d; body=%s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if settings["agent_machine_"+machineCode] != issued.Token {
+		t.Fatal("duplicate generation changed the original dedicated token")
+	}
+
+	register := func(secret string) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(map[string]string{"machine_code": machineCode, "secret": secret})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
+		rec := httptest.NewRecorder()
+		app.handleAgentRegister(rec, req)
+		return rec
+	}
+
+	if rejected := register(globalToken); rejected.Code != http.StatusForbidden {
+		t.Fatalf("global token registration status = %d, want %d; body=%s", rejected.Code, http.StatusForbidden, rejected.Body.String())
+	}
+	if rejected := register("wrong-dedicated-token"); rejected.Code != http.StatusForbidden {
+		t.Fatalf("wrong token registration status = %d, want %d; body=%s", rejected.Code, http.StatusForbidden, rejected.Body.String())
+	}
+
+	registered := register(issued.Token)
+	if registered.Code != http.StatusOK {
+		t.Fatalf("valid registration status = %d, body=%s", registered.Code, registered.Body.String())
+	}
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(registered.Body.Bytes(), &result); err != nil || strings.TrimSpace(result.Token) == "" {
+		t.Fatalf("decode registered JWT: token=%q err=%v", result.Token, err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
+	req.Header.Set("Authorization", "Bearer "+result.Token)
+	if code, err := app.agentMachineFromRequest(req); err != nil || code != machineCode {
+		t.Fatalf("registered JWT authorization = %q, %v; want %q", code, err, machineCode)
+	}
+
+	// Removing the binding invalidates the already-issued JWT immediately.
+	if err := store.DeleteAgentBinding(machineCode); err != nil {
+		t.Fatalf("revoke binding: %v", err)
+	}
+	if _, err := app.agentMachineFromRequest(req); err == nil {
+		t.Fatal("JWT remained valid after dedicated token binding was revoked")
 	}
 }
