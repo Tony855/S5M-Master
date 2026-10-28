@@ -677,7 +677,7 @@ createApp({
             const arr = findProxyArray(JSON.parse(content));
             if (!arr || !arr.length) throw new Error('找不到包含 server/address 的节点数组');
             const lines = arr.map((item, index) => {
-              const name = String(item.name || item.remark || item.proxy_name || item.ps || \`节点-\${index + 1}\`).trim().replace(/[\r\n#]/g, ' ');
+              const name = String(item.name || item.remark || item.proxy_name || item.ps || `节点-${index + 1}`).trim().replace(/[\r\n#]/g, ' ');
               const directURI = String(item.uri || item.url || item.link || item.proxy || '').trim();
               if (directURI && /^(socks5|socks|http|https|ss|vmess|vless|trojan):\/\//i.test(directURI)) {
                 return directURI.includes('#') ? directURI : directURI + '#' + encodeURIComponent(name);
