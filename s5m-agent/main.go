@@ -1655,6 +1655,21 @@ func reconnectDelayWithJitter(current time.Duration) time.Duration {
 // runAgentWebSocketSession owns one persistent connection for all Agent control-plane
 // traffic. Every request/response is correlated by ID, and the existing safe config
 // apply/rollback and idempotent kernel-upgrade paths are reused.
+// applyAgentControlError exposes the most recent config-apply failure in the next
+// heartbeat, while preserving any independent Mihomo health diagnostic.
+func applyAgentControlError(status map[string]any, controlErr string) {
+	controlErr = strings.TrimSpace(controlErr)
+	if controlErr == "" {
+		return
+	}
+	controlErr = safeMihomoValidationDiagnostic([]byte(controlErr))
+	if existing, ok := status["last_error"].(string); ok && strings.TrimSpace(existing) != "" {
+		status["last_error"] = controlErr + "; Mihomo: " + existing
+		return
+	}
+	status["last_error"] = controlErr
+}
+
 func runAgentWebSocketSession(cfg Config) error {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
@@ -1704,6 +1719,7 @@ func runAgentWebSocketSession(cfg Config) error {
 	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
 		heartbeatInterval = 30 * time.Second
 	}
+	var lastConfigSyncError string
 
 	for {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
@@ -1713,6 +1729,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
+		applyAgentControlError(status, lastConfigSyncError)
 		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]any{
 			"type": "heartbeat", "id": heartbeatID, "status": status,
@@ -1759,6 +1776,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		switch configResponse.Type {
 		case "config.unchanged":
+			lastConfigSyncError = ""
 		case "config.sync":
 			if strings.TrimSpace(configResponse.YAML) == "" {
 				return fmt.Errorf("主控端返回空配置")
@@ -1769,11 +1787,13 @@ func runAgentWebSocketSession(cfg Config) error {
 			}
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
+				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
 				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
 				break
 			}
 			if changed {
 				if reloadErr := reloadMihomo(); reloadErr != nil {
+					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
 					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
@@ -1782,9 +1802,12 @@ func runAgentWebSocketSession(cfg Config) error {
 						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
 					}
 				} else {
+					lastConfigSyncError = ""
 					_ = os.Remove(mihomoConfigPath() + ".previous")
 					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
-				}
+				} 
+			} else {
+				lastConfigSyncError = ""
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type)
