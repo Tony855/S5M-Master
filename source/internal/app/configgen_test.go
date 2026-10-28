@@ -521,7 +521,7 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 	}{
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
-		{mode: "return", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
+		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
 		{mode: "game", want: []string{"DOMAIN-SUFFIX,steampowered.com,game-a", "MATCH,DIRECT"}},
 	}
 	for _, tt := range tests {
