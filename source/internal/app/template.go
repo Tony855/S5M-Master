@@ -25,7 +25,7 @@ import (
 const defaultMihomoTemplate = `# S5M unified template: routing mode is managed separately.
 # Keep external-controller bound to loopback so it is not exposed to the LAN.
 allow-lan: true
-mixed-port: 8080
+mixed-port: 7890
 mode: rule
 log-level: info
 ipv6: false
