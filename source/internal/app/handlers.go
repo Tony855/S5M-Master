@@ -69,6 +69,33 @@ func decodeErrorStatus(err error) int {
 	return http.StatusBadRequest
 }
 
+func (a *App) handleCreateBrowserEventsTicket(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil || u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "需要管理员权限")
+		return
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成实时通道授权失败")
+		return
+	}
+	ticket := hex.EncodeToString(buf)
+	now := time.Now()
+	a.browserTicketMu.Lock()
+	if a.browserTickets == nil {
+		a.browserTickets = make(map[string]browserWSTicket)
+	}
+	for key, value := range a.browserTickets {
+		if !value.ExpiresAt.After(now) {
+			delete(a.browserTickets, key)
+		}
+	}
+	a.browserTickets[ticket] = browserWSTicket{Username: u.Username, ExpiresAt: now.Add(30 * time.Second)}
+	a.browserTicketMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"ticket": ticket, "expires_in": 30})
+}
+
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Username string `json:"username"`
