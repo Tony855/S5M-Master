@@ -1213,3 +1213,101 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 		t.Fatalf("unexpected second heartbeat ACK: %#v", secondAck)
 	}
 }
+
+
+// TestAgentWebSocketCommandAckIsIdempotentAndProtectsReplacement verifies that a
+// lost ACK confirmation can be retried safely, while an old ACK cannot consume a
+// different command that is now pending.
+func TestAgentWebSocketCommandAckIsIdempotentAndProtectsReplacement(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	const firstID = "cmd-ack-idempotent"
+	firstCommand, err := json.Marshal(map[string]string{"id": firstID, "type": "update_mihomo"})
+	if err != nil {
+		t.Fatalf("marshal first command: %v", err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: string(firstCommand)}); err != nil {
+		t.Fatalf("queue first command: %v", err)
+	}
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
+		t.Fatalf("read welcome: payload=%#v err=%v", welcome, err)
+	}
+
+	sendACK := func(id, status, message string) map[string]any {
+		t.Helper()
+		if err := conn.WriteJSON(map[string]any{
+			"type": "command.ack", "id": id,
+			"command_status": status, "message": message,
+		}); err != nil {
+			t.Fatalf("send command ACK for %q: %v", id, err)
+		}
+		var response map[string]any
+		if err := conn.ReadJSON(&response); err != nil {
+			t.Fatalf("read command ACK response for %q: %v", id, err)
+		}
+		return response
+	}
+
+	first := sendACK(firstID, "success", "completed once")
+	if first["type"] != "command.acknowledged" || first["id"] != firstID || first["ok"] != true {
+		t.Fatalf("unexpected first ACK response: %#v", first)
+	}
+
+	// Simulate the Agent retrying because the confirmation was lost. A duplicate
+	// ACK must be accepted but must not rewrite the original command result.
+	duplicate := sendACK(firstID, "failed", "conflicting retry payload")
+	if duplicate["type"] != "command.acknowledged" || duplicate["id"] != firstID || duplicate["ok"] != true {
+		t.Fatalf("unexpected duplicate ACK response: %#v", duplicate)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read command settings after duplicate ACK: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode original command result: %v", err)
+	}
+	if result["id"] != firstID || result["status"] != "success" || result["message"] != "completed once" {
+		t.Fatalf("duplicate ACK rewrote original result: %#v", result)
+	}
+	if settings["agent_command_"+code] != "" {
+		t.Fatalf("completed command remains queued: %q", settings["agent_command_"+code])
+	}
+
+	// A replacement pending command takes precedence over an old duplicate ACK.
+	const replacementID = "cmd-ack-replacement"
+	replacement, err := json.Marshal(map[string]string{"id": replacementID, "type": "update_mihomo"})
+	if err != nil {
+		t.Fatalf("marshal replacement command: %v", err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: string(replacement)}); err != nil {
+		t.Fatalf("queue replacement command: %v", err)
+	}
+	stale := sendACK(firstID, "success", "stale retry")
+	if stale["type"] != "error" {
+		t.Fatalf("old ACK with replacement pending = %#v, want error", stale)
+	}
+	settings, err = app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read command settings after stale ACK: %v", err)
+	}
+	if settings["agent_command_"+code] != string(replacement) {
+		t.Fatalf("stale ACK consumed replacement command: %q", settings["agent_command_"+code])
+	}
+	if settings["agent_command_result_"+code] == "" {
+		t.Fatal("stale ACK removed the prior command result")
+	}
+}
