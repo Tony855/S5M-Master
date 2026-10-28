@@ -18,26 +18,9 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu          sync.Mutex
-	agentWSGeneration  map[string]uint64
-	agentWSOperationMu map[string]*sync.Mutex
-	agentHeartbeatAt   map[string]int64
-}
-
-// agentWSOperationLock returns a per-Agent mutex. The global mutex protects only
-// the maps, so activity for one Agent does not serialize operations for all others.
-func (a *App) agentWSOperationLock(machineCode string) *sync.Mutex {
-	a.agentWSMu.Lock()
-	defer a.agentWSMu.Unlock()
-	if a.agentWSOperationMu == nil {
-		a.agentWSOperationMu = make(map[string]*sync.Mutex)
-	}
-	lock := a.agentWSOperationMu[machineCode]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		a.agentWSOperationMu[machineCode] = lock
-	}
-	return lock
+	agentWSMu         sync.Mutex
+	agentWSGeneration map[string]uint64
+	agentHeartbeatAt  map[string]int64
 }
 
 func New(cfg Config) (*App, error) {
@@ -93,10 +76,6 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", a.handleLogin)
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
-	mux.HandleFunc("GET /api/v1/agent/config", a.handleAgentConfig)
-	mux.HandleFunc("POST /api/v1/agent/heartbeat", a.handleAgentHeartbeat)
-	mux.HandleFunc("GET /api/v1/agent/command", a.handleAgentCommand)
-	mux.HandleFunc("POST /api/v1/agent/command/ack", a.handleAgentCommandAck)
 	mux.HandleFunc("GET /api/v1/agent/ws", a.handleAgentWebSocket)
 
 	authed := map[string]http.HandlerFunc{
@@ -153,6 +132,12 @@ func (a *App) Router(static fs.FS) http.Handler {
 		}
 		mux.HandleFunc(pat, handler)
 	}
+
+	// Browsers request this conventional icon path automatically. Return 204 when no icon is bundled.
+	// This avoids treating a harmless browser request as an application/API warning.
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	mux.Handle("/", http.FileServer(http.FS(static)))
 	return withRecover(mux)

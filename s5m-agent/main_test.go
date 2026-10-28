@@ -730,33 +730,26 @@ func TestReportHeartbeatWebSocketSuccess(t *testing.T) {
 	}
 }
 
-func TestReportHeartbeatDoesNotFallBackToHTTPWhenWebSocketFails(t *testing.T) {
-	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+func TestReportHeartbeatReturnsErrorWhenWebSocketFails(t *testing.T) {
 	var httpCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/agent/heartbeat" {
-			http.NotFound(w, r)
-			return
+		if r.URL.Path == "/api/v1/agent/heartbeat" {
+			httpCalled = true
 		}
-		httpCalled = true
-		if r.Header.Get("Authorization") != "Bearer test-token" {
-			t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
-		}
-		w.WriteHeader(http.StatusNoContent)
+		http.NotFound(w, r)
 	}))
 	defer server.Close()
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should return the WebSocket failure")
+		t.Fatal("reportHeartbeat() should return an error when WebSocket handshake fails")
 	}
 	if httpCalled {
-		t.Fatal("runtime heartbeat must not fall back to HTTP")
+		t.Fatal("HTTP heartbeat must not be called as a fallback")
 	}
 }
 
-func TestReportHeartbeatDoesNotFallBackWhenWebSocketIsUnauthorized(t *testing.T) {
-	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+func TestReportHeartbeatReturnsErrorWhenWebSocketIsUnauthorized(t *testing.T) {
 	var httpCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -767,9 +760,6 @@ func TestReportHeartbeatDoesNotFallBackWhenWebSocketIsUnauthorized(t *testing.T)
 			http.Error(w, "websocket endpoint not enabled", http.StatusUnauthorized)
 		case "/api/v1/agent/heartbeat":
 			httpCalled = true
-			if r.Header.Get("Authorization") != "Bearer test-token" {
-				t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
-			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
@@ -779,15 +769,14 @@ func TestReportHeartbeatDoesNotFallBackWhenWebSocketIsUnauthorized(t *testing.T)
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should return the WebSocket authorization failure")
+		t.Fatal("reportHeartbeat() should return an error when WebSocket handshake is unauthorized")
 	}
 	if httpCalled {
-		t.Fatal("runtime heartbeat must not fall back to HTTP")
+		t.Fatal("HTTP heartbeat must not be called after WebSocket authorization failure")
 	}
 }
 
-func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
-	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+func TestReportHeartbeatReturnsErrorWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
 	var httpCalled bool
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -822,14 +811,14 @@ func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIDDoesNotMatch(t *testing
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should reject mismatched WebSocket ACK ID")
+		t.Fatal("reportHeartbeat() should return an error when WebSocket ACK ID does not match")
 	}
 	if httpCalled {
-		t.Fatal("runtime heartbeat must not fall back to HTTP")
+		t.Fatal("HTTP heartbeat must not be called after a mismatched WebSocket ACK")
 	}
 }
 
-func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIsInvalid(t *testing.T) {
+func TestReportHeartbeatReturnsErrorWhenWebSocketAckIsInvalid(t *testing.T) {
 	for _, ack := range []struct {
 		name string
 		msg  map[string]any
@@ -838,8 +827,7 @@ func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIsInvalid(t *testing.T) {
 		{name: "negative acknowledgement", msg: map[string]any{"type": "heartbeat.ack", "id": "matching-id", "ok": false}},
 	} {
 		t.Run(ack.name, func(t *testing.T) {
-			t.Setenv("S5M_AGENT_WEBSOCKET", "1")
-			httpCalled := false
+			var httpCalled bool
 			upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -880,10 +868,10 @@ func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIsInvalid(t *testing.T) {
 
 			err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 			if err == nil {
-				t.Fatal("reportHeartbeat() should reject invalid WebSocket ACK")
+				t.Fatal("reportHeartbeat() should return an error when WebSocket ACK is invalid")
 			}
 			if httpCalled {
-				t.Fatal("runtime heartbeat must not fall back to HTTP")
+				t.Fatal("HTTP heartbeat must not be called after an invalid WebSocket ACK")
 			}
 		})
 	}

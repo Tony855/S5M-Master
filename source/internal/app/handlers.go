@@ -1427,11 +1427,23 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serialize the legacy HTTP config endpoint with Agent revocation, and
+	// revalidate after acquiring the lock. Otherwise a request authenticated
+	// just before revocation could recreate last-seen state or return config
+	// after its binding has been removed.
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	currentCode, currentAuthErr := a.agentMachineFromRequest(r)
+	if currentAuthErr != nil || currentCode != machineCode {
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
+		return
+	}
+
 	now := fmt.Sprintf("%d", time.Now().Unix())
 	if err := a.store.UpdateSettings(map[string]string{
 		"agent_lastseen_" + machineCode: now,
 	}); err != nil {
-		writeErr(w, 500, "更新设备心跳失败")
+		writeErr(w, http.StatusInternalServerError, "更新设备心跳失败")
 		return
 	}
 
@@ -1650,11 +1662,6 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "机器码、版本号或 SHA-256 格式无效")
 		return
 	}
-	// Serialize command enqueue with ACK and revocation for this Agent. The
-	// database's conditional insert still protects against concurrent writers.
-	operationMu := a.agentWSOperationLock(in.MachineCode)
-	operationMu.Lock()
-	defer operationMu.Unlock()
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 授权失败")
@@ -1701,16 +1708,14 @@ func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Keep the HTTP poll in the same per-Agent critical section as enqueue,
-	// ACK, WebSocket delivery and reconnect/revocation-related operations.
-	operationMu := a.agentWSOperationLock(code)
-	operationMu.Lock()
-	defer operationMu.Unlock()
-
-	// Revalidate authorization after waiting for the lock. A token can be
-	// revoked or rotated while this request is queued behind another operation.
-	if currentCode, authErr := a.agentMachineFromRequest(r); authErr != nil || currentCode != code {
-		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效，请重新注册")
+	// Keep command delivery serialized with credential revocation. The second
+	// authorization check closes the gap between the initial JWT validation
+	// and reading the pending command.
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	currentCode, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil || currentCode != code {
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
 		return
 	}
 	settings, err := a.store.GetSettings()
@@ -1745,41 +1750,32 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, decodeErrorStatus(err), "命令结果 JSON 无效")
 		return
 	}
-	if in.ID == "" || (in.Status != "success" && in.Status != "failed") {
-		writeErr(w, http.StatusBadRequest, "命令 ID 或状态无效")
+	if strings.TrimSpace(in.ID) == "" || (in.Status != "success" && in.Status != "failed") || len(in.Message) > 2048 {
+		writeErr(w, http.StatusBadRequest, "命令 ID、状态或结果消息无效")
 		return
 	}
-	// Keep HTTP ACKs mutually exclusive with WebSocket ACKs, command enqueue,
-	// and revocation for this Agent so a stale ACK cannot delete a new command.
-	operationMu := a.agentWSOperationLock(code)
-	operationMu.Lock()
-	defer operationMu.Unlock()
-	settings, err := a.store.GetSettings()
+	// Serialize ACK persistence with Agent binding revocation, then revalidate
+	// the credential while holding the same mutex used by DeleteAgentBinding.
+	// The initial authentication above can become stale while the request is decoded.
+	a.agentWSMu.Lock()
+	currentCode, authErr := a.agentMachineFromRequest(r)
+	if authErr != nil || currentCode != code {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
+		return
+	}
+	duplicate, matched, err := a.store.AckAgentCommand(code, in.ID, in.Status, in.Message, time.Now().Unix())
+	a.agentWSMu.Unlock()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取待执行命令失败")
+		writeErr(w, http.StatusInternalServerError, "原子保存命令结果失败")
 		return
 	}
-	var pending map[string]string
-	if json.Unmarshal([]byte(settings["agent_command_"+code]), &pending) != nil || pending["id"] != in.ID {
-		// The first ACK may have been committed while its HTTP response was lost.
-		// Accept a retry only when the stored result belongs to this exact command ID.
-		var previous map[string]any
-		if json.Unmarshal([]byte(settings["agent_command_result_"+code]), &previous) == nil &&
-			previous["id"] == in.ID {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true})
-			return
-		}
+	if !matched {
 		writeErr(w, http.StatusConflict, "命令已被替换或不存在")
 		return
 	}
-	result, err := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "编码命令结果失败")
-		return
-	}
-	// Keep the HTTP and WebSocket ACK paths on the same atomic storage operation.
-	if err := a.store.CompleteAgentCommand(code, in.ID, string(result)); err != nil {
-		writeErr(w, http.StatusInternalServerError, "原子确认 Agent 命令失败")
+	if duplicate {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "duplicate": true})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -1852,12 +1848,8 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// Match the lock order used by WebSocket connection replacement (per-Agent
-	// lock, then global generation lock) to avoid deadlocks and serialize revoke
-	// against command ACK/enqueue operations for this machine.
-	operationMu := a.agentWSOperationLock(code)
-	operationMu.Lock()
-	defer operationMu.Unlock()
+	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
+	// cannot restore status after the binding has been deleted.
 	a.agentWSMu.Lock()
 	defer a.agentWSMu.Unlock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {

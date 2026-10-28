@@ -113,10 +113,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	// A newly authenticated connection supersedes any older connection for the
 	// same Agent. Older sockets may still be blocked in ReadJSON, so every
 	// heartbeat must verify its generation before it can mutate persisted state.
-	// Serialize generation changes only with operations for this Agent. Other
-	// Agents remain independent and are not blocked by a slow config/store call.
-	operationMu := a.agentWSOperationLock(machineCode)
-	operationMu.Lock()
 	a.agentWSMu.Lock()
 	if a.agentWSGeneration == nil {
 		a.agentWSGeneration = make(map[string]uint64)
@@ -124,7 +120,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
 	a.agentWSMu.Unlock()
-	operationMu.Unlock()
 	// Keep the generation counter after disconnect. Deleting it would let a
 	// later reconnect reuse generation 1 and accidentally re-authorize an old
 	// still-open socket (an ABA problem).
@@ -148,67 +143,45 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err := conn.ReadJSON(&msg); err != nil {
 			return
 		}
-		// Authorization can be revoked after the handshake. Revalidate the
-		// original bearer token before every operation, not only before heartbeats.
-		currentMachineCode, authErr := a.agentMachineFromRequest(r)
-		if authErr != nil || currentMachineCode != machineCode {
-			_ = conn.WriteJSON(map[string]string{
-				"type": "error", "id": msg.ID, "message": "Agent 授权已失效，请重新注册",
-			})
-			return
-		}
-		// A reconnect supersedes the previous socket for every operation, not
-		// only heartbeat writes. Otherwise an old socket could still poll
-		// commands, fetch config, or acknowledge a command after replacement.
-		a.agentWSMu.Lock()
-		isCurrentGeneration := a.agentWSGeneration[machineCode] == generation
-		a.agentWSMu.Unlock()
-		if !isCurrentGeneration {
-			_ = conn.WriteJSON(map[string]string{
-				"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代",
-			})
-			return
-		}
-		// Serialize non-heartbeat operations with connection replacement. The
-		// generation check and the operation's side effects must share one lock;
-		// checking then unlocking here would leave a TOCTOU window.
 		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
-			operationMu.Lock()
+			// Serialize sensitive WebSocket operations with connection replacement and
+			// credential revocation. The delete-agent handler uses the same mutex.
 			a.agentWSMu.Lock()
-			isCurrentGeneration = a.agentWSGeneration[machineCode] == generation
-			a.agentWSMu.Unlock()
-			if !isCurrentGeneration {
-				operationMu.Unlock()
-				_ = conn.WriteJSON(map[string]string{
-					"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代",
-				})
+			if a.agentWSGeneration[machineCode] != generation {
+				a.agentWSMu.Unlock()
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
+				return
+			}
+			authorizedCode, authErr := a.agentMachineFromRequest(r)
+			if authErr != nil || authorizedCode != machineCode {
+				a.agentWSMu.Unlock()
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
 				return
 			}
 			switch msg.Type {
 			case "config.request":
-				if err := a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash); err != nil {
-					operationMu.Unlock()
-					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取节点配置失败"})
-					continue
-				}
+				err = a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash)
 			case "command.request":
-				if err := a.sendAgentWSCommand(conn, machineCode, msg.ID); err != nil {
-					operationMu.Unlock()
-					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "读取待执行命令失败"})
-					continue
-				}
+				err = a.sendAgentWSCommand(conn, machineCode, msg.ID)
 			case "command.ack":
-				if err := a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message); err != nil {
-					operationMu.Unlock()
-					_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": err.Error()})
-					continue
+				err = a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message)
+			}
+			a.agentWSMu.Unlock()
+			if err != nil {
+				message := err.Error()
+				if msg.Type == "config.request" {
+					message = "读取节点配置失败"
+				} else if msg.Type == "command.request" {
+					message = "读取待执行命令失败"
 				}
+				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": message})
+				continue
+			}
+			if msg.Type == "command.ack" {
 				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
-					operationMu.Unlock()
 					return
 				}
 			}
-			operationMu.Unlock()
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
@@ -230,19 +203,9 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		now := strconv.FormatInt(receivedAt.Unix(), 10)
-		// Heartbeats use the same per-Agent operation lock as reconnects. This
-		// prevents a superseded socket from committing telemetry without holding
-		// the global generation mutex during a database write.
-		operationMu.Lock()
 		a.agentWSMu.Lock()
-		isCurrentGeneration = a.agentWSGeneration[machineCode] == generation
-		if a.agentHeartbeatAt == nil {
-			a.agentHeartbeatAt = make(map[string]int64)
-		}
-		isNewerHeartbeat := receivedAt.UnixNano() >= a.agentHeartbeatAt[machineCode]
-		a.agentWSMu.Unlock()
-		if !isCurrentGeneration {
-			operationMu.Unlock()
+		if a.agentWSGeneration[machineCode] != generation {
+			a.agentWSMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -250,8 +213,25 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if !isNewerHeartbeat {
-			operationMu.Unlock()
+		// Revalidate credentials for heartbeats as well as config/command
+		// operations. This closes the handshake/revocation race where a socket
+		// authenticated just before revocation could register its generation
+		// just after the revocation handler removed the binding.
+		authorizedCode, authErr := a.agentMachineFromRequest(r)
+		if authErr != nil || authorizedCode != machineCode {
+			a.agentWSMu.Unlock()
+			_ = conn.WriteJSON(map[string]string{
+				"type":    "error",
+				"id":      msg.ID,
+				"message": "Agent 未授权或授权已失效",
+			})
+			return
+		}
+		if a.agentHeartbeatAt == nil {
+			a.agentHeartbeatAt = make(map[string]int64)
+		}
+		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
+			a.agentWSMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -263,7 +243,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			"agent_lastseen_" + machineCode: now,
 			"agent_status_" + machineCode:   string(payload),
 		}); err != nil {
-			operationMu.Unlock()
+			a.agentWSMu.Unlock()
 			_ = conn.WriteJSON(map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
@@ -271,10 +251,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		a.agentWSMu.Lock()
 		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
 		a.agentWSMu.Unlock()
-		operationMu.Unlock()
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := conn.WriteJSON(map[string]any{
 			"type": "heartbeat.ack",
@@ -339,26 +317,12 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
-	settings, err := a.store.GetSettings()
+	_, matched, err := a.store.AckAgentCommand(machineCode, commandID, status, message, time.Now().Unix())
 	if err != nil {
-		return fmt.Errorf("读取待执行命令失败: %w", err)
+		return fmt.Errorf("原子保存命令结果失败: %w", err)
 	}
-	var pending map[string]string
-	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) != nil || pending["id"] != commandID {
-		var previous map[string]any
-		if json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &previous) == nil && previous["id"] == commandID {
-			return nil
-		}
+	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
-	}
-	result, err := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
-	if err != nil {
-		return fmt.Errorf("编码命令结果失败: %w", err)
-	}
-	// Commit the result and remove the pending command in one SQLite transaction.
-	// Otherwise a failed delete could leave a completed command queued for rerun.
-	if err := a.store.CompleteAgentCommand(machineCode, commandID, string(result)); err != nil {
-		return fmt.Errorf("原子确认 Agent 命令失败: %w", err)
 	}
 	return nil
 }
