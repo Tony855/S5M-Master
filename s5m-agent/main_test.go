@@ -1043,7 +1043,6 @@ func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
 	}
 }
 
-
 func TestAgentWebSocketHelpersRefreshExpiredDeadlines(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
