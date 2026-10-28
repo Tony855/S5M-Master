@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1049,5 +1050,54 @@ func TestAgentTokenGenerateAndRegisterLifecycle(t *testing.T) {
 	}
 	if _, err := app.agentMachineFromRequest(req); err == nil {
 		t.Fatal("JWT remained valid after dedicated token binding was revoked")
+	}
+}
+
+func TestParseProxyLineAutoDetectsProtocols(t *testing.T) {
+	vmessPayload := base64.StdEncoding.EncodeToString([]byte(`{"v":"2","ps":"vmess-node","add":"vmess.example.com","port":"443","id":"uuid-123","aid":"0","scy":"auto","net":"ws","tls":"tls","sni":"cdn.example.com","host":"cdn.example.com","path":"/ws"}`))
+	tests := []struct {
+		name string
+		line string
+		wantType string
+		wantServer string
+		wantPort int
+	}{
+		{name: "SOCKS5", line: "SOCKS5://user:pass@socks.example.com:1080#socks", wantType: "socks5", wantServer: "socks.example.com", wantPort: 1080},
+		{name: "HTTP", line: "http://user:pass@http.example.com:8080#http", wantType: "http", wantServer: "http.example.com", wantPort: 8080},
+		{name: "VLESS WebSocket TLS", line: "vless://uuid-456@vless.example.com:443?type=ws&security=tls&sni=cdn.example.com&host=cdn.example.com&path=%2Fws#vless", wantType: "vless", wantServer: "vless.example.com", wantPort: 443},
+		{name: "Trojan", line: "trojan://secret@trojan.example.com:443?sni=cdn.example.com#trojan", wantType: "trojan", wantServer: "trojan.example.com", wantPort: 443},
+		{name: "VMess", line: "vmess://" + vmessPayload, wantType: "vmess", wantServer: "vmess.example.com", wantPort: 443},
+		{name: "Shadowsocks SIP002", line: "ss://" + base64.StdEncoding.EncodeToString([]byte("aes-128-gcm:secret")) + "@ss.example.com:8388#ss", wantType: "ss", wantServer: "ss.example.com", wantPort: 8388},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := parseProxyLine(tt.line)
+			if err != nil {
+				t.Fatalf("parseProxyLine() error = %v", err)
+			}
+			if p.Type != tt.wantType || p.Server != tt.wantServer || p.Port != tt.wantPort {
+				t.Fatalf("parsed proxy = type %q server %q port %d", p.Type, p.Server, p.Port)
+			}
+			if p.Name == "" {
+				t.Fatal("expected an automatically assigned name")
+			}
+			if msg := (&App{}).validateProxy(p); msg != "" {
+				t.Fatalf("validateProxy() = %q", msg)
+			}
+		})
+	}
+}
+
+func TestParseProxyLinePreservesProtocolOptions(t *testing.T) {
+	p, err := parseProxyLine("vless://uuid-456@vless.example.com:443?type=ws&security=tls&sni=cdn.example.com&host=cdn.example.com&path=%2Fws#edge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Extra["uuid"] != "uuid-456" || p.Extra["tls"] != true || p.Extra["servername"] != "cdn.example.com" {
+		t.Fatalf("VLESS options not detected: %#v", p.Extra)
+	}
+	ws, ok := p.Extra["ws-opts"].(map[string]any)
+	if !ok || ws["path"] != "/ws" {
+		t.Fatalf("WebSocket options not detected: %#v", p.Extra["ws-opts"])
 	}
 }
