@@ -611,11 +611,17 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 	}
 	if strings.TrimSpace(centralURL) != "" {
 		if err := writeControllerConfig(agentYml); err != nil {
-			return false, fmt.Errorf("运行配置已写入，但保存主控原始配置哈希源失败: %w", err)
+			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
+			}
+			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
 		}
 		if len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
-				return false, fmt.Errorf("运行配置已写入，但保存动态主控地址记录失败: %w", err)
+				if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+					return false, fmt.Errorf("保存动态主控地址记录失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
+				}
+				return false, fmt.Errorf("保存动态主控地址记录失败，已恢复旧运行配置: %w", err)
 			}
 		}
 	}
