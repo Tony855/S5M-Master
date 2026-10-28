@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -692,5 +693,90 @@ func TestMarshalProxiesWithSharedAnchorFallsBackForDifferentProtocolOptions(t *t
 	}
 	if len(decoded) != 2 || decoded[0]["uuid"] != "uuid-a" || decoded[1]["uuid"] != "uuid-b" {
 		t.Fatalf("fallback changed protocol options: %#v", decoded)
+	}
+}
+
+func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-anchor-expansion.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a":       "agent-token",
+		"agent_mihomo_secret_node-a": "node-secret",
+		"tun_enable":                 "true",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	const existingYAML = "mixed-port: 7899\nsecret: keep-this-secret\ntun:\n  enable: false\n"
+	if err := store.SaveNodeConfig("node-a", existingYAML); err != nil {
+		t.Fatalf("SaveNodeConfig: %v", err)
+	}
+
+	for _, p := range []Proxy{
+		{Name: "same-vless-443", Mode: "proxy", Type: "vless", Server: "192.0.2.10", Port: 443, MachineCode: "__GLOBAL__", Enabled: true,
+			Extra: map[string]any{"uuid": "123e4567-e89b-12d3-a456-426614174000", "network": "tcp", "tls": true, "servername": "example.com"}},
+		{Name: "same-vless-8443", Mode: "proxy", Type: "vless", Server: "192.0.2.10", Port: 8443, MachineCode: "__GLOBAL__", Enabled: true,
+			Extra: map[string]any{"uuid": "123e4567-e89b-12d3-a456-426614174000", "network": "tcp", "tls": true, "servername": "example.com"}},
+	} {
+		proxy := p
+		if err := store.CreateProxy(&proxy); err != nil {
+			t.Fatalf("CreateProxy(%s): %v", proxy.Name, err)
+		}
+	}
+
+	app := &App{store: store}
+	if err := app.syncAuthorizedNodeConfigs(); err != nil {
+		t.Fatalf("syncAuthorizedNodeConfigs: %v", err)
+	}
+	got, err := store.GetNodeConfig("node-a")
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if got == nil {
+		t.Fatal("node config missing after sync")
+	}
+	if strings.Contains(got.YAML, "&s5m_shared_proxy") || strings.Contains(got.YAML, "<<:") {
+		t.Fatalf("saved per-node YAML should contain expanded proxy fields, not merge aliases:\n%s", got.YAML)
+	}
+	for _, want := range []string{
+		"mixed-port: 7899",
+		"secret: keep-this-secret",
+		"same-vless-443",
+		"same-vless-8443",
+		"port: 443",
+		"port: 8443",
+		"uuid: 123e4567-e89b-12d3-a456-426614174000",
+		"servername: example.com",
+	} {
+		if !strings.Contains(got.YAML, want) {
+			t.Errorf("synced config lost %q:\n%s", want, got.YAML)
+		}
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(got.YAML), &doc); err != nil {
+		t.Fatalf("synced YAML invalid: %v", err)
+	}
+	proxies, ok := doc["proxies"].([]any)
+	if !ok || len(proxies) != 2 {
+		t.Fatalf("synced proxies = %#v, want 2 entries", doc["proxies"])
+	}
+	wantPorts := []int{443, 8443}
+	wantNames := []string{"same-vless-443", "same-vless-8443"}
+	if output := os.Getenv("S5M_MIHOMO_TEST_CONFIG"); output != "" {
+		if err := os.WriteFile(output, []byte(got.YAML), 0o600); err != nil {
+			t.Fatalf("write Mihomo integration config: %v", err)
+		}
+	}
+	for i, raw := range proxies {
+		proxy, ok := raw.(map[string]any)
+		if !ok {
+			t.Fatalf("proxy %d has type %T", i, raw)
+		}
+		if proxy["name"] != wantNames[i] || proxy["port"] != wantPorts[i] || proxy["uuid"] != "123e4567-e89b-12d3-a456-426614174000" {
+			t.Errorf("proxy %d fields = %#v; want name=%q port=%d uuid=123e4567-e89b-12d3-a456-426614174000", i, proxy, wantNames[i], wantPorts[i])
+		}
 	}
 }
