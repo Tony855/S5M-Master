@@ -2,9 +2,6 @@ package app
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/hex"
-	"time"
 	"fmt"
 	"io/fs"
 	"log/slog"
