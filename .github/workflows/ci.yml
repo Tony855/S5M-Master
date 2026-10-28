@@ -63,7 +63,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          S5M_MIHOMO_TEST_CONFIG=/tmp/s5m-node-sync-mihomo.yaml go test ./internal/app -run '^TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors
+          S5M_MIHOMO_TEST_CONFIG=/tmp/s5m-node-sync-mihomo.yaml go test ./internal/app -run TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors -count=1
+          /tmp/mihomo -t -f /tmp/s5m-node-sync-mihomo.yaml
+
   agent:
     name: Agent tests, vet and build
     runs-on: ubuntu-latest
