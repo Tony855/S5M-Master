@@ -128,6 +128,12 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The Agent deployment publishes host port 7890 to container port 7890.
+	// Keep generated remote-node configs aligned with that mapping; the
+	// controller's own config continues to use its separate 8080 listener.
+	if strings.TrimSpace(machineCode) != "" {
+		yml = strings.Replace(yml, "mixed-port: 8080", "mixed-port: 7890", 1)
+	}
 	// The controller's TUN switch controls generated defaults. A saved per-node
 	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
 	// Missing setting means the default (enabled). Only an explicit false disables TUN.
