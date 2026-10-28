@@ -43,8 +43,6 @@ createApp({
       });
     });
     const subUrl = ref('');
-    const proxyRoutingMode = ref('return');
-    const savingProxyRoutingMode = ref(false);
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
     const selectedConfigNode = ref('');
@@ -76,7 +74,7 @@ createApp({
     const restoringBackup = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', mode: 'proxy', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
+    const proxyForm = reactive({ id: 0, name: '', mode: 'return', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -568,7 +566,7 @@ createApp({
     const openEditProxy = (row) => {
       const extra = row.extra && typeof row.extra === 'object' && !Array.isArray(row.extra) ? row.extra : {};
       Object.assign(proxyForm, {
-        id: row.id || 0, name: row.name || row.proxy_name || '', mode: row.mode || 'proxy',
+        id: row.id || 0, name: row.name || row.proxy_name || '', mode: ({ proxy: 'return', china: 'split' }[row.mode] || row.mode || 'return'),
         type: row.type || row.proxy_type || 'socks5',
         server: row.server || '', port: row.port || 1080, machine_code: row.machine_code || '',
         source_cidr: row.source_cidr || '0.0.0.0/0',
@@ -607,7 +605,7 @@ createApp({
           method: isEdit ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: proxyForm.name, mode: proxyForm.mode || 'proxy', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
+            name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
           })
@@ -1188,30 +1186,6 @@ const safeCopy = async (text) => {
       }
     };
 
-    const saveProxyRoutingMode = async () => {
-      if (!['global', 'split', 'return', 'game'].includes(proxyRoutingMode.value)) {
-        showMsg('请选择有效的代理模式', 'warning');
-        return;
-      }
-      if (savingProxyRoutingMode.value) return;
-      savingProxyRoutingMode.value = true;
-      try {
-        const res = await api('/api/v1/settings', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ proxy_routing_mode: proxyRoutingMode.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '保存代理模式失败');
-        await retryNodeConfigSync();
-        showMsg('代理模式已保存；已请求同步所有授权节点配置', 'success');
-      } catch (e) {
-        showMsg(e.message || '保存代理模式失败', 'error');
-      } finally {
-        savingProxyRoutingMode.value = false;
-      }
-    };
-
     const loadSettings = async () => {
       // Always show a usable absolute subscription URL. Older servers may omit
       // subscribe_url, and settings may contain an empty/whitespace value.
@@ -1223,7 +1197,6 @@ const safeCopy = async (text) => {
         const s = await res.json().catch(() => ({}));
         const configured = String(s.subscribe_url || s.sub_url || '').trim();
         subUrl.value = configured || fallback;
-        proxyRoutingMode.value = ['global', 'split', 'return', 'game'].includes(String(s.proxy_routing_mode || '').trim()) ? String(s.proxy_routing_mode).trim() : 'return';
       } catch (e) {
         subUrl.value = fallback;
       }
@@ -1254,7 +1227,7 @@ const safeCopy = async (text) => {
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
-      retryingNodeConfigSync, retryNodeConfigSync, proxyRoutingMode, savingProxyRoutingMode, saveProxyRoutingMode,
+      retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,

@@ -121,7 +121,7 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取 Mihomo 设置失败: %w", err)
 	}
-	mode := normalizeProxyRoutingMode(settings["proxy_routing_mode"])
+	mode := routingModeForMachine(proxies, machineCode)
 	controllerHost := controllerHostFromSettings(settings)
 	yml, err := buildConfigFromProxiesWithMode(proxies, machineCode, secret, mode, controllerHost)
 	if err != nil {
@@ -237,9 +237,37 @@ func normalizeProxyRoutingMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "global", "split", "return", "game", "legacy":
 		return strings.ToLower(strings.TrimSpace(raw))
+	case "proxy":
+		return "return"
+	case "china":
+		return "split"
 	default:
 		return "return"
 	}
+}
+
+func routingModeForMachine(proxies []Proxy, machineCode string) string {
+	for _, p := range proxies {
+		if !p.Enabled || p.Mode == "direct" || p.Mode == "reject" {
+			continue
+		}
+		matches := p.MachineCode == "__GLOBAL__" && machineCode == ""
+		if machineCode != "" && strings.TrimSpace(p.MachineCode) == machineCode {
+			matches = true
+		}
+		if !matches {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(p.Mode)) {
+		case "global", "split", "return", "game":
+			return strings.ToLower(strings.TrimSpace(p.Mode))
+		case "proxy":
+			return "return"
+		case "china":
+			return "split"
+		}
+	}
+	return "return"
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
@@ -305,7 +333,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			return "", fmt.Errorf("代理名称不能为空且不能超过 100 个字符")
 		}
 		switch p.Mode {
-		case "proxy", "china", "game":
+		case "proxy", "china", "global", "split", "return", "game":
 		default:
 			return "", fmt.Errorf("代理 %q 的运行模式无效：%q", p.Name, p.Mode)
 		}
@@ -436,8 +464,8 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			rules = append(rules, "MATCH,DIRECT")
 		}
 	case "split":
-		// Split mode: mainland destinations go direct; overseas traffic uses the proxy.
-		rules = append(rules, "GEOIP,CN,DIRECT")
+		// Split mode is rule-driven: do not force mainland IP ranges to DIRECT.
+		// Unmatched traffic follows the configured default proxy rule below.
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
 		} else {
