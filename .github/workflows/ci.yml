@@ -87,11 +87,13 @@ jobs:
 
           compose = Path("s5m-agent/docker-compose.yml").read_text(encoding="utf-8")
           config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
-          assert "    cap_add:\n      - NET_ADMIN" in compose, "Compose must grant NET_ADMIN for TUN"
-          assert "    devices:\n      - /dev/net/tun:/dev/net/tun" in compose, "Compose must map /dev/net/tun"
-          assert re.search(r"(?m)^  enable: true$", config.split("tun:", 1)[1].split("proxies:", 1)[0]), "default Agent config enables TUN"
-          assert "--network host" not in compose, "Agent must not use host networking"
-          print("Agent Compose TUN permissions and bridge-network safety verified")
+          tun = config.split("tun:", 1)[1].split("proxies:", 1)[0]
+          assert re.search(r"(?m)^\s+cap_add:\s*\n\s+- NET_ADMIN$", compose), "Compose must grant NET_ADMIN for opt-in TUN"
+          assert re.search(r"(?m)^\s+devices:\s*\n\s+- /dev/net/tun:/dev/net/tun$", compose), "Compose must map /dev/net/tun for opt-in TUN"
+          assert re.search(r"(?m)^  enable: false$", tun), "first-boot Agent config must keep TUN disabled"
+          assert "network_mode: host" not in compose, "Agent must not use host networking"
+          assert "Existing /data/config.yaml is intentionally preserved" in config, "existing runtime config must not be overwritten"
+          print("PASS: first-boot TUN is disabled; opt-in permissions exist; host networking is forbidden")
           PY
       - name: Set up Go
         uses: actions/setup-go@v6
