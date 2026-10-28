@@ -32,7 +32,7 @@
 
     <el-main class="main">
       <div class="top-bar">
-        <div class="topbar-status"><span class="topbar-dot"></span><span>控制台已连接</span></div>
+        <div class="topbar-status"><span class="topbar-dot" :class="{ 'realtime-online': realtimeStatus === 'connected', 'realtime-pending': realtimeStatus === 'connecting' || realtimeStatus === 'reconnecting' }"></span><span>{{ realtimeStatus === 'connected' ? '实时通道已连接' : (realtimeStatus === 'connecting' ? '实时通道连接中' : (realtimeStatus === 'reconnecting' ? '实时通道重连中' : '实时通道未连接')) }}</span></div>
         <el-dropdown trigger="click" @command="handleUserMenu">
           <button type="button" class="admin-menu-trigger" aria-label="管理员菜单">
             <span class="admin-avatar" :title="(currentUser || 'admin') + ' · 账户菜单'">{{ (currentUser || 'A').slice(0,1).toUpperCase() }}</span>
