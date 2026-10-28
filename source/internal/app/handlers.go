@@ -1674,8 +1674,8 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		Version string `json:"version"`
-		SHA256 string `json:"sha256"`
+		Version     string `json:"version"`
+		SHA256      string `json:"sha256"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "请求 JSON 无效")
