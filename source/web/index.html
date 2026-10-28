@@ -357,6 +357,20 @@
 
       <div v-if="page === 'config'">
         <div class="card-panel">
+          <div class="card-title">主控默认代理模式</div>
+          <p class="import-note">此模式用于新生成的主控/Agent 默认配置。已保存的节点独立 YAML 会保留其 DNS、TUN 和其他自定义项；保存后可重试同步代理与规则。为保证 Agent 管理通道可用，生成规则会优先将已配置的主控地址直连。</p>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <el-select v-model="proxyRoutingMode" style="min-width:220px;" aria-label="主控默认代理模式">
+              <el-option label="全局模式（全部走代理）" value="global"></el-option>
+              <el-option label="分流模式（大陆直连，其余代理）" value="split"></el-option>
+              <el-option label="回国模式（大陆直连，境外走代理）" value="return"></el-option>
+              <el-option label="游戏模式（游戏域名走代理，其余直连）" value="game"></el-option>
+            </el-select>
+            <el-button type="primary" :loading="savingProxyRoutingMode" @click="saveProxyRoutingMode">保存并同步代理模式</el-button>
+          </div>
+          <p class="import-note">DNS 使用 Fake-IP 与 DoH。为解析代理服务器自身域名，bootstrap DNS 仍可能使用普通 DNS；如需强制禁止明文 DNS，还必须配合主机/RouterOS 防火墙规则。游戏模式目前按常见游戏平台域名匹配，实际游戏 IP/UDP 行为需在目标网络验证。</p>
+        </div>
+        <div class="card-panel">
           <div class="card-title">节点独立配置 (YAML)</div>
           <p class="import-note">每个机器码保存一份独立配置。代理管理中新增、编辑、删除或重新绑定代理时，主控端会自动同步该节点 YAML 的 proxies/rules；其他自定义设置保持不变。保存 YAML 后，Agent 会在下一次拉取时应用。</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
