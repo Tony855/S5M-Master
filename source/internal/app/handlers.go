@@ -208,6 +208,14 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if mode, ok := in["proxy_routing_mode"]; ok {
+		switch strings.TrimSpace(mode) {
+		case "global", "split", "return", "game":
+		default:
+			writeErr(w, http.StatusBadRequest, "代理模式必须是 global、split、return 或 game")
+			return
+		}
+	}
 	if err := a.store.UpdateSettings(in); err != nil {
 		writeErr(w, http.StatusInternalServerError, "设置保存失败")
 		return
