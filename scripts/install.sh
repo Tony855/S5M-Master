@@ -538,6 +538,17 @@ NGINXEOF
     rollback_install "HTTPS 证书签发失败"
     exit 1
   fi
+  # Explicitly enable and verify automatic renewal rather than assuming package defaults.
+  if ! systemctl enable --now certbot.timer || ! systemctl is-active --quiet certbot.timer; then
+    echo "❌ HTTPS 证书已签发，但 certbot.timer 未能启动，无法确认自动续期已启用。" >&2
+    rollback_install "Certbot 自动续期服务启动失败"
+    exit 1
+  fi
+  if ! certbot certificates 2>/dev/null | grep -Fq "Domains: $S5M_DOMAIN"; then
+    echo "❌ Certbot 未列出 $S5M_DOMAIN 的有效证书。" >&2
+    rollback_install "HTTPS 证书登记校验失败"
+    exit 1
+  fi
   if ! curl -fsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
     rollback_install "HTTPS 端点健康检查失败"
     exit 1
