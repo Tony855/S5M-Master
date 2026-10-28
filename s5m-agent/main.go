@@ -414,6 +414,18 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	validationOutput, validationErr := exec.Command(
+		mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", path,
+	).CombinedOutput()
+	_ = validationOutput
+	if validationErr != nil {
+		validationOutput, validationErr = exec.Command(
+			mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", writeValidationCandidate(normalized),
+		).CombinedOutput()
+	}
+	if validationErr != nil {
+		return false, fmt.Errorf("主控直连排除配置未通过 Mihomo 校验: %s", safeMihomoValidationDiagnostic(validationOutput))
+	}
 	tmp, err := os.CreateTemp(mihomoHome(), ".mihomo-route-*")
 	if err != nil {
 		return false, err
