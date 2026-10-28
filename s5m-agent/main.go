@@ -1476,7 +1476,7 @@ func main() {
 			}
 			centralURL, urlErr := validateCentralURL(in.CentralURL)
 			if urlErr != nil || strings.TrimSpace(in.Secret) == "" {
-				http.Error(w, "主控地址或授权密钥无效；地址必须是完整的 HTTP(S) URL，不能包含凭据、查询参数或片段", http.StatusBadRequest)
+				http.Error(w, "主控地址或授权密钥无效；默认要求 HTTPS，可信内网如需 HTTP 必须显式设置 S5M_ALLOW_INSECURE_HTTP=1；地址不能包含凭据、查询参数或片段", http.StatusBadRequest)
 				return
 			}
 			machineID, machineErr := getMachineID()
