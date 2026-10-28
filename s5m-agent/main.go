@@ -66,6 +66,19 @@ func mihomoHome() string {
 	return strings.TrimRight(home, "/")
 }
 
+// normalizeCentralURLInput defaults bare hostnames and IP addresses to HTTPS.
+// Plain HTTP is only accepted when an operator explicitly opts in on a trusted network.
+func normalizeCentralURLInput(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.ContainsAny(raw, "\r\n") {
+		return "", fmt.Errorf("主控地址格式无效")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	return validateCentralURL(raw)
+}
+
 // validateCentralURL rejects malformed URLs and requires TLS by default.
 // Plain HTTP is permitted only when an operator explicitly opts in for a trusted
 // private network using S5M_ALLOW_INSECURE_HTTP=1. Registration sends the
@@ -1474,7 +1487,7 @@ func main() {
 				http.Error(w, "参数错误", http.StatusBadRequest)
 				return
 			}
-			centralURL, urlErr := validateCentralURL(in.CentralURL)
+			centralURL, urlErr := normalizeCentralURLInput(in.CentralURL)
 			if urlErr != nil || strings.TrimSpace(in.Secret) == "" {
 				http.Error(w, "主控地址或授权密钥无效；默认要求 HTTPS，可信内网如需 HTTP 必须显式设置 S5M_ALLOW_INSECURE_HTTP=1；地址不能包含凭据、查询参数或片段", http.StatusBadRequest)
 				return

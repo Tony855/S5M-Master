@@ -1848,8 +1848,8 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
 	// cannot restore status after the binding has been deleted.
 	a.agentWSMu.Lock()
-	defer a.agentWSMu.Unlock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {
+		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
 	}
@@ -1860,6 +1860,12 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// before it can persist another heartbeat.
 	a.agentWSGeneration[code]++
 	delete(a.agentHeartbeatAt, code)
+	a.agentWSMu.Unlock()
+
+	// Publish only after revocation is committed and the Agent heartbeat lock is released.
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.binding.revoked", "machine_code": code, "at": time.Now().Unix(),
+	})
 	writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
 
@@ -2030,6 +2036,10 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.binding.updated", "machine_code": in.MachineCode,
+		"authorized": true, "at": time.Now().Unix(),
+	})
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message":      "生成成功",
 		"machine_code": in.MachineCode,

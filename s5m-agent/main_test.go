@@ -130,6 +130,35 @@ func TestValidateCentralURL(t *testing.T) {
 	}
 }
 
+func TestNormalizeCentralURLInputDefaultsBareHostToHTTPS(t *testing.T) {
+	t.Setenv("S5M_ALLOW_INSECURE_HTTP", "")
+	tests := []struct {
+		name string
+		in   string
+		want string
+		ok   bool
+	}{
+		{name: "bare domain", in: "controller.example.com", want: "https://controller.example.com", ok: true},
+		{name: "bare IPv4 with port", in: "192.0.2.10:8443", want: "https://192.0.2.10:8443", ok: true},
+		{name: "explicit HTTPS", in: "https://controller.example.com/", want: "https://controller.example.com", ok: true},
+		{name: "HTTP rejected without opt-in", in: "http://controller.example.com", ok: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeCentralURLInput(tc.in)
+			if tc.ok {
+				if err != nil || got != tc.want {
+					t.Fatalf("normalizeCentralURLInput(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("normalizeCentralURLInput(%q) should reject HTTP without opt-in", tc.in)
+			}
+		})
+	}
+}
+
 func TestValidateKernelUpdateCommand(t *testing.T) {
 	tests := []struct {
 		name    string

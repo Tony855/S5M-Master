@@ -39,7 +39,7 @@
     <button class="btn-copy" onclick="copyMachineId()">复制</button>
   </div>
   <label>服务器地址</label>
-  <input type="text" id="url" placeholder="例如: http://1.2.3.4">
+  <input type="url" id="url" placeholder="https://controller.example.com" value="https://" autocomplete="url" inputmode="url">
   <label>注册密钥</label>
   <input type="password" id="secret" placeholder="请输入 Token 绑定设备">
   <button id="btn" onclick="save()">一键绑定设备</button>
@@ -73,6 +73,9 @@
       const res = await fetchWithTimeout('/api/config');
       const data = await res.json();
       if (data.central_url) document.getElementById('url').value = data.central_url;
+      else document.getElementById('url').value = 'https://';
+      refreshBindingStatus();
+      window.setInterval(refreshBindingStatus, 3000);
 
       if (data.has_token) {
         document.getElementById('btn').innerText = '重新绑定';
@@ -86,6 +89,32 @@
       }
     } catch(e) { document.getElementById('machineId').innerText = '获取失败'; if (!document.getElementById('hostname').innerText || document.getElementById('hostname').innerText === '读取主机名中...') document.getElementById('hostname').innerText = '读取失败'; setStatus('error', 'Agent 后端无响应'); }
   };
+  let bindingStatusRequest = false;
+  async function refreshBindingStatus() {
+    if (bindingStatusRequest) return;
+    bindingStatusRequest = true;
+    try {
+      const res = await fetchWithTimeout('/api/config?t=' + Date.now(), {}, 4000);
+      if (!res.ok) throw new Error('状态查询失败');
+      const data = await res.json();
+      const btn = document.getElementById('btn');
+      if (!data.has_token) {
+        btn.innerText = '一键绑定设备';
+        setStatus('', '等待绑定');
+      } else if (data.connected) {
+        btn.innerText = '重新绑定';
+        setStatus('active', '已绑定，主控 WebSocket 已连接');
+      } else {
+        btn.innerText = '重新绑定';
+        setStatus('', '已保存绑定信息，正在连接主控端…');
+      }
+    } catch (_) {
+      // Retain the last state when the local API briefly fails.
+    } finally {
+      bindingStatusRequest = false;
+    }
+  }
+
   function copyMachineId() {
     if (!currentMachineID) return;
     var t = document.createElement("textarea"); t.value = currentMachineID; document.body.appendChild(t); t.select();
@@ -98,15 +127,20 @@
     let url = document.getElementById('url').value.trim().replace(/\/$/, '');
     const secret = document.getElementById('secret').value;
     if (!url) return showMsg('请输入控制台地址', false);
-    if (!/^https?:\/\//i.test(url)) { url = 'http://' + url; document.getElementById('url').value = url; }
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    if (/^https?:\/\/$/i.test(url)) return showMsg('请输入有效的主控服务器域名或 IP 地址', false);
+    document.getElementById('url').value = url;
     const btn = document.getElementById('btn'); btn.innerText = '正在绑定...'; btn.disabled = true; setStatus('', '通信中...');
     try {
       const res = await fetch('/api/bind', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({central_url: url, secret: secret}) });
       const text = await res.text(); let data = {};
       try { data = JSON.parse(text); } catch { data = { message: text }; }
       if (!res.ok) throw new Error(data.error || data.message || '绑定失败');
-      if(res.ok){ showMsg("绑定成功", true); } else { showMsg("绑定失败：Token错误或主控台拒绝", false); } btn.innerText = '重新绑定'; setStatus('active', '设备已绑定，连接正常');
-      setTimeout(() => location.reload(), 1500);
+      showMsg(data.message || '绑定凭据已保存，正在建立实时连接', true);
+      btn.innerText = '重新绑定';
+      document.getElementById('secret').value = '';
+      setStatus('', '绑定凭据已保存，正在连接主控端…');
+      await refreshBindingStatus();
     } catch (e) { showMsg(e.message, false); btn.innerText = '重试绑定'; btn.disabled = false; setStatus('error', '绑定失败'); }
   }
   function showMsg(text, isSuccess) { const msg = document.getElementById('msg'); msg.innerText = text; msg.className = isSuccess ? 'msg-success' : 'msg-error'; msg.style.display = 'block'; }
