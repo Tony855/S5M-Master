@@ -76,6 +76,23 @@ jobs:
           sh -n routeros/cont-init.d/10-mihomo-config
           sh -n routeros/services/mihomo/run
           sh -n routeros/services/agent/run
+      - name: Verify Agent Compose TUN capabilities match the default config
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          compose = Path("s5m-agent/docker-compose.yml").read_text(encoding="utf-8")
+          config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
+          assert re.search(r"(?m)^    cap_add:\\n      - NET_ADMIN$", compose), "Compose must grant NET_ADMIN for TUN"
+          assert re.search(r"(?m)^    devices:\\n      - /dev/net/tun:/dev/net/tun$", compose), "Compose must map /dev/net/tun"
+          assert re.search(r"(?m)^  enable: true$", config.split("tun:", 1)[1].split("proxies:", 1)[0]), "default Agent config enables TUN"
+          assert "--network host" not in compose, "Agent must not use host networking"
+          print("Agent Compose TUN permissions and bridge-network safety verified")
+          PY
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
