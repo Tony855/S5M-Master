@@ -1,5 +1,6 @@
 # S5M Mihomo TUN + Fake-IP + DoH template
 # Controller routing mode is selected in S5M: global / split / return / game.
+# split: mainland traffic DIRECT, overseas traffic PROXY. return: mainland traffic PROXY, overseas traffic DIRECT.
 # Keep the controller URL configured via S5M_CENTRAL_URL or S5M_PUBLIC_URL so generated rules can bypass it directly.
 # Bootstrap resolvers are only for resolving proxy endpoints; strict no-cleartext-DNS requires host/RouterOS firewall rules.
 # Replace the example proxy and secret before deployment.
@@ -46,7 +47,6 @@ dns:
   fake-ip-range: 198.18.0.1/16
   ipv6: false
   cache-algorithm: arc
-  ipv6: false
   respect-rules: true
   fake-ip-filter:
     - "*.lan"
