@@ -19,6 +19,7 @@ createApp({
     let browserEventsRetryTimer = null;
     let browserEventsStopped = false;
     let staleStatusTimer = null;
+    const browserWSRequests = new Map();
     let overviewTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
@@ -180,11 +181,40 @@ createApp({
       catch (e) { return 'HTTP ' + res.status; }
     }
 
+    const sendBrowserWSControl = (payload) => new Promise((resolve, reject) => {
+      const socket = browserEventsSocket;
+      if (!socket || socket.readyState !== WebSocket.OPEN || realtimeStatus.value !== 'connected') {
+        reject(new Error('实时通道未连接；请等待 WebSocket 恢复后重试'));
+        return;
+      }
+      const requestId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+        ? window.crypto.randomUUID()
+        : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+      const timeout = setTimeout(() => {
+        browserWSRequests.delete(requestId);
+        reject(new Error('实时操作等待超时，请刷新节点状态后确认任务是否已排队'));
+      }, 15000);
+      browserWSRequests.set(requestId, {
+        resolve: (value) => { clearTimeout(timeout); resolve(value); },
+        reject: (error) => { clearTimeout(timeout); reject(error); }
+      });
+      try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); }
+      catch (error) {
+        clearTimeout(timeout);
+        browserWSRequests.delete(requestId);
+        reject(new Error('发送实时操作失败：' + (error.message || 'WebSocket 已断开')));
+      }
+    });
+
     const stopBrowserEvents = () => {
       browserEventsStopped = true;
       realtimeStatus.value = 'disconnected';
       if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
       browserEventsRetryTimer = null;
+      for (const [requestId, pending] of browserWSRequests.entries()) {
+        browserWSRequests.delete(requestId);
+        pending.reject(new Error('实时通道已断开，请重新连接后重试'));
+      }
       if (browserEventsSocket) {
         const socket = browserEventsSocket;
         browserEventsSocket = null;
@@ -224,6 +254,18 @@ createApp({
           loadOverview();
         };
         socket.onmessage = (event) => {
+          // Resolve browser-originated control requests on the same primary WebSocket.
+          let envelope;
+          try { envelope = JSON.parse(event.data); } catch (_) { return; }
+          if (envelope.type === 'request.result' && envelope.request_id) {
+            const pending = browserWSRequests.get(envelope.request_id);
+            if (pending) {
+              browserWSRequests.delete(envelope.request_id);
+              if (envelope.ok) pending.resolve(envelope);
+              else pending.reject(new Error(envelope.error || '实时操作失败'));
+            }
+            return;
+          }
           let message;
           try { message = JSON.parse(event.data); } catch (_) { return; }
           if (message.type === 'agent.status.updated' && message.machine_code) {
@@ -825,13 +867,12 @@ createApp({
       } catch (_) { return; }
       queueingKernelUpdate.value = true;
       try {
-        const res = await api('/api/v1/agents/kernel-update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: machineCode, version, sha256 })
+        const data = await sendBrowserWSControl({
+          type: 'agent.mihomo.update',
+          machine_code: machineCode,
+          version,
+          sha256
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
         kernelUpdateDialog.value = false;
         await loadAgentsData();
         showMsg(data.message || '更新任务已排队；Agent 在线时将执行', 'success');
