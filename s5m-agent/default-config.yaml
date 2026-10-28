@@ -9,8 +9,11 @@ profile:
   store-fake-ip: true
 dns:
   enable: false
+# Safety-first first boot: do not install container routes until the operator
+# has verified Docker bridge isolation and the host/controller bypass routes.
+# Existing /data/config.yaml is intentionally preserved by the init script.
 tun:
-  enable: true
+  enable: false
 proxies: []
 proxy-groups: []
 rules:
