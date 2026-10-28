@@ -192,3 +192,25 @@ for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
 if failed:
     raise SystemExit(1)
+
+# Agent enrollment and authorization state must not depend on a forced browser reload.
+agent_registration_html = Path("s5m-agent/index.html").read_text(encoding="utf-8")
+agent_registration_main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
+agent_list_html = Path("source/web/agents.html").read_text(encoding="utf-8")
+checks.update({
+    "Agent registration defaults to HTTPS and distinguishes saved credentials from a live connection": (
+        'value="https://"' in agent_registration_html
+        and "url = 'https://' + url" in agent_registration_html
+        and "refreshBindingStatus" in agent_registration_html
+        and "location.reload()" not in agent_registration_html
+        and "normalizeCentralURLInput(in.CentralURL)" in agent_registration_main
+    ),
+    "Agent authorization changes are broadcast and handled by live management UIs": (
+        '"type": "agent.binding.revoked"' in handlers
+        and '"type": "agent.binding.updated"' in handlers
+        and "agent.binding.revoked" in app_js
+        and "agent.binding.updated" in app_js
+        and "connectAgentEvents" in agent_list_html
+        and "agent.binding.revoked" in agent_list_html
+    ),
+})
