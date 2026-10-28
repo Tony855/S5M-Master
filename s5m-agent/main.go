@@ -128,6 +128,54 @@ func preserveMihomoSecret(current, incoming map[string]interface{}) error {
 	return nil
 }
 
+// isGeoIPDownloadFailure identifies external GeoIP download failures, not YAML errors.
+func isGeoIPDownloadFailure(output []byte) bool {
+	message := strings.ToLower(string(output))
+	return strings.Contains(message, "can't download mmdb") ||
+		strings.Contains(message, "cannot download mmdb") ||
+		strings.Contains(message, "can't initial geoip") ||
+		strings.Contains(message, "geoip dns fallback filter error")
+}
+
+// disableGeoIPFallbackForValidation changes only the in-memory validation copy.
+// The original normalized config is restored before it is written to disk.
+func disableGeoIPFallbackForValidation(cfg map[string]interface{}) bool {
+	fallback, ok := cfg["fallback-filter"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	geoip, exists := fallback["geoip"]
+	if !exists {
+		return false
+	}
+	enabled, ok := geoip.(bool)
+	if !ok || !enabled {
+		return false
+	}
+	fallback["geoip"] = false
+	return true
+}
+
+// safeMihomoValidationDiagnostic keeps useful error context without exposing local paths or secrets.
+func safeMihomoValidationDiagnostic(output []byte) string {
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return "Mihomo 未提供详细错误输出"
+	}
+	lines := strings.Split(message, "\n")
+	if len(lines) > 6 {
+		lines = lines[len(lines)-6:]
+	}
+	message = strings.Join(lines, " | ")
+	message = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(message, "$1$2[已隐藏]")
+	message = regexp.MustCompile(`(?:[A-Za-z]:)?[/\\][^[:space:]\"']+`).ReplaceAllString(message, "[路径已隐藏]")
+	message = strings.Join(strings.Fields(message), " ")
+	if len(message) > 700 {
+		message = message[:700] + "…"
+	}
+	return message
+}
+
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
 func validateMihomoConfigYAML(data []byte) (map[string]interface{}, error) {
@@ -199,9 +247,29 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
-	if _, err := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput(); err != nil {
-		_ = os.Remove(tmpPath)
-		return false, fmt.Errorf("新配置未通过 Mihomo 校验（已隐藏底层路径详情）")
+	validationOutput, validationErr := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
+	if validationErr != nil {
+		// Mihomo may need to download GeoIP data just to validate fallback-filter.
+		// A transient GitHub/network failure must not block a valid config forever.
+		// Retry a validation-only copy with GeoIP filtering disabled; the saved
+		// configuration below always retains the operator's original setting.
+		if isGeoIPDownloadFailure(validationOutput) && disableGeoIPFallbackForValidation(nextCfg) {
+			validationOnly, marshalErr := yaml.Marshal(nextCfg)
+			if marshalErr == nil && os.WriteFile(tmpPath, validationOnly, 0600) == nil {
+				validationOutput, validationErr = exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
+				if validationErr == nil {
+					// Restore the exact original normalized config before committing it.
+					if writeErr := os.WriteFile(tmpPath, newNorm, 0600); writeErr != nil {
+						_ = os.Remove(tmpPath)
+						return false, fmt.Errorf("恢复待写入的 Mihomo 配置失败")
+					}
+				}
+			}
+		}
+		if validationErr != nil {
+			_ = os.Remove(tmpPath)
+			return false, fmt.Errorf("新配置未通过 Mihomo 校验：%s", safeMihomoValidationDiagnostic(validationOutput))
+		}
 	}
 	if err := os.Rename(tmpPath, mainPath); err != nil {
 		_ = os.Remove(tmpPath)
