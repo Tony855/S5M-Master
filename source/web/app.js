@@ -674,15 +674,17 @@ createApp({
         const content = evt.target.result;
         if (file.name.endsWith('.json')) {
           try {
-            const arr = findProxyArray(JSON.parse(content));
+            const parsedJSON = JSON.parse(content);
+            const arr = findProxyArray(parsedJSON);
             if (!arr || !arr.length) throw new Error('找不到包含 server/address 的节点数组');
+            const inheritedProtocol = String(parsedJSON && !Array.isArray(parsedJSON) ? (parsedJSON.protocol || parsedJSON.type || parsedJSON.scheme || '') : '').trim().toLowerCase();
             const lines = arr.map((item, index) => {
               const name = String(item.name || item.remark || item.proxy_name || item.ps || `节点-${index + 1}`).trim().replace(/[\r\n#]/g, ' ');
-              const directURI = String(item.uri || item.url || item.link || item.proxy || '').trim();
+              const directURI = String(item.uri || item.url || item.link || item.proxy || item.vmess_link || item.vmessLink || '').trim();
               if (directURI && /^(socks5|socks|http|https|ss|vmess|vless|trojan):\/\//i.test(directURI)) {
                 return directURI.includes('#') ? directURI : directURI + '#' + encodeURIComponent(name);
               }
-              let type = String(item.type || item.protocol || item.scheme || '').trim().toLowerCase();
+              let type = String(item.type || item.protocol || item.scheme || inheritedProtocol || '').trim().toLowerCase();
               if (type === 'socks') type = 'socks5';
               if (type === 'https') type = 'http';
               const server = String(item.server || item.address || item.host || item.add || '').trim();
