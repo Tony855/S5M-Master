@@ -313,7 +313,7 @@ func (a *App) validateProxy(p *Proxy) string {
 		p.Mode = "proxy"
 	}
 	switch p.Mode {
-	case "proxy", "china", "game":
+	case "proxy", "china", "global", "split", "return", "game":
 		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
 		p.Server = strings.TrimSpace(p.Server)
 		switch p.Type {
