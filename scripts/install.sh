@@ -196,6 +196,24 @@ else
   : > "$BACKUP/mihomo-service-absent"
 fi
 
+# When HTTPS is requested, snapshot both the Nginx site file and its enabled
+# symlink before any changes. A failed Certbot run can otherwise leave a broken
+# or partially TLS-configured virtual host behind after the application rolls back.
+NGINX_SITE="/etc/nginx/sites-available/s5m-server"
+NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
+if [[ -n "$S5M_DOMAIN" ]]; then
+  if [[ -e "$NGINX_SITE" || -L "$NGINX_SITE" ]]; then
+    cp -a "$NGINX_SITE" "$BACKUP/nginx-s5m-server.conf"
+  else
+    : > "$BACKUP/nginx-site-absent"
+  fi
+  if [[ -e "$NGINX_ENABLED" || -L "$NGINX_ENABLED" ]]; then
+    cp -a "$NGINX_ENABLED" "$BACKUP/nginx-s5m-server.enabled"
+  else
+    : > "$BACKUP/nginx-enabled-absent"
+  fi
+fi
+
 # Shared rollback for failures after the snapshot has been created. The database
 # backup is deliberately not copied over a live DB; preserve it for controlled recovery.
 rollback_install() {
@@ -221,6 +239,23 @@ rollback_install() {
   if [[ -f "$BACKUP/s5m-server.env" ]]; then cp -a "$BACKUP/s5m-server.env" "$ENV_FILE"; elif [[ -f "$BACKUP/env-file-absent" ]]; then rm -f "$ENV_FILE"; fi
   if [[ -f "$BACKUP/legacy-server.env" ]]; then install -d -m 0750 "$(dirname "$OLD_ENV_FILE")"; cp -a "$BACKUP/legacy-server.env" "$OLD_ENV_FILE"; elif [[ -f "$BACKUP/legacy-env-absent" ]]; then rm -f "$OLD_ENV_FILE"; fi
   if [[ -f "$BACKUP/config.yaml" ]]; then cp -a "$BACKUP/config.yaml" "$DB_DIR/config.yaml"; elif [[ -f "$BACKUP/config-file-absent" ]]; then rm -f "$DB_DIR/config.yaml"; fi
+  if [[ -n "$S5M_DOMAIN" ]]; then
+    if [[ -f "$BACKUP/nginx-s5m-server.conf" ]]; then
+      rm -f "$NGINX_SITE"
+      cp -a "$BACKUP/nginx-s5m-server.conf" "$NGINX_SITE"
+    elif [[ -f "$BACKUP/nginx-site-absent" ]]; then
+      rm -f "$NGINX_SITE"
+    fi
+    if [[ -e "$BACKUP/nginx-s5m-server.enabled" || -L "$BACKUP/nginx-s5m-server.enabled" ]]; then
+      rm -f "$NGINX_ENABLED"
+      cp -a "$BACKUP/nginx-s5m-server.enabled" "$NGINX_ENABLED"
+    elif [[ -f "$BACKUP/nginx-enabled-absent" ]]; then
+      rm -f "$NGINX_ENABLED"
+    fi
+    if command -v nginx >/dev/null 2>&1 && nginx -t; then
+      systemctl reload nginx 2>/dev/null || true
+    fi
+  fi
   systemctl daemon-reload
   if [[ -f "$BACKUP/mihomo.service" ]]; then
     systemctl restart mihomo || echo "❌ Mihomo 回滚启动失败，请检查 journalctl -u mihomo" >&2
@@ -444,11 +479,7 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
 fi
 
 if [[ -n "$S5M_DOMAIN" ]]; then
-  NGINX_SITE="/etc/nginx/sites-available/s5m-server"
-  NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
-  if [[ -e "$NGINX_SITE" && ! -f "$BACKUP/nginx-s5m-server.conf" ]]; then
-    cp -a "$NGINX_SITE" "$BACKUP/nginx-s5m-server.conf"
-  fi
+  
   cat > "$NGINX_SITE" <<NGINXEOF
 server {
     listen 80;
