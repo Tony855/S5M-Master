@@ -1484,12 +1484,22 @@ func parseProxyImportContent(content string) ([]*Proxy, []string) {
 				Password string `json:"password"`
 			} `json:"authentication"`
 			Servers []struct {
-				Server   string `json:"server"`
-				Port     int    `json:"port"`
-				Username string `json:"username"`
-				Password string `json:"password"`
-				UDP      bool   `json:"udp"`
-				Name     string `json:"name"`
+				Server     string `json:"server"`
+				Port       int    `json:"port"`
+				Username   string `json:"username"`
+				Password   string `json:"password"`
+				UDP        bool   `json:"udp"`
+				Name       string `json:"name"`
+				VmessLink  string `json:"vmess_link"`
+				UUID       string `json:"uuid"`
+				AlterID    int    `json:"alterId"`
+				Cipher     string `json:"cipher"`
+				Network    string `json:"network"`
+				TLS        bool   `json:"tls"`
+				ServerName string `json:"servername"`
+				SNI        string `json:"sni"`
+				Host       string `json:"host"`
+				Path       string `json:"path"`
 			} `json:"servers"`
 		}
 		if err := json.Unmarshal([]byte(trimmed), &input); err != nil {
@@ -1507,8 +1517,42 @@ func parseProxyImportContent(content string) ([]*Proxy, []string) {
 		for i, server := range input.Servers {
 			p := &Proxy{Mode: "proxy", Type: protocol, Server: strings.TrimSpace(server.Server), Port: server.Port, SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{}}
 			p.Name = strings.TrimSpace(server.Name)
-			if p.Name == "" {
-				p.Name = fmt.Sprintf("%s-%s:%d", protocol, p.Server, p.Port)
+			// Some provider JSON formats include a complete vmess:// URI per server.
+			// Parse that URI through the same tested path used by text imports so UUID,
+			// cipher, transport, WebSocket path/Host and TLS/SNI are not discarded.
+			if protocol == "vmess" && strings.TrimSpace(server.VmessLink) != "" {
+				parsed, err := parseProxyLine(strings.TrimSpace(server.VmessLink))
+				if err != nil {
+					failures = append(failures, fmt.Sprintf("第 %d 个节点 VMess 链接无效: %s", i+1, err))
+					continue
+				}
+				p = parsed
+				p.Mode = "proxy"
+				p.SourceCIDR = "0.0.0.0/0"
+				p.Enabled = true
+				if name := strings.TrimSpace(server.Name); name != "" {
+					p.Name = name
+				}
+			} else {
+				if p.Name == "" {
+					p.Name = fmt.Sprintf("%s-%s:%d", protocol, p.Server, p.Port)
+				}
+				if protocol == "vmess" {
+					if uuid := strings.TrimSpace(server.UUID); uuid != "" { p.Extra["uuid"] = uuid }
+					if server.AlterID >= 0 { p.Extra["alterId"] = server.AlterID }
+					if cipher := strings.TrimSpace(server.Cipher); cipher != "" { p.Extra["cipher"] = cipher } else { p.Extra["cipher"] = "auto" }
+					if network := strings.TrimSpace(server.Network); network != "" { p.Extra["network"] = network }
+					if server.TLS { p.Extra["tls"] = true }
+					serverName := strings.TrimSpace(server.ServerName)
+					if serverName == "" { serverName = strings.TrimSpace(server.SNI) }
+					if serverName != "" { p.Extra["servername"] = serverName }
+					if strings.EqualFold(strings.TrimSpace(server.Network), "ws") {
+						ws := map[string]any{}
+						if path := strings.TrimSpace(server.Path); path != "" { ws["path"] = path }
+						if host := strings.TrimSpace(server.Host); host != "" { ws["headers"] = map[string]any{"Host": host} }
+						p.Extra["ws-opts"] = ws
+					}
+				}
 			}
 			username, password := server.Username, server.Password
 			if username == "" && password == "" && input.Authentication.Enabled {
