@@ -535,6 +535,9 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 					t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got)
 				}
 			}
+			if tt.mode == "split" && strings.Contains(got, "GEOIP,CN,DIRECT") {
+				t.Errorf("split mode must not force mainland destinations direct:\\n%s", got)
+			}
 		})
 	}
 	ipConfig, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", "global", "203.0.113.10")
