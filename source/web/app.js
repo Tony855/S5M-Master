@@ -682,7 +682,9 @@ createApp({
               if (directURI && /^(socks5|socks|http|https|ss|vmess|vless|trojan):\/\//i.test(directURI)) {
                 return directURI.includes('#') ? directURI : directURI + '#' + encodeURIComponent(name);
               }
-              const type = String(item.type || item.protocol || item.scheme || '').trim().toLowerCase();
+              let type = String(item.type || item.protocol || item.scheme || '').trim().toLowerCase();
+              if (type === 'socks') type = 'socks5';
+              if (type === 'https') type = 'http';
               const server = String(item.server || item.address || item.host || item.add || '').trim();
               const port = Number(item.port || item.server_port || item.serverPort || 0);
               if (!server || !Number.isInteger(port) || port < 1 || port > 65535) return '';
@@ -694,9 +696,11 @@ createApp({
               if (type === 'vmess') {
                 const ws = item['ws-opts'] || item.wsOpts || {};
                 const headers = ws.headers || {};
+                const uuid = String(item.uuid || item.id || '');
+                if (!uuid) return '';
                 const vmess = {
                   v: '2', ps: name, add: server, port: String(port),
-                  id: String(item.uuid || item.id || ''), aid: String(item.alterId ?? item.aid ?? 0),
+                  id: uuid, aid: String(item.alterId ?? item.aid ?? 0),
                   scy: String(item.cipher || item.scy || 'auto'),
                   net: String(item.network || item.net || 'tcp'),
                   tls: item.tls ? 'tls' : '',
