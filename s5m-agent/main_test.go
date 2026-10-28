@@ -1173,7 +1173,6 @@ func TestAgentWebSocketHelpersRefreshExpiredDeadlines(t *testing.T) {
 	}
 }
 
-
 func TestGeoIPDownloadFailureDetection(t *testing.T) {
 	if !isGeoIPDownloadFailure([]byte("can't initial GeoIP: can't download MMDB: EOF")) {
 		t.Fatal("expected transient GeoIP download failure to be recognized")
