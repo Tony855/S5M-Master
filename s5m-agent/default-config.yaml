@@ -10,7 +10,7 @@ profile:
 dns:
   enable: false
 tun:
-  enable: false
+  enable: true
 proxies: []
 proxy-groups: []
 rules:
