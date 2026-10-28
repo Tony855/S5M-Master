@@ -524,6 +524,61 @@ func TestParseProxyImportContentSOCKS5JSONIPv4IPv6(t *testing.T) {
 	}
 }
 
+func TestParseProxyImportContentPreservesVMessLinkOptions(t *testing.T) {
+	vmessJSON := `{"v":"2","ps":"link-name","add":"109.176.19.70","port":"22080","id":"test-uuid","aid":"0","scy":"auto","net":"ws","type":"none","host":"ws.example.test","path":"/ws","tls":""}`
+	link := "vmess://" + base64.StdEncoding.EncodeToString([]byte(vmessJSON))
+	content := fmt.Sprintf(`{"protocol":"vmess","servers":[{"name":"imported-vmess","vmess_link":%q}]}`, link)
+
+	proxies, failures := parseProxyImportContent(content)
+	if len(failures) != 0 {
+		t.Fatalf("unexpected failures: %v", failures)
+	}
+	if len(proxies) != 1 {
+		t.Fatalf("got %d proxies, want 1", len(proxies))
+	}
+	p := proxies[0]
+	if p.Type != "vmess" || p.Server != "109.176.19.70" || p.Port != 22080 {
+		t.Fatalf("unexpected VMess endpoint: %+v", p)
+	}
+	if p.Name != "imported-vmess" || p.Extra["uuid"] != "test-uuid" {
+		t.Fatalf("name/UUID not preserved: name=%q extra=%#v", p.Name, p.Extra)
+	}
+	if p.Extra["network"] != "ws" || p.Extra["cipher"] != "auto" {
+		t.Fatalf("VMess transport/cipher not preserved: %#v", p.Extra)
+	}
+	ws, ok := p.Extra["ws-opts"].(map[string]any)
+	if !ok || ws["path"] != "/ws" {
+		t.Fatalf("WebSocket path not preserved: %#v", p.Extra["ws-opts"])
+	}
+	headers, ok := ws["headers"].(map[string]any)
+	if !ok || headers["Host"] != "ws.example.test" {
+		t.Fatalf("WebSocket Host not preserved: %#v", ws)
+	}
+}
+
+func TestParseProxyImportContentPreservesStructuredVMessOptions(t *testing.T) {
+	content := `{
+		"protocol":"vmess",
+		"servers":[
+			{"name":"vmess-json","server":"109.176.19.70","port":22081,
+			 "uuid":"structured-uuid","alterId":0,"cipher":"auto",
+			 "network":"ws","host":"ws.example.test","path":"/ws","tls":false}
+		]
+	}`
+	proxies, failures := parseProxyImportContent(content)
+	if len(failures) != 0 || len(proxies) != 1 {
+		t.Fatalf("proxies=%v failures=%v", proxies, failures)
+	}
+	p := proxies[0]
+	if p.Extra["uuid"] != "structured-uuid" || p.Extra["network"] != "ws" {
+		t.Fatalf("structured VMess fields not preserved: %#v", p.Extra)
+	}
+	ws, ok := p.Extra["ws-opts"].(map[string]any)
+	if !ok || ws["path"] != "/ws" {
+		t.Fatalf("structured WebSocket path not preserved: %#v", p.Extra["ws-opts"])
+	}
+}
+
 func TestParseProxyImportContentRejectsMalformedJSON(t *testing.T) {
 	proxies, failures := parseProxyImportContent(`{"protocol":"socks5","servers":[`)
 	if len(proxies) != 0 || len(failures) == 0 {
