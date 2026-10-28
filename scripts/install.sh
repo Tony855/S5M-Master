@@ -10,17 +10,47 @@ if [[ -f "$ROOT/source/main.go" ]]; then SRC="$ROOT/source"; elif [[ -f "$ROOT/m
 ENV_FILE="/etc/s5m-server.env"
 OLD_ENV_FILE="/etc/s5m-server/server.env"
 DB_DIR="/var/lib/s5m-server"
-# Optional Let's Encrypt setup: S5M_DOMAIN must resolve to this server and ports 80/443 must be reachable.
+# HTTPS is checked before prompting: preserve a working certificate and virtual host.
 S5M_DOMAIN="${S5M_DOMAIN:-}"
 S5M_EMAIL="${S5M_EMAIL:-}"
+HTTPS_ALREADY_CONFIGURED=0
+NGINX_SITE="/etc/nginx/sites-available/s5m-server"
+NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
 if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
+
+[[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
+
+# Reuse a working TLS virtual host and certificate without rewriting or reissuing them.
+if [[ -f "$NGINX_SITE" ]] &&
+   grep -Eq 'listen[[:space:]]+443[[:space:]]+ssl' "$NGINX_SITE"; then
+  detected_domain="$(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) if ($i !~ /;/) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/) {print $i; exit}} }' "$NGINX_SITE")"
+  cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
+  key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
+  if [[ -n "$detected_domain" && -s "$cert_path" && -s "$key_path" ]] &&
+     command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 &&
+     { [[ -z "$S5M_DOMAIN" ]] || [[ "$S5M_DOMAIN" == "$detected_domain" ]]; }; then
+    S5M_DOMAIN="$detected_domain"
+    HTTPS_ALREADY_CONFIGURED=1
+    echo "🔐 检测到现有 HTTPS 配置和证书：$S5M_DOMAIN，跳过重复配置。"
+  fi
+fi
+
+# Ask interactively only when HTTPS is not already configured. Blank domain keeps HTTP-only mode.
+if [[ -z "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 && -t 0 ]]; then
+  echo "尚未检测到可用的 S5M HTTPS 配置。"
+  read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: " S5M_DOMAIN
+  if [[ -n "$S5M_DOMAIN" ]]; then
+    read -r -p "Let's Encrypt 邮箱 [v2wallid@gmail.com]: " S5M_EMAIL
+    S5M_EMAIL="${S5M_EMAIL:-v2wallid@gmail.com}"
+  fi
+fi
+
 if [[ -n "$S5M_DOMAIN" && ! "$S5M_DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
   echo "❌ S5M_DOMAIN 格式无效：$S5M_DOMAIN" >&2
   exit 1
 fi
-if [[ -n "$S5M_DOMAIN" && -z "$S5M_EMAIL" ]]; then
-  echo "❌ 配置 HTTPS 证书时必须同时设置 S5M_EMAIL，例如 S5M_DOMAIN=panel.example.com S5M_EMAIL=admin@example.com bash scripts/install.sh" >&2
-  exit 1
+if [[ -n "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 && -z "$S5M_EMAIL" ]]; then
+  S5M_EMAIL="v2wallid@gmail.com"
 fi
 BIN="/opt/S5M-Server/S5M-Server"
 
@@ -199,9 +229,7 @@ fi
 # When HTTPS is requested, snapshot both the Nginx site file and its enabled
 # symlink before any changes. A failed Certbot run can otherwise leave a broken
 # or partially TLS-configured virtual host behind after the application rolls back.
-NGINX_SITE="/etc/nginx/sites-available/s5m-server"
-NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
-if [[ -n "$S5M_DOMAIN" ]]; then
+if [[ -n "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 ]]; then
   if [[ -e "$NGINX_SITE" || -L "$NGINX_SITE" ]]; then
     cp -a "$NGINX_SITE" "$BACKUP/nginx-s5m-server.conf"
   else
@@ -478,7 +506,7 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
   exit 1
 fi
 
-if [[ -n "$S5M_DOMAIN" ]]; then
+if [[ -n "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 ]]; then
   
   cat > "$NGINX_SITE" <<NGINXEOF
 server {
@@ -515,6 +543,12 @@ NGINXEOF
     exit 1
   fi
   echo "🔐 HTTPS 证书已签发并配置自动续期： https://$S5M_DOMAIN"
+elif [[ -n "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 1 ]]; then
+  if ! curl -fsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
+    echo "❌ 检测到现有 HTTPS 配置，但 HTTPS 健康检查失败；为避免覆盖现有配置，安装器停止。请检查 Nginx/证书/服务状态。" >&2
+    exit 1
+  fi
+  echo "✅ 复用现有 HTTPS 配置，不重新签发证书： https://$S5M_DOMAIN"
 fi
 
 echo "✅ S5M-Server 安装成功"
