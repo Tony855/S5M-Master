@@ -774,7 +774,9 @@ func collectMihomoStatus() map[string]any {
 		return status
 	}
 	hashData, hashErr := configHashSource()
-	if hashErr != nil { hashData = data }
+	if hashErr != nil {
+		hashData = data
+	}
 	sum := sha256.Sum256([]byte(strings.TrimSpace(string(hashData))))
 	status["config_sha256"] = fmt.Sprintf("%x", sum[:])
 	var cfg map[string]interface{}
