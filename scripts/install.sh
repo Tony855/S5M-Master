@@ -54,6 +54,8 @@ if ss -lntp 2>/dev/null | grep -q ":${PORT_TO_USE} "; then
         echo "🔄 检测到旧版 S5M-Server 正在运行 (PID: $OLD_PID)，自动停止以释放端口..."
         systemctl stop s5m-server || kill "$OLD_PID" || true
         sleep 1
+    elif [[ -n "$S5M_DOMAIN" && "$OLD_CMD" == *"nginx"* ]]; then
+        echo "ℹ️ 检测到现有 Nginx，保留其服务并添加 S5M 域名虚拟主机。"
     else
         echo "❌ 端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: $OLD_PID) 占用！" >&2
         echo "请手动停止该程序，或修改 $ENV_FILE 中的端口后重试。" >&2
@@ -467,9 +469,7 @@ server {
 }
 NGINXEOF
   ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
-  if [[ -e /etc/nginx/sites-enabled/default ]]; then
-    mv /etc/nginx/sites-enabled/default "/etc/nginx/sites-enabled/default.disabled-by-s5m-$STAMP"
-  fi
+  # Keep any existing default site intact; the S5M virtual host is selected by server_name.
   if ! nginx -t || ! systemctl enable --now nginx; then
     rollback_install "Nginx HTTPS 反向代理配置失败"
     exit 1
