@@ -1,5 +1,10 @@
 # S5M Mihomo TUN + Fake-IP + DoH template
-# Replace the example proxy and secret before deployment.
+# Controller routing mode is selected in S5M: global / split / return / game.
+# split: mainland traffic DIRECT, overseas traffic PROXY. return: mainland traffic PROXY, overseas traffic DIRECT.
+# Keep the controller URL configured via S5M_CENTRAL_URL or S5M_PUBLIC_URL so generated rules can bypass it directly.
+# Bootstrap resolvers are only for resolving proxy endpoints; strict no-cleartext-DNS requires host/RouterOS firewall rules.
+# This standalone example uses return mode. In S5M, selecting another mode regenerates rules accordingly.
+# Replace controller.example.com, the example proxy and secret before deployment.
 # This template is for Linux hosts with TUN support. RouterOS/container networking may need platform-specific routing/firewall setup.
 mode: rule
 mixed-port: 8080
@@ -41,8 +46,8 @@ dns:
   listen: 0.0.0.0:5353
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
-  cache-algorithm: arc
   ipv6: false
+  cache-algorithm: arc
   respect-rules: true
   fake-ip-filter:
     - "*.lan"
@@ -79,6 +84,8 @@ proxies:
     udp: true
 
 rules:
+  # Keep Agent HTTPS/WebSocket management traffic to the controller direct.
+  - DOMAIN,controller.example.com,DIRECT
   # Send DoH endpoint connections through the proxy to avoid direct DoH egress.
   - DOMAIN-SUFFIX,dns.alidns.com,example-socks5
   - DOMAIN-SUFFIX,doh.pub,example-socks5
@@ -86,5 +93,6 @@ rules:
   - DOMAIN-SUFFIX,dns.google,example-socks5
   # Optional client-specific routing; replace with a real LAN source address.
   # - SRC-IP-CIDR,192.168.1.88/32,example-socks5
-  # Add reject rules before the final MATCH rule if needed.
+  # Return mode: mainland IP traffic goes through the China-return proxy; overseas traffic goes direct.
+  - GEOIP,CN,example-socks5
   - MATCH,DIRECT

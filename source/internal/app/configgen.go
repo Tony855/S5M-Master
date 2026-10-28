@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,16 +117,18 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	yml, err := buildConfigFromProxies(proxies, machineCode, secret)
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return "", fmt.Errorf("读取 Mihomo 设置失败: %w", err)
+	}
+	mode := normalizeProxyRoutingMode(settings["proxy_routing_mode"])
+	controllerHost := controllerHostFromSettings(settings)
+	yml, err := buildConfigFromProxiesWithMode(proxies, machineCode, secret, mode, controllerHost)
 	if err != nil {
 		return "", err
 	}
 	// The controller's TUN switch controls generated defaults. A saved per-node
 	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		return "", fmt.Errorf("读取 TUN 开关失败: %w", err)
-	}
 	if settings["tun_enable"] != "true" {
 		yml = strings.Replace(yml, "tun:\n    enable: true", "tun:\n    enable: false", 1)
 	}
@@ -230,7 +233,40 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 	return nil
 }
 
+func normalizeProxyRoutingMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "global", "split", "return", "game", "legacy":
+		return strings.ToLower(strings.TrimSpace(raw))
+	default:
+		return "return"
+	}
+}
+
+func controllerHostFromSettings(settings map[string]string) string {
+	candidates := []string{settings["central_url"], settings["public_url"], settings["server_url"], settings["agent_central_url"]}
+	candidates = append(candidates, os.Getenv("S5M_CENTRAL_URL"), os.Getenv("S5M_PUBLIC_URL"), os.Getenv("PUBLIC_URL"))
+	for _, candidate := range candidates {
+		raw := strings.TrimSpace(candidate)
+		if raw == "" {
+			continue
+		}
+		if !strings.Contains(raw, "://") {
+			raw = "https://" + raw
+		}
+		u, err := url.Parse(raw)
+		if err == nil && u.Hostname() != "" {
+			return strings.Trim(strings.ToLower(u.Hostname()), "[]")
+		}
+	}
+	return ""
+}
+
 func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
+	return buildConfigFromProxiesWithMode(proxies, machineCode, secret, "legacy", "")
+}
+
+func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routingMode, controllerHost string) (string, error) {
+	routingMode = normalizeProxyRoutingMode(routingMode)
 	// Normalize persisted rows before generating either proxy entries or routing
 	// rules. Older/imported rows may predate API validation.
 	proxies = append([]Proxy(nil), proxies...)
@@ -315,10 +351,20 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 	}
 
 	rules := []string{}
-	// Send configured DoH endpoint traffic through the first enabled proxy. The
-	// proxy-server-nameserver list above remains the direct bootstrap resolver,
-	// preventing a DNS/proxy dependency loop when resolving proxy server names.
-	if len(outs) > 0 {
+	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
+	if controllerHost != "" {
+		if ip := net.ParseIP(controllerHost); ip != nil {
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			rules = append(rules, fmt.Sprintf("IP-CIDR,%s/%d,DIRECT,no-resolve", ip.String(), bits))
+		} else {
+			rules = append(rules, fmt.Sprintf("DOMAIN,%s,DIRECT", controllerHost))
+		}
+	}
+	// DNS bootstrap remains direct to avoid a DNS/proxy dependency loop.
+	if len(outs) > 0 && routingMode != "global" {
 		for _, domain := range []string{"dns.alidns.com", "doh.pub", "dns.cloudflare.com", "dns.google"} {
 			rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", domain, outs[0].Name))
 		}
@@ -371,7 +417,54 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 		rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", canonical, target))
 	}
 
-	rules = append(rules, "MATCH,DIRECT")
+	firstProxy, firstGameProxy := "", ""
+	for _, p := range outs {
+		if firstProxy == "" {
+			firstProxy = p.Name
+		}
+		for _, original := range proxies {
+			if original.Name == p.Name && original.Mode == "game" && firstGameProxy == "" {
+				firstGameProxy = p.Name
+			}
+		}
+	}
+	switch routingMode {
+	case "global":
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,DIRECT")
+		}
+	case "split":
+		// Split mode: mainland destinations go direct; overseas traffic uses the proxy.
+		rules = append(rules, "GEOIP,CN,DIRECT")
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,DIRECT")
+		}
+	case "return":
+		// Return-to-China mode: mainland destinations use the proxy; overseas destinations go direct.
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("GEOIP,CN,%s", firstProxy))
+		} else {
+			rules = append(rules, "GEOIP,CN,DIRECT")
+		}
+		rules = append(rules, "MATCH,DIRECT")
+	case "legacy":
+		rules = append(rules, "MATCH,DIRECT")
+	case "game":
+		gameProxy := firstGameProxy
+		if gameProxy == "" {
+			gameProxy = firstProxy
+		}
+		if gameProxy != "" {
+			for _, domain := range []string{"steampowered.com", "steamcommunity.com", "steamcontent.com", "epicgames.com", "playstation.net", "playstation.com", "xboxlive.com", "xbox.com", "battle.net", "blizzard.com", "riotgames.com", "leagueoflegends.com", "valorant.com", "ea.com"} {
+				rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", domain, gameProxy))
+			}
+		}
+		rules = append(rules, "MATCH,DIRECT")
+	}
 	rb, err := yaml.Marshal(rules)
 	if err != nil {
 		return "", err

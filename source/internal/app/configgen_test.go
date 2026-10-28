@@ -510,6 +510,42 @@ func TestBuildConfigSupportsExplicitGlobalAndUnboundProxies(t *testing.T) {
 	}
 }
 
+func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "proxy-a", Mode: "proxy", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+		{Name: "game-a", Mode: "game", Type: "socks5", Server: "192.0.2.11", Port: 1081, MachineCode: "__GLOBAL__", Enabled: true},
+	}
+	tests := []struct {
+		mode string
+		want []string
+	}{
+		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
+		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
+		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
+		{mode: "game", want: []string{"DOMAIN-SUFFIX,steampowered.com,game-a", "MATCH,DIRECT"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			got, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", tt.mode, "controller.example.com")
+			if err != nil {
+				t.Fatalf("build config: %v", err)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got)
+				}
+			}
+		})
+	}
+	ipConfig, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", "global", "203.0.113.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ipConfig, "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve") {
+		t.Fatal("controller IPv4 must be explicitly routed direct")
+	}
+}
+
 func TestBuildConfigRoutesConfiguredDoHThroughProxy(t *testing.T) {
 	proxies := []Proxy{{
 		Name: "proxy-a", Mode: "proxy", Type: "socks5",

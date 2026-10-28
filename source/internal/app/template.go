@@ -22,7 +22,9 @@ import (
 // defaultMihomoTemplate is shown when no draft has been saved yet. It is a
 // safe starter template based on the project's generated configuration shape.
 // Replace the example proxy endpoint and secret before applying it to a node.
-const defaultMihomoTemplate = `allow-lan: true
+const defaultMihomoTemplate = `# S5M unified template: routing mode is managed separately.
+# Keep external-controller bound to loopback so it is not exposed to the LAN.
+allow-lan: true
 mixed-port: 8080
 mode: rule
 log-level: info
@@ -65,7 +67,9 @@ dns:
   enable: true
   listen: 0.0.0.0:5353
   enhanced-mode: fake-ip
+  cache-algorithm: arc
   fake-ip-range: 198.18.0.1/16
+  ipv6: false
   fake-ip-filter:
     - "*.lan"
     - "*.local"
