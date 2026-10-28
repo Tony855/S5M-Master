@@ -1772,13 +1772,14 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "命令已被替换或不存在")
 		return
 	}
-	result, _ := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + code: string(result)}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存命令结果失败")
+	result, err := json.Marshal(map[string]any{"id": in.ID, "type": pending["type"], "status": in.Status, "message": in.Message, "updated_at": time.Now().Unix()})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "编码命令结果失败")
 		return
 	}
-	if err := a.store.DeleteSettings([]string{"agent_command_" + code}); err != nil {
-		writeErr(w, http.StatusInternalServerError, "清除已执行命令失败")
+	// Keep the HTTP and WebSocket ACK paths on the same atomic storage operation.
+	if err := a.store.CompleteAgentCommand(code, in.ID, string(result)); err != nil {
+		writeErr(w, http.StatusInternalServerError, "原子确认 Agent 命令失败")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
