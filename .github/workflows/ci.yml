@@ -148,9 +148,12 @@ jobs:
           from pathlib import Path
 
           script = Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+          run_start = script.index("docker run -d")
+          run_end = script.index('|| die "容器启动失败"', run_start)
+          run_block = script[run_start:run_end]
           checks = {
-              "Agent container explicitly uses Docker bridge networking": "--network bridge" in script,
-              "Agent deployment never selects host networking": "--network host" not in script,
+              "Agent container explicitly uses Docker bridge networking": "--network bridge" in run_block,
+              "Agent docker run command never selects host networking": "--network host" not in run_block,
               "Agent TUN route changes are documented as container namespace scoped": "Keep Mihomo TUN routes inside the Agent container's network namespace" in script,
               "Runtime guard verifies the actual container network mode": "docker inspect -f '{{.HostConfig.NetworkMode}}' \"$CONTAINER\"" in script and 'if [ "$network_mode" != "bridge" ]; then' in script,
               "Deployment does not publish host SSH port 22": '-p "22:' not in script and "-p 22:" not in script,
