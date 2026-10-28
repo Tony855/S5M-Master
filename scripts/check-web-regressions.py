@@ -14,6 +14,11 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "Linux Agent deployment explicitly isolates TUN routes in Docker bridge network to protect host SSH": (
+        '--network bridge' in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+        and '--network host' not in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+        and "Keep Mihomo TUN routes inside the Agent container's network namespace" in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+    ),
     "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in template_source and "不能删除当前发布版本" in template_source and "FROM node_template_bindings WHERE source='template' AND template_version=?" in template_source and '"DELETE /api/v1/mihomo/template/{version}"' in router,
     "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
 
