@@ -139,6 +139,29 @@ jobs:
           bash -n scripts/install.sh
           password="$(openssl rand -hex 24)"
           [[ "$password" =~ ^[a-f0-9]{48}$ ]]
+      - name: Validate Agent TUN isolation and host SSH safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/s5m-deploy.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script = Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+          checks = {
+              "Agent container explicitly uses Docker bridge networking": "--network bridge" in script,
+              "Agent deployment never selects host networking": "--network host" not in script,
+              "Agent TUN route changes are documented as container namespace scoped": "Keep Mihomo TUN routes inside the Agent container's network namespace" in script,
+              "Runtime guard verifies the actual container network mode": "docker inspect -f '{{.HostConfig.NetworkMode}}' \"$CONTAINER\"" in script and 'if [ "$network_mode" != "bridge" ]; then' in script,
+              "Deployment does not publish host SSH port 22": '-p "22:' not in script and "-p 22:" not in script,
+              "Deployment does not perform global Docker cleanup": "docker system prune" not in script and "docker rm -f $(docker ps -aq)" not in script and "docker rmi -f $(docker images -aq)" not in script,
+              "Deployment does not delete persistent Agent data": 'rm -rf "/opt/s5m-agent"' not in script and "rm -rf /opt/s5m-agent" not in script,
+          }
+          for name, passed in checks.items():
+              print(("PASS" if passed else "FAIL") + ": " + name)
+          if not all(checks.values()):
+              raise SystemExit(1)
+          PY
       - name: Validate inline JavaScript syntax
         shell: bash
         run: |
