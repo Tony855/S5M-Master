@@ -193,6 +193,20 @@ createApp({
       }
     };
 
+    const startStaleStatusTimer = () => {
+      if (staleStatusTimer !== null) return;
+      staleStatusTimer = setInterval(() => {
+        const now = Math.floor(Date.now() / 1000);
+        agentEntries.value = agentEntries.value.map(item => {
+          const age = now - (Number(item.last_seen) || 0);
+          if (item.online && (age < 0 || age >= 90)) {
+            return { ...item, online: false, mihomoRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
+          }
+          return item;
+        });
+      }, 5000);
+    };
+
     const connectBrowserEvents = async () => {
       if (!token.value || browserEventsSocket || browserEventsStopped) return;
       realtimeStatus.value = 'connecting';
@@ -203,7 +217,12 @@ createApp({
         const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(scheme + '//' + window.location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(data.ticket));
         browserEventsSocket = socket;
-        socket.onopen = () => { realtimeStatus.value = 'connected'; };
+        socket.onopen = () => {
+          realtimeStatus.value = 'connected';
+          // Resync the full snapshot after every connect/reconnect; WebSocket events are deltas.
+          loadAgentsData();
+          loadOverview();
+        };
         socket.onmessage = (event) => {
           let message;
           try { message = JSON.parse(event.data); } catch (_) { return; }
@@ -306,7 +325,7 @@ createApp({
           localStorage.setItem('s5m_next_token', data.token);
           localStorage.setItem('s5m_next_user', data.user.username || loginUser.value);
           token.value = data.token; currentUser.value = data.user.username || loginUser.value;
-          loginPass.value = ''; browserEventsStopped = false; switchPage('dashboard'); connectBrowserEvents();
+          loginPass.value = ''; browserEventsStopped = false; switchPage('dashboard'); startStaleStatusTimer(); connectBrowserEvents();
         } else { showMsg(data.error || data.message || '账号或密码错误', 'error'); }
       } catch (e) { showMsg('网络错误', 'error'); }
       loggingIn.value = false;
@@ -1134,16 +1153,7 @@ const safeCopy = async (text) => {
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
         browserEventsStopped = false;
         connectBrowserEvents();
-        staleStatusTimer = setInterval(() => {
-          const now = Math.floor(Date.now() / 1000);
-          agentEntries.value = agentEntries.value.map(item => {
-            const age = now - (Number(item.last_seen) || 0);
-            if (item.online && (age < 0 || age >= 90)) {
-              return { ...item, online: false, mihomoRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
-            }
-            return item;
-          });
-        }, 5000);
+        startStaleStatusTimer();
       }
     });
 
