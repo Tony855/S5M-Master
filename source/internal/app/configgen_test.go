@@ -719,7 +719,7 @@ func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
 		{Name: "same-vless-443", Mode: "proxy", Type: "vless", Server: "192.0.2.10", Port: 443, MachineCode: "__GLOBAL__", Enabled: true,
 			Extra: map[string]any{"uuid": "123e4567-e89b-12d3-a456-426614174000", "network": "tcp", "tls": true, "servername": "example.com"}},
 		{Name: "same-vless-8443", Mode: "proxy", Type: "vless", Server: "192.0.2.10", Port: 8443, MachineCode: "__GLOBAL__", Enabled: true,
-			Extra: map[string]any{"uuid": "shared-uuid", "network": "tcp", "tls": true, "servername": "example.com"}},
+			Extra: map[string]any{"uuid": "123e4567-e89b-12d3-a456-426614174000", "network": "tcp", "tls": true, "servername": "example.com"}},
 	} {
 		proxy := p
 		if err := store.CreateProxy(&proxy); err != nil {
@@ -776,7 +776,7 @@ func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
 			t.Fatalf("proxy %d has type %T", i, raw)
 		}
 		if proxy["name"] != wantNames[i] || proxy["port"] != wantPorts[i] || proxy["uuid"] != "123e4567-e89b-12d3-a456-426614174000" {
-			t.Errorf("proxy %d fields = %#v; want name=%q port=%d uuid=shared-uuid", i, proxy, wantNames[i], wantPorts[i])
+			t.Errorf("proxy %d fields = %#v; want name=%q port=%d uuid=123e4567-e89b-12d3-a456-426614174000", i, proxy, wantNames[i], wantPorts[i])
 		}
 	}
 }
