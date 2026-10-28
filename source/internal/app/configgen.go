@@ -290,7 +290,7 @@ func controllerHostFromSettings(settings map[string]string) string {
 }
 
 
- // marshalProxiesWithSharedAnchor emits a YAML merge anchor only when every
+// marshalProxiesWithSharedAnchor emits a YAML merge anchor only when every
  // generated proxy has identical protocol, server and protocol-specific options.
  // Name and port are intentionally excluded: aliases override those per node.
  // Mixed endpoints/protocols fall back to ordinary YAML serialization.
@@ -338,6 +338,7 @@ func marshalProxiesWithSharedAnchor(proxies []proxyOut) ([]byte, error) {
 		} else {
 			alias := &yaml.Node{Kind: yaml.AliasNode, Alias: root.Content[0], Value: "s5m_shared_proxy"}
 			add("<<", alias)
+			m.Content[len(m.Content)-2].Tag = "!!merge"
 			add("name", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Name})
 			add("port", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(p.Port)})
 		}
