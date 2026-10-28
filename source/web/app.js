@@ -268,6 +268,16 @@ createApp({
           }
           let message;
           try { message = JSON.parse(event.data); } catch (_) { return; }
+          if (message.type === 'agent.binding.revoked' && message.machine_code) {
+            const revokedCode = String(message.machine_code);
+            agentEntries.value = agentEntries.value.filter(item => item.code !== revokedCode);
+            loadAgentsData();
+            return;
+          }
+          if (message.type === 'agent.binding.updated') {
+            loadAgentsData();
+            return;
+          }
           if (message.type === 'agent.status.updated' && message.machine_code) {
             const code = String(message.machine_code);
             const status = message.status && typeof message.status === 'object' ? message.status : {};
