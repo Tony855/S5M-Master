@@ -57,7 +57,7 @@ jobs:
             "https://github.com/MetaCubeX/mihomo/releases/download/${version}/mihomo-linux-amd64-${version}.gz"
           gzip -dc "$archive" > /tmp/mihomo
           chmod +x /tmp/mihomo
-          /tmp/mihomo -t -f source/internal/app/testdata/mihomo-anchors.yaml
+          /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
 
   agent:
     name: Agent tests, vet and build
