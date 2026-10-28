@@ -1270,6 +1270,12 @@ func parseProxyLine(line string) (*Proxy, error) {
 		return nil, fmt.Errorf("缺少协议前缀")
 	}
 	p.Type = strings.ToLower(strings.TrimSpace(line[:schemeIdx]))
+	if p.Type == "socks" {
+		p.Type = "socks5"
+	}
+	if p.Type == "https" {
+		p.Type = "http"
+	}
 	if p.Type == "vmess" {
 		raw, err := decodeProxyBase64(line[schemeIdx+3:])
 		if err != nil {
