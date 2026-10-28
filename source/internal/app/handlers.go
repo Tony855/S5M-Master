@@ -1564,7 +1564,10 @@ func parseProxyImportContent(content string) ([]*Proxy, []string) {
 			if password != "" {
 				p.Extra["password"] = password
 			}
-			p.Extra["udp"] = server.UDP
+			// Preserve URI-derived VMess UDP defaults unless JSON explicitly enables UDP.
+			if protocol != "vmess" || server.UDP {
+				p.Extra["udp"] = server.UDP
+			}
 			if msg := (&App{}).validateProxy(p); msg != "" {
 				failures = append(failures, fmt.Sprintf("第 %d 个节点失败: %s", i+1, msg))
 				continue
