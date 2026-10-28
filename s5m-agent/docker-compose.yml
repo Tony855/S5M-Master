@@ -15,5 +15,5 @@ services:
       - /dev/net/tun:/dev/net/tun
     volumes:
       - ./data:/data
-    # TUN is enabled by the default Agent config. The host must provide
-    # /dev/net/tun; Docker bridge networking keeps container routes isolated.
+    # TUN is opt-in in the first-boot config. When enabled, keep the Agent in
+    # Docker bridge mode; never use network_mode: host for a TUN-enabled Agent.
