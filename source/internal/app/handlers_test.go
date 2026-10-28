@@ -915,7 +915,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings after stale ACK: %v", err)
 	}
-	if settings["agent_command_" + code] == "" || settings["agent_command_result_"+code] != "" {
+	if settings["agent_command_"+code] == "" || settings["agent_command_result_"+code] != "" {
 		t.Fatalf("stale ACK changed queue state: %#v", settings)
 	}
 
@@ -926,7 +926,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings after completion: %v", err)
 	}
-	if settings["agent_command_" + code] != "" || settings["agent_command_result_"+code] == "" {
+	if settings["agent_command_"+code] != "" || settings["agent_command_result_"+code] == "" {
 		t.Fatalf("completion was not committed as a unit: %#v", settings)
 	}
 	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err == nil {
