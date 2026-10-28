@@ -58,11 +58,6 @@ jobs:
           gzip -dc "$archive" > /tmp/mihomo
           chmod +x /tmp/mihomo
           /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
-
-      - name: Validate synced node config with real Mihomo
-        shell: bash
-        run: |
-          set -euo pipefail
           S5M_MIHOMO_TEST_CONFIG=/tmp/s5m-node-sync-mihomo.yaml go test ./internal/app -run TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors -count=1
           /tmp/mihomo -t -f /tmp/s5m-node-sync-mihomo.yaml
 
