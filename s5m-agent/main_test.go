@@ -1042,3 +1042,67 @@ func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
 		})
 	}
 }
+
+
+func TestAgentWebSocketHelpersRefreshExpiredDeadlines(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		var request map[string]string
+		if err := conn.ReadJSON(&request); err != nil {
+			t.Errorf("read websocket request: %v", err)
+			return
+		}
+		if request["type"] != "command.ack" {
+			t.Errorf("request type = %q, want command.ack", request["type"])
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"type": "command.acknowledged",
+			"id":   request["id"],
+			"ok":   true,
+		}); err != nil {
+			t.Errorf("write websocket acknowledgement: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Simulate a command that outlived the deadlines configured at connection
+	// startup. The helpers must set fresh deadlines for the ACK exchange.
+	if err := conn.SetWriteDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAgentWSJSON(conn, map[string]string{
+		"type": "command.ack",
+		"id":   "command-123",
+	}); err != nil {
+		t.Fatalf("writeAgentWSJSON should refresh an expired deadline: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var ack struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		OK   bool   `json:"ok"`
+	}
+	if err := readAgentWSJSON(conn, &ack, 2*time.Second); err != nil {
+		t.Fatalf("readAgentWSJSON should refresh an expired deadline: %v", err)
+	}
+	if ack.Type != "command.acknowledged" || ack.ID != "command-123" || !ack.OK {
+		t.Fatalf("unexpected acknowledgement: %+v", ack)
+	}
+}
