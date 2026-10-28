@@ -1185,9 +1185,12 @@ func nextReconnectDelay(current time.Duration) time.Duration {
 // reconnectDelayWithJitter spreads reconnect attempts across Agents after a
 // controller outage. The returned delay is in [base, base+50% of base).
 func reconnectDelayWithJitter(current time.Duration) time.Duration {
-	base := nextReconnectDelay(current)
-	if base <= 0 {
-		return 2 * time.Second
+	base := current
+	if base < 2*time.Second {
+		base = 2 * time.Second
+	}
+	if base > 60*time.Second {
+		base = 60 * time.Second
 	}
 	jitterMax := int64(base / 2)
 	if jitterMax <= 0 {

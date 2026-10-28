@@ -976,3 +976,27 @@ func TestNextReconnectDelayCapsAtSixtySeconds(t *testing.T) {
 		}
 	}
 }
+
+func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
+	cases := []struct {
+		name    string
+		current time.Duration
+		min     time.Duration
+		max     time.Duration
+	}{
+		{"initial", 0, 2 * time.Second, 3 * time.Second},
+		{"normal", 8 * time.Second, 8 * time.Second, 12 * time.Second},
+		{"capped", 90 * time.Second, 60 * time.Second, 90 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := 0; i < 100; i++ {
+				got := reconnectDelayWithJitter(tc.current)
+				if got < tc.min || got >= tc.max {
+					t.Fatalf("reconnectDelayWithJitter(%s) = %s, want >= %s and < %s",
+						tc.current, got, tc.min, tc.max)
+				}
+			}
+		})
+	}
+}
