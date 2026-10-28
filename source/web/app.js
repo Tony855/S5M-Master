@@ -630,7 +630,7 @@ createApp({
             hostname,
             os,
             arch,
-            mihomoRunning: status.mihomo_healthy === true,
+            mihomoRunning: online && status.mihomo_healthy === true,
             mihomoVersion,
             runtimeReported,
             runtimeMessage,
