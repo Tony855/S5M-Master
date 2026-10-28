@@ -888,7 +888,8 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 		"server: 192.0.2.10",
 		"server: 192.0.2.11",
 		"DOMAIN-SUFFIX,dns.alidns.com,imported-proxy-a",
-		"MATCH,DIRECT",
+		"GEOIP,CN,DIRECT",
+		"MATCH,imported-proxy-a",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("generated config missing %q:\\n%s", want, generated)
