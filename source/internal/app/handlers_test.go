@@ -963,7 +963,6 @@ func TestHandleAgentCommandSerializesWithQueueAndAck(t *testing.T) {
 	}
 }
 
-
 // TestAgentTokenGenerateAndRegisterLifecycle covers the full dedicated-token
 // issuance and registration path, including duplicate issuance and global-token rejection.
 func TestAgentTokenGenerateAndRegisterLifecycle(t *testing.T) {
