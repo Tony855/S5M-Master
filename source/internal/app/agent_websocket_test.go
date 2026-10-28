@@ -1214,7 +1214,6 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 	}
 }
 
-
 // TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate guards against the server
 // closing an Agent session while a bounded Mihomo download/restart/health check is
 // still running and the Agent cannot send another heartbeat until it finishes.
