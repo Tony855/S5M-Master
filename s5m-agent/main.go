@@ -401,9 +401,9 @@ func collectMihomoStatus() map[string]any {
 	return status
 }
 
-// reportHeartbeat uses WebSocket as the primary telemetry channel.
-// HTTP is retained only as a compatibility fallback if the WebSocket handshake,
-// heartbeat exchange, or acknowledgement fails.
+// reportHeartbeat sends runtime telemetry exclusively over WebSocket.
+// HTTP is intentionally not used as a fallback: a failed session is retried by the
+// Agent reconnect loop so the controller has one authoritative runtime channel.
 func reportHeartbeat(cfg Config, status map[string]any) error {
 	return reportHeartbeatWebSocket(cfg, status)
 }
