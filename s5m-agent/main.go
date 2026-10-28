@@ -339,6 +339,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if string(oldNorm) == string(newNorm) {
+		if strings.TrimSpace(centralURL) != "" {
+			if err := writeControllerConfig(agentYml); err != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
+			}
+		}
 		return false, nil
 	}
 	if err := os.WriteFile(previousPath, oldData, 0600); err != nil {
@@ -1458,6 +1463,15 @@ func runAgentWebSocketSession(cfg Config) error {
 	}
 
 	for {
+		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
+		// cycle, without changing the hash of the controller-provided YAML.
+		if routeChanged, routeErr := refreshCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
+			fmt.Printf("刷新主控直连排除地址失败（保留现有配置）: %v\n", routeErr)
+		} else if routeChanged {
+			if reloadErr := reloadMihomo(); reloadErr != nil {
+				fmt.Printf("主控直连排除地址已写入，但 Mihomo 重载失败: %v\n", reloadErr)
+			}
+		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
 		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
