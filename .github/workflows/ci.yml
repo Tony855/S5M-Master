@@ -165,6 +165,29 @@ jobs:
           if not all(checks.values()):
               raise SystemExit(1)
           PY
+      - name: Integration test Docker route isolation from host network
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v docker
+          docker info >/dev/null
+          test_cidr="198.51.100.0/24"
+          if ip route show table all | grep -Fq "$test_cidr"; then
+            echo "Refusing test: reserved test CIDR already exists on runner host"
+            exit 1
+          fi
+          # Change only a temporary bridge container's route table. If TUN-like
+          # route changes leak into the host namespace, the host assertion fails.
+          docker run --rm --network bridge --cap-add NET_ADMIN alpine:3.21 sh -ec '
+            apk add --no-cache iproute2 >/dev/null
+            ip route add blackhole 198.51.100.0/24
+            ip route show 198.51.100.0/24 | grep -F "blackhole 198.51.100.0/24"
+          '
+          if ip route show table all | grep -Fq "$test_cidr"; then
+            echo "FAIL: container route change leaked into host route table"
+            exit 1
+          fi
+          echo "PASS: container route change stayed in its bridge network namespace; host route table unchanged"
       - name: Validate inline JavaScript syntax
         shell: bash
         run: |
