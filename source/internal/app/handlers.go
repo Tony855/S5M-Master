@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1221,48 +1222,239 @@ func (a *App) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+func decodeProxyBase64(value string) ([]byte, error) {
+	value = strings.TrimSpace(value)
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding,
+		base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if decoded, err := enc.DecodeString(value); err == nil {
+			return decoded, nil
+		}
+	}
+	return nil, fmt.Errorf("Base64 内容无效")
+}
+
+func proxyPort(value any) (int, error) {
+	switch v := value.(type) {
+	case string:
+		return strconv.Atoi(strings.TrimSpace(v))
+	case float64:
+		if v != float64(int(v)) {
+			return 0, fmt.Errorf("端口无效")
+		}
+		return int(v), nil
+	case json.Number:
+		n, err := v.Int64()
+		return int(n), err
+	case int:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("缺少有效端口")
+	}
+}
+
 func parseProxyLine(line string) (*Proxy, error) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return nil, fmt.Errorf("内容为空")
+	}
 	p := &Proxy{Mode: "proxy", SourceCIDR: "0.0.0.0/0", Enabled: true, Extra: map[string]any{}}
-	if idx := strings.Index(line, "#"); idx != -1 {
-		p.Name = line[idx+1:]
+	if idx := strings.LastIndex(line, "#"); idx != -1 {
+		name, _ := url.QueryUnescape(line[idx+1:])
+		p.Name = strings.TrimSpace(name)
 		line = line[:idx]
 	}
 	schemeIdx := strings.Index(line, "://")
 	if schemeIdx == -1 {
-		return nil, fmt.Errorf("缺协议")
+		return nil, fmt.Errorf("缺少协议前缀")
 	}
-	p.Type = line[:schemeIdx]
-	line = line[schemeIdx+3:]
-	var hostport string
-	if atIdx := strings.LastIndex(line, "@"); atIdx != -1 {
-		auth, hostp := line[:atIdx], line[atIdx+1:]
-		hostport = hostp
-		if auth != ":" && auth != "" {
-			parts := strings.SplitN(auth, ":", 2)
-			if len(parts) > 0 {
-				p.Extra["username"] = parts[0]
-			}
-			if len(parts) > 1 {
-				p.Extra["password"] = parts[1]
-			}
+	p.Type = strings.ToLower(strings.TrimSpace(line[:schemeIdx]))
+	if p.Type == "vmess" {
+		raw, err := decodeProxyBase64(line[schemeIdx+3:])
+		if err != nil {
+			return nil, fmt.Errorf("VMess 配置解码失败")
 		}
-	} else {
-		hostport = line
-	}
-	host, portStr, err := net.SplitHostPort(hostport)
-	if err != nil {
-		if lc := strings.LastIndex(hostport, ":"); lc != -1 {
-			host, portStr = hostport[:lc], hostport[lc+1:]
-		} else {
+		var vm map[string]any
+		if err := json.Unmarshal(raw, &vm); err != nil {
+			return nil, fmt.Errorf("VMess 配置 JSON 无效")
+		}
+		p.Server = strings.TrimSpace(fmt.Sprint(vm["add"]))
+		p.Port, err = proxyPort(vm["port"])
+		if err != nil {
 			return nil, err
 		}
+		if p.Name == "" {
+			p.Name = strings.TrimSpace(fmt.Sprint(vm["ps"]))
+		}
+		for key, value := range vm {
+			switch key {
+			case "add", "port", "ps", "v", "aid", "scy", "net", "tls", "sni", "host", "path", "type", "id":
+				continue
+			}
+			p.Extra[key] = value
+		}
+		if uuid := strings.TrimSpace(fmt.Sprint(vm["id"])); uuid != "" && uuid != "<nil>" {
+			p.Extra["uuid"] = uuid
+		}
+		if cipher := strings.TrimSpace(fmt.Sprint(vm["scy"])); cipher != "" && cipher != "<nil>" {
+			p.Extra["cipher"] = cipher
+		} else {
+			p.Extra["cipher"] = "auto"
+		}
+		if alterID, err := proxyPort(vm["aid"]); err == nil {
+			p.Extra["alterId"] = alterID
+		}
+		network := strings.TrimSpace(fmt.Sprint(vm["net"]))
+		if network != "" && network != "<nil>" {
+			p.Extra["network"] = network
+			if network == "ws" {
+				headers := map[string]any{}
+				if host := strings.TrimSpace(fmt.Sprint(vm["host"])); host != "" && host != "<nil>" {
+					headers["Host"] = host
+				}
+				ws := map[string]any{}
+				if path := strings.TrimSpace(fmt.Sprint(vm["path"])); path != "" && path != "<nil>" {
+					ws["path"] = path
+				}
+				if len(headers) > 0 {
+					ws["headers"] = headers
+				}
+				p.Extra["ws-opts"] = ws
+			}
+		}
+		if tls := strings.TrimSpace(fmt.Sprint(vm["tls"])); tls != "" && tls != "none" && tls != "<nil>" {
+			p.Extra["tls"] = true
+		}
+		if sni := strings.TrimSpace(fmt.Sprint(vm["sni"])); sni != "" && sni != "<nil>" {
+			p.Extra["servername"] = sni
+		}
+	} else if p.Type == "ss" {
+		payload := line[schemeIdx+3:]
+		if at := strings.LastIndex(payload, "@"); at != -1 {
+			auth, hostpart := payload[:at], payload[at+1:]
+			if decoded, err := decodeProxyBase64(auth); err == nil {
+				auth = string(decoded)
+			}
+			method, password, ok := strings.Cut(auth, ":")
+			if !ok {
+				return nil, fmt.Errorf("Shadowsocks 认证信息无效")
+			}
+			p.Extra["cipher"], p.Extra["password"] = method, password
+			payload = hostpart
+		} else {
+			// SIP002 also permits the entire method:password@host:port to be Base64 encoded.
+			decoded, err := decodeProxyBase64(strings.SplitN(payload, "?", 2)[0])
+			if err != nil {
+				return nil, fmt.Errorf("Shadowsocks URI 缺少认证信息")
+			}
+			decodedText := string(decoded)
+			at = strings.LastIndex(decodedText, "@")
+			if at < 0 {
+				return nil, fmt.Errorf("Shadowsocks 认证信息无效")
+			}
+			auth := decodedText[:at]
+			method, password, ok := strings.Cut(auth, ":")
+			if !ok {
+				return nil, fmt.Errorf("Shadowsocks 认证信息无效")
+			}
+			p.Extra["cipher"], p.Extra["password"] = method, password
+			payload = decodedText[at+1:]
+		}
+		parsed, err := url.Parse("ss://" + payload)
+		if err != nil {
+			return nil, fmt.Errorf("Shadowsocks URI 无效")
+		}
+		p.Server = parsed.Hostname()
+		p.Port, _ = strconv.Atoi(parsed.Port())
+	} else {
+		parsed, err := url.Parse(line)
+		if err != nil {
+			return nil, fmt.Errorf("代理 URI 无效")
+		}
+		p.Server = parsed.Hostname()
+		port, portErr := strconv.Atoi(parsed.Port())
+		if portErr != nil || port < 1 || port > 65535 {
+			return nil, fmt.Errorf("端口无效")
+		}
+		p.Port = port
+		if parsed.User != nil {
+			user := parsed.User.Username()
+			password, hasPassword := parsed.User.Password()
+			switch p.Type {
+			case "socks5", "http":
+				if user != "" {
+					p.Extra["username"] = user
+				}
+				if hasPassword {
+					p.Extra["password"] = password
+				}
+			case "trojan":
+				p.Extra["password"] = user
+			case "vless", "vmess":
+				if user != "" {
+					p.Extra["uuid"] = user
+				}
+			}
+		}
+		query := parsed.Query()
+		if value := query.Get("type"); value != "" {
+			p.Extra["network"] = value
+		}
+		security := strings.ToLower(query.Get("security"))
+		if security == "tls" || security == "reality" || query.Get("tls") == "true" {
+			p.Extra["tls"] = true
+		}
+		if sni := query.Get("sni"); sni != "" {
+			p.Extra["servername"] = sni
+		} else if sni := query.Get("peer"); sni != "" {
+			p.Extra["servername"] = sni
+		}
+		if fp := query.Get("fp"); fp != "" {
+			p.Extra["client-fingerprint"] = fp
+		}
+		if flow := query.Get("flow"); flow != "" {
+			p.Extra["flow"] = flow
+		}
+		if network := query.Get("type"); network == "ws" {
+			ws := map[string]any{}
+			if path := query.Get("path"); path != "" {
+				ws["path"] = path
+			}
+			if host := query.Get("host"); host != "" {
+				ws["headers"] = map[string]any{"Host": host}
+			}
+			p.Extra["ws-opts"] = ws
+		} else if network == "grpc" {
+			if service := query.Get("serviceName"); service != "" {
+				p.Extra["grpc-opts"] = map[string]any{"grpc-service-name": service}
+			}
+		}
+		if method := query.Get("encryption"); method != "" {
+			p.Extra["encryption"] = method
+		}
+		if cipher := query.Get("method"); cipher != "" {
+			p.Extra["cipher"] = cipher
+		}
+		if p.Type == "ss" {
+			if parsed.User != nil {
+				credential, _ := parsed.User.Password()
+				raw := parsed.User.Username()
+				if decoded, err := decodeProxyBase64(raw); err == nil {
+					raw = string(decoded)
+				}
+				method, password, ok := strings.Cut(raw, ":")
+				if ok {
+					p.Extra["cipher"], p.Extra["password"] = method, password
+				} else if credential != "" {
+					p.Extra["password"] = credential
+				}
+			}
+		}
 	}
-	p.Server = host
-	port, err := strconv.Atoi(portStr)
-	if err != nil || port < 1 || port > 65535 {
-		return nil, fmt.Errorf("端口无效")
+	if p.Server == "" || p.Port < 1 || p.Port > 65535 {
+		return nil, fmt.Errorf("服务器或端口无效")
 	}
-	p.Port = port
 	if p.Name == "" {
 		p.Name = fmt.Sprintf("%s-%s:%d", p.Type, p.Server, p.Port)
 	}
