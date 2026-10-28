@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	mathrand "math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -202,9 +203,106 @@ func validateMihomoConfigYAML(data []byte) (map[string]interface{}, error) {
 	return cfg, nil
 }
 
+// controllerConfigPath stores the exact controller YAML separately from the
+// Agent runtime config, which may contain dynamically resolved TUN exclusions.
+func controllerConfigPath() string { return filepath.Join(mihomoHome(), "controller-config.yaml") }
+
+func configHashSource() ([]byte, error) {
+	if data, err := os.ReadFile(controllerConfigPath()); err == nil && len(data) > 0 { return data, nil }
+	return os.ReadFile(mihomoConfigPath())
+}
+
+func writeControllerConfig(data []byte) error {
+	path := controllerConfigPath()
+	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
+	if err != nil { return err }
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0600); err != nil { _ = tmp.Close(); return err }
+	if _, err := tmp.Write(data); err != nil { _ = tmp.Close(); return err }
+	if err := tmp.Sync(); err != nil { _ = tmp.Close(); return err }
+	if err := tmp.Close(); err != nil { return err }
+	return os.Rename(tmpPath, path)
+}
+
+func centralHostname(centralURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(centralURL))
+	if err != nil || parsed.Host == "" { return "" }
+	return strings.TrimSuffix(strings.TrimSpace(parsed.Hostname()), ".")
+}
+
+func resolvedCentralRouteCIDRs(centralURL string) ([]string, error) {
+	host := centralHostname(centralURL)
+	if host == "" { return nil, fmt.Errorf("主控域名无效") }
+	ips := []net.IP{}
+	if ip := net.ParseIP(host); ip != nil { ips = append(ips, ip) } else {
+		var err error
+		ips, err = net.LookupIP(host)
+		if err != nil { return nil, fmt.Errorf("解析主控域名 %s 失败: %w", host, err) }
+	}
+	seen := map[string]bool{}
+	result := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ip == nil { continue }
+		cidr := ""
+		if v4 := ip.To4(); v4 != nil { cidr = v4.String() + "/32" } else if v6 := ip.To16(); v6 != nil { cidr = ip.String() + "/128" }
+		if cidr != "" && !seen[cidr] { seen[cidr] = true; result = append(result, cidr) }
+	}
+	if len(result) == 0 { return nil, fmt.Errorf("主控域名 %s 没有可用的 A/AAAA 记录", host) }
+	return result, nil
+}
+
+func addCentralRouteExclusions(cfg map[string]interface{}, centralURL string) (bool, error) {
+	cidrs, err := resolvedCentralRouteCIDRs(centralURL)
+	if err != nil { return false, err }
+	tun, ok := cfg["tun"].(map[string]interface{})
+	if !ok { return false, fmt.Errorf("Mihomo 配置缺少 tun 块") }
+	values, _ := tun["route-exclude-address"].([]interface{})
+	seen := map[string]bool{}
+	next := make([]interface{}, 0, len(values)+len(cidrs))
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok { continue }
+		text = strings.TrimSpace(text)
+		if text != "" && !seen[text] { seen[text] = true; next = append(next, text) }
+	}
+	changed := false
+	for _, cidr := range cidrs {
+		if !seen[cidr] { seen[cidr] = true; next = append(next, cidr); changed = true }
+	}
+	if changed { tun["route-exclude-address"] = next }
+	return changed, nil
+}
+
+func refreshCentralRouteExclusions(centralURL string) (bool, error) {
+	path := mihomoConfigPath()
+	data, err := os.ReadFile(path)
+	if err != nil { return false, err }
+	var cfg map[string]interface{}
+	if err := yaml.Unmarshal(data, &cfg); err != nil { return false, err }
+	changed, err := addCentralRouteExclusions(cfg, centralURL)
+	if err != nil || !changed { return false, err }
+	normalized, err := yaml.Marshal(cfg)
+	if err != nil { return false, err }
+	tmp, err := os.CreateTemp(mihomoHome(), ".mihomo-route-*")
+	if err != nil { return false, err }
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0600); err != nil { _ = tmp.Close(); return false, err }
+	if _, err := tmp.Write(normalized); err != nil { _ = tmp.Close(); return false, err }
+	if err := tmp.Sync(); err != nil { _ = tmp.Close(); return false, err }
+	if err := tmp.Close(); err != nil { return false, err }
+	if err := os.Rename(tmpPath, path); err != nil { return false, err }
+	return true, nil
+}
+
 // mergeConfig applies the complete controller-generated Mihomo YAML.
 // The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
+	return mergeConfigWithCentralURL(agentYml, "")
+}
+
+func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error) {
 	mainPath := mihomoConfigPath()
 	previousPath := mainPath + ".previous"
 	nextCfg, err := validateMihomoConfigYAML(agentYml)
@@ -225,6 +323,11 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	// back: keep the currently configured secret stable across controller updates.
 	if err := preserveMihomoSecret(oldCfg, nextCfg); err != nil {
 		return false, err
+	}
+	if strings.TrimSpace(centralURL) != "" {
+		if _, routeErr := addCentralRouteExclusions(nextCfg, centralURL); routeErr != nil {
+			fmt.Printf("主控直连排除地址暂未更新: %v\n", routeErr)
+		}
 	}
 
 	oldNorm, err := yaml.Marshal(oldCfg)
@@ -274,6 +377,11 @@ func mergeConfig(agentYml []byte) (bool, error) {
 	if err := os.Rename(tmpPath, mainPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, err
+	}
+	if strings.TrimSpace(centralURL) != "" {
+		if err := writeControllerConfig(agentYml); err != nil {
+			return false, fmt.Errorf("运行配置已写入，但保存主控原始配置哈希源失败: %w", err)
+		}
 	}
 	return true, nil
 }
@@ -429,7 +537,9 @@ func collectMihomoStatus() map[string]any {
 		status["last_error"] = "读取配置失败: " + err.Error()
 		return status
 	}
-	sum := sha256.Sum256(data)
+	hashData, hashErr := configHashSource()
+	if hashErr != nil { hashData = data }
+	sum := sha256.Sum256([]byte(strings.TrimSpace(string(hashData))))
 	status["config_sha256"] = fmt.Sprintf("%x", sum[:])
 	var cfg map[string]interface{}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
@@ -1371,7 +1481,7 @@ func runAgentWebSocketSession(cfg Config) error {
 
 		// 2. Fetch config on the same socket. A hash prevents needless YAML transfers.
 		localHash := ""
-		if localData, readErr := os.ReadFile(mihomoConfigPath()); readErr == nil && len(localData) > 0 {
+		if localData, readErr := configHashSource(); readErr == nil && len(localData) > 0 {
 			sum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
 			localHash = hex.EncodeToString(sum[:])
 		}
@@ -1404,7 +1514,7 @@ func runAgentWebSocketSession(cfg Config) error {
 			if !strings.EqualFold(hex.EncodeToString(configSum[:]), strings.TrimSpace(configResponse.SHA256)) {
 				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用")
 			}
-			changed, applyErr := mergeConfig([]byte(configResponse.YAML))
+			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
 				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
 				break
@@ -1653,6 +1763,13 @@ func main() {
 		if err := json.Unmarshal(data, &cfg); err != nil || strings.TrimSpace(cfg.Token) == "" {
 			time.Sleep(5 * time.Second)
 			continue
+		}
+		if routeChanged, routeErr := refreshCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
+			fmt.Printf("刷新主控直连排除地址失败（保留现有配置并继续重试）: %v\n", routeErr)
+		} else if routeChanged {
+			if reloadErr := reloadMihomo(); reloadErr != nil {
+				fmt.Printf("主控直连排除地址已写入，但 Mihomo 重载失败: %v\n", reloadErr)
+			}
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
 			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\n", err)
