@@ -15,7 +15,10 @@ import (
 )
 
 func TestCentralHostname(t *testing.T) {
-	tests := []struct{ input, want string }{
+	tests := []struct {
+		input string
+		want  string
+	}{
 		{"https://foodflow.v2net.cc", "foodflow.v2net.cc"},
 		{"https://foodflow.v2net.cc:8443/path", "foodflow.v2net.cc"},
 		{"https://[2001:db8::1]:8443", "2001:db8::1"},
@@ -30,6 +33,7 @@ func TestCentralHostname(t *testing.T) {
 }
 
 func TestAddCentralRouteExclusionsWithIPLiteral(t *testing.T) {
+	t.Setenv("MIHOMO_HOME", t.TempDir())
 	cfg := map[string]interface{}{
 		"tun": map[string]interface{}{
 			"enable": true,
@@ -37,18 +41,67 @@ func TestAddCentralRouteExclusionsWithIPLiteral(t *testing.T) {
 		},
 	}
 	changed, err := addCentralRouteExclusions(cfg, "https://198.51.100.10")
-	if err != nil { t.Fatalf("addCentralRouteExclusions() error = %v", err) }
-	if !changed { t.Fatal("expected a new controller IP exclusion") }
+	if err != nil {
+		t.Fatalf("addCentralRouteExclusions() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("expected a new controller IP exclusion")
+	}
 	tun := cfg["tun"].(map[string]interface{})
 	got := tun["route-exclude-address"].([]interface{})
 	want := []string{"192.0.2.7/32", "198.51.100.10/32"}
-	if len(got) != len(want) { t.Fatalf("route exclusions = %#v, want %#v", got, want) }
+	if len(got) != len(want) {
+		t.Fatalf("route exclusions = %#v, want %#v", got, want)
+	}
 	for i := range want {
-		if got[i] != want[i] { t.Fatalf("route exclusions = %#v, want %#v", got, want) }
+		if got[i] != want[i] {
+			t.Fatalf("route exclusions = %#v, want %#v", got, want)
+		}
 	}
 	changed, err = addCentralRouteExclusions(cfg, "https://198.51.100.10")
-	if err != nil { t.Fatalf("idempotent addCentralRouteExclusions() error = %v", err) }
-	if changed { t.Fatal("repeated controller IP should not create duplicate exclusion") }
+	if err != nil {
+		t.Fatalf("idempotent addCentralRouteExclusions() error = %v", err)
+	}
+	if changed {
+		t.Fatal("repeated controller IP should not create duplicate exclusion")
+	}
+}
+
+func TestSetCentralRouteExclusionsRemovesStaleManagedCIDRs(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MIHOMO_HOME", dir)
+	if err := writeManagedRouteCIDRs([]string{"198.51.100.10/32"}); err != nil {
+		t.Fatalf("write managed route CIDRs: %v", err)
+	}
+	cfg := map[string]interface{}{
+		"tun": map[string]interface{}{
+			"enable": true,
+			"route-exclude-address": []interface{}{
+				"198.51.100.10/32",
+				"192.0.2.7/32",
+			},
+		},
+	}
+	cidrs, changed, err := setCentralRouteExclusions(cfg, "https://203.0.113.20")
+	if err != nil {
+		t.Fatalf("setCentralRouteExclusions() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("expected stale managed CIDR to be replaced")
+	}
+	if len(cidrs) != 1 || cidrs[0] != "203.0.113.20/32" {
+		t.Fatalf("managed CIDRs = %#v, want current controller IP", cidrs)
+	}
+	got := cfg["tun"].(map[string]interface{})["route-exclude-address"].([]interface{})
+	want := []interface{}{"192.0.2.7/32", "203.0.113.20/32"}
+	if len(got) != len(want) {
+		t.Fatalf("route exclusions = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("route exclusions = %#v, want %#v", got, want)
+		}
+	}
 }
 
 func TestResolvedCentralRouteCIDRsRejectsInvalidURL(t *testing.T) {
