@@ -355,7 +355,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 	if controllerHost != "" {
 		if ip := net.ParseIP(controllerHost); ip != nil {
 			bits := 32
-			if ip.To4() == nil { bits = 128 }
+			if ip.To4() == nil {
+				bits = 128
+			}
 			rules = append(rules, fmt.Sprintf("IP-CIDR,%s/%d,DIRECT,no-resolve", ip.String(), bits))
 		} else {
 			rules = append(rules, fmt.Sprintf("DOMAIN,%s,DIRECT", controllerHost))
@@ -417,7 +419,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 
 	firstProxy, firstGameProxy := "", ""
 	for _, p := range outs {
-		if firstProxy == "" { firstProxy = p.Name }
+		if firstProxy == "" {
+			firstProxy = p.Name
+		}
 		for _, original := range proxies {
 			if original.Name == p.Name && original.Mode == "game" && firstGameProxy == "" {
 				firstGameProxy = p.Name
@@ -426,7 +430,11 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 	}
 	switch routingMode {
 	case "global":
-		if firstProxy != "" { rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy)) } else { rules = append(rules, "MATCH,DIRECT") }
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,DIRECT")
+		}
 	case "split", "return":
 		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" { rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy)) } else { rules = append(rules, "MATCH,DIRECT") }
@@ -434,7 +442,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		rules = append(rules, "MATCH,DIRECT")
 	case "game":
 		gameProxy := firstGameProxy
-		if gameProxy == "" { gameProxy = firstProxy }
+		if gameProxy == "" {
+			gameProxy = firstProxy
+		}
 		if gameProxy != "" {
 			for _, domain := range []string{"steampowered.com", "steamcommunity.com", "steamcontent.com", "epicgames.com", "playstation.net", "playstation.com", "xboxlive.com", "xbox.com", "battle.net", "blizzard.com", "riotgames.com", "leagueoflegends.com", "valorant.com", "ea.com"} {
 				rules = append(rules, fmt.Sprintf("DOMAIN-SUFFIX,%s,%s", domain, gameProxy))
