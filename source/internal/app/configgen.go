@@ -319,7 +319,10 @@ func marshalProxiesWithSharedAnchor(proxies []proxyOut) ([]byte, error) {
 	for i, p := range proxies {
 		m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		add := func(k string, v *yaml.Node) {
-			m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k}, v)
+			m.Content = append(m.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+				v,
+			)
 		}
 		if i == 0 {
 			m.Anchor = "s5m_shared_proxy"
@@ -328,11 +331,15 @@ func marshalProxiesWithSharedAnchor(proxies []proxyOut) ([]byte, error) {
 			add("server", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Server})
 			add("port", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(p.Port)})
 			keys := make([]string, 0, len(p.Extra))
-			for k := range p.Extra { keys = append(keys, k) }
+			for k := range p.Extra {
+				keys = append(keys, k)
+			}
 			sort.Strings(keys)
 			for _, k := range keys {
 				var value yaml.Node
-				if err := value.Encode(p.Extra[k]); err != nil { return nil, err }
+				if err := value.Encode(p.Extra[k]); err != nil {
+					return nil, err
+				}
 				add(k, &value)
 			}
 		} else {
