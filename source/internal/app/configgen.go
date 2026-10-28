@@ -243,8 +243,10 @@ func normalizeProxyRoutingMode(raw string) string {
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
-	for _, key := range []string{"central_url", "public_url", "server_url", "agent_central_url"} {
-		raw := strings.TrimSpace(settings[key])
+	candidates := []string{settings["central_url"], settings["public_url"], settings["server_url"], settings["agent_central_url"]}
+	candidates = append(candidates, os.Getenv("S5M_CENTRAL_URL"), os.Getenv("S5M_PUBLIC_URL"), os.Getenv("PUBLIC_URL"))
+	for _, candidate := range candidates {
+		raw := strings.TrimSpace(candidate)
 		if raw == "" {
 			continue
 		}
