@@ -1681,53 +1681,21 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, decodeErrorStatus(err), "请求 JSON 无效")
 		return
 	}
-	in.MachineCode = strings.TrimSpace(in.MachineCode)
-	in.Version = strings.TrimSpace(in.Version)
-	in.SHA256 = strings.ToLower(strings.TrimSpace(in.SHA256))
-	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(in.MachineCode) ||
-		!regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(in.Version) ||
-		!regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(in.SHA256) {
-		writeErr(w, http.StatusBadRequest, "机器码、版本号或 SHA-256 格式无效")
+	if err := a.queueAgentMihomoUpdate(in.MachineCode, in.Version, in.SHA256); err != nil {
+		status := http.StatusBadRequest
+		if strings.Contains(err.Error(), "未授权") {
+			status = http.StatusNotFound
+		}
+		if strings.Contains(err.Error(), "已有待执行命令") {
+			status = http.StatusConflict
+		}
+		if strings.Contains(err.Error(), "读取 Agent 授权") || strings.Contains(err.Error(), "保存内核更新命令") {
+			status = http.StatusInternalServerError
+		}
+		writeErr(w, status, err.Error())
 		return
 	}
-	settings, err := a.store.GetSettings()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "读取 Agent 授权失败")
-		return
-	}
-	token := settings["agent_machine_"+in.MachineCode]
-	if token == "" || token == settings["agent_token"] {
-		writeErr(w, http.StatusNotFound, "目标 Agent 未授权")
-		return
-	}
-	if settings["agent_command_"+in.MachineCode] != "" {
-		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
-		return
-	}
-	command := map[string]string{
-		"id":      fmt.Sprintf("%d", time.Now().UnixNano()),
-		"type":    "update_mihomo",
-		"version": in.Version,
-		"sha256":  in.SHA256,
-	}
-	payload, err := json.Marshal(command)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "生成内核更新命令失败")
-		return
-	}
-	// Use an atomic insert rather than a read-then-write check: two concurrent
-	// admin requests must not overwrite each other's pending Agent command.
-	created, err := a.store.CreateSettingIfAbsent("agent_command_"+in.MachineCode, string(payload))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存内核更新命令失败")
-		return
-	}
-	if !created {
-		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
-		return
-	}
-	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": in.MachineCode, "command_id": command["id"], "command_type": command["type"], "version": command["version"], "at": time.Now().Unix()})
-	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本", "command_id": command["id"]})
+	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本"})
 }
 
 func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {

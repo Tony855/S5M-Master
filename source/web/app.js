@@ -19,6 +19,7 @@ createApp({
     let browserEventsRetryTimer = null;
     let browserEventsStopped = false;
     let staleStatusTimer = null;
+    const browserWSRequests = new Map();
     let overviewTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
@@ -180,11 +181,40 @@ createApp({
       catch (e) { return 'HTTP ' + res.status; }
     }
 
+    const sendBrowserWSControl = (payload) => new Promise((resolve, reject) => {
+      const socket = browserEventsSocket;
+      if (!socket || socket.readyState !== WebSocket.OPEN || realtimeStatus.value !== 'connected') {
+        reject(new Error('实时通道未连接；请等待 WebSocket 恢复后重试'));
+        return;
+      }
+      const requestId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+        ? window.crypto.randomUUID()
+        : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+      const timeout = setTimeout(() => {
+        browserWSRequests.delete(requestId);
+        reject(new Error('实时操作等待超时，请刷新节点状态后确认任务是否已排队'));
+      }, 15000);
+      browserWSRequests.set(requestId, {
+        resolve: (value) => { clearTimeout(timeout); resolve(value); },
+        reject: (error) => { clearTimeout(timeout); reject(error); }
+      });
+      try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); }
+      catch (error) {
+        clearTimeout(timeout);
+        browserWSRequests.delete(requestId);
+        reject(new Error('发送实时操作失败：' + (error.message || 'WebSocket 已断开')));
+      }
+    });
+
     const stopBrowserEvents = () => {
       browserEventsStopped = true;
       realtimeStatus.value = 'disconnected';
       if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
       browserEventsRetryTimer = null;
+      for (const [requestId, pending] of browserWSRequests.entries()) {
+        browserWSRequests.delete(requestId);
+        pending.reject(new Error('实时通道已断开，请重新连接后重试'));
+      }
       if (browserEventsSocket) {
         const socket = browserEventsSocket;
         browserEventsSocket = null;
@@ -224,6 +254,18 @@ createApp({
           loadOverview();
         };
         socket.onmessage = (event) => {
+          // Resolve browser-originated control requests on the same primary WebSocket.
+          let envelope;
+          try { envelope = JSON.parse(event.data); } catch (_) { return; }
+          if (envelope.type === 'request.result' && envelope.request_id) {
+            const pending = browserWSRequests.get(envelope.request_id);
+            if (pending) {
+              browserWSRequests.delete(envelope.request_id);
+              if (envelope.ok) pending.resolve(envelope);
+              else pending.reject(new Error(envelope.error || '实时操作失败'));
+            }
+            return;
+          }
           let message;
           try { message = JSON.parse(event.data); } catch (_) { return; }
           if (message.type === 'agent.status.updated' && message.machine_code) {
@@ -251,9 +293,20 @@ createApp({
             } else {
               loadAgentsData();
             }
-            if (page.value === 'dashboard') loadOverview();
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
-            loadAgentsData();
+            const code = String(message.machine_code);
+            const index = agentEntries.value.findIndex(item => item.code === code);
+            if (index >= 0) {
+              const previous = agentEntries.value[index];
+              const queued = message.type === 'agent.command.queued';
+              agentEntries.value.splice(index, 1, {
+                ...previous,
+                lastCommandId: String(message.command_id || previous.lastCommandId || ''),
+                lastCommandStatus: queued ? 'queued' : String(message.status || 'unknown'),
+                lastCommandMessage: queued ? ('命令已排队' + (message.version ? '：' + message.version : '')) : String(message.message || ''),
+                lastCommandAt: Number(message.at) || Math.floor(Date.now() / 1000)
+              });
+            }
           }
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
@@ -825,15 +878,13 @@ createApp({
       } catch (_) { return; }
       queueingKernelUpdate.value = true;
       try {
-        const res = await api('/api/v1/agents/kernel-update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: machineCode, version, sha256 })
+        const data = await sendBrowserWSControl({
+          type: 'agent.mihomo.update',
+          machine_code: machineCode,
+          version,
+          sha256
         });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
         kernelUpdateDialog.value = false;
-        await loadAgentsData();
         showMsg(data.message || '更新任务已排队；Agent 在线时将执行', 'success');
       } catch (e) {
         showMsg(e.message || '排队更新失败', 'error');
@@ -1145,11 +1196,6 @@ const safeCopy = async (text) => {
       if (token.value) {
         fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
         switchPage('dashboard');
-        if (overviewTimer === null) {
-          overviewTimer = setInterval(() => {
-            if (token.value && page.value === 'dashboard') loadOverview();
-          }, 3000);
-        }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
         browserEventsStopped = false;
         connectBrowserEvents();
