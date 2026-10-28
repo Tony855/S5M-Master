@@ -471,6 +471,10 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 	if err := tmp.Close(); err != nil {
 		return false, err
 	}
+	// Keep a rollback copy until Mihomo confirms the reload succeeded.
+	if err := os.WriteFile(path+".previous", data, 0600); err != nil {
+		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
+	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return false, err
 	}
@@ -478,6 +482,38 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 		return true, fmt.Errorf("已更新 TUN 排除地址，但保存动态地址记录失败: %w", err)
 	}
 	return true, nil
+}
+
+func refreshAndApplyCentralRouteExclusions(centralURL string) error {
+	changed, err := refreshCentralRouteExclusions(centralURL)
+	if err != nil {
+		// refreshCentralRouteExclusions may have committed the candidate config
+		// before failing to persist its managed-CIDR bookkeeping.
+		if changed {
+			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+				return fmt.Errorf("刷新路由后记录状态失败且回滚失败: %w", rollbackErr)
+			}
+			if retryErr := reloadMihomo(); retryErr != nil {
+				return fmt.Errorf("刷新路由失败，旧配置已恢复但重载失败: %w", retryErr)
+			}
+		}
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	if err := reloadMihomo(); err != nil {
+		fmt.Printf("Mihomo 重载动态主控路由失败，正在回滚配置: %v\n", err)
+		if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+			return fmt.Errorf("动态路由重载失败且回滚失败: %w", rollbackErr)
+		}
+		if retryErr := reloadMihomo(); retryErr != nil {
+			return fmt.Errorf("动态路由已回滚，但旧配置重载失败: %w", retryErr)
+		}
+		return fmt.Errorf("动态路由重载失败，已恢复旧配置: %w", err)
+	}
+	_ = os.Remove(mihomoConfigPath() + ".previous")
+	return nil
 }
 
 func mergeConfig(agentYml []byte) (bool, error) {
@@ -1660,12 +1696,8 @@ func runAgentWebSocketSession(cfg Config) error {
 	for {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
 		// cycle, without changing the hash of the controller-provided YAML.
-		if routeChanged, routeErr := refreshCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败（保留现有配置）: %v\n", routeErr)
-		} else if routeChanged {
-			if reloadErr := reloadMihomo(); reloadErr != nil {
-				fmt.Printf("主控直连排除地址已写入，但 Mihomo 重载失败: %v\n", reloadErr)
-			}
+		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
+			fmt.Printf("刷新主控直连排除地址失败: %v\n", routeErr)
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
@@ -1973,12 +2005,8 @@ func main() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		if routeChanged, routeErr := refreshCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败（保留现有配置并继续重试）: %v\n", routeErr)
-		} else if routeChanged {
-			if reloadErr := reloadMihomo(); reloadErr != nil {
-				fmt.Printf("主控直连排除地址已写入，但 Mihomo 重载失败: %v\n", reloadErr)
-			}
+		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
+			fmt.Printf("刷新主控直连排除地址失败（将继续重试）: %v\n", routeErr)
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
 			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\n", err)
