@@ -437,8 +437,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 	if err := preserveMihomoSecret(oldCfg, nextCfg); err != nil {
 		return false, err
 	}
+	var managedCentralCIDRs []string
 	if strings.TrimSpace(centralURL) != "" {
-		if _, routeErr := addCentralRouteExclusions(nextCfg, centralURL); routeErr != nil {
+		var routeErr error
+		managedCentralCIDRs, _, routeErr = setCentralRouteExclusions(nextCfg, centralURL)
+		if routeErr != nil {
 			fmt.Printf("主控直连排除地址暂未更新: %v\n", routeErr)
 		}
 	}
@@ -455,6 +458,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		if strings.TrimSpace(centralURL) != "" {
 			if err := writeControllerConfig(agentYml); err != nil {
 				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
+			}
+			if len(managedCentralCIDRs) > 0 {
+				if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
+					return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
+				}
 			}
 		}
 		return false, nil
@@ -499,6 +507,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 	if strings.TrimSpace(centralURL) != "" {
 		if err := writeControllerConfig(agentYml); err != nil {
 			return false, fmt.Errorf("运行配置已写入，但保存主控原始配置哈希源失败: %w", err)
+		}
+		if len(managedCentralCIDRs) > 0 {
+			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
+				return false, fmt.Errorf("运行配置已写入，但保存动态主控地址记录失败: %w", err)
+			}
 		}
 	}
 	return true, nil
