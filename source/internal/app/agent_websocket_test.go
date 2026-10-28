@@ -1254,3 +1254,12 @@ func TestQueueAgentMihomoUpdateRejectsInvalidInputAndUnknownAgent(t *testing.T) 
 		})
 	}
 }
+
+// TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate guards against the server
+// closing an Agent session while a bounded Mihomo download/restart/health check is
+// still running and the Agent cannot send another heartbeat until it finishes.
+func TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate(t *testing.T) {
+	if agentWSHeartbeatTTL < 5*time.Minute {
+		t.Fatalf("agent WebSocket heartbeat TTL = %s; want at least 5 minutes for kernel updates", agentWSHeartbeatTTL)
+	}
+}
