@@ -977,7 +977,6 @@ func TestNextReconnectDelayCapsAtSixtySeconds(t *testing.T) {
 	}
 }
 
-
 func TestAgentConfigHandlerDistinguishesBindingFromConnection(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("MIHOMO_HOME", dir)
