@@ -49,10 +49,9 @@ sniffer:
       ports: [443]
       override-destination: true
 
-# TUN defaults to disabled to avoid unexpectedly taking over host traffic.
-# Enable only after confirming platform permissions and routing.
+# TUN defaults to enabled. Platforms without TUN privileges must explicitly disable it.
 tun:
-  enable: false
+  enable: true
   tcp-concurrent: true
   bind-address: "*"
   stack: mixed
