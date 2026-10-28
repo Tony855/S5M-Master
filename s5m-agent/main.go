@@ -205,50 +205,86 @@ func validateMihomoConfigYAML(data []byte) (map[string]interface{}, error) {
 
 // controllerConfigPath stores the exact controller YAML separately from the
 // Agent runtime config, which may contain dynamically resolved TUN exclusions.
-func controllerConfigPath() string { return filepath.Join(mihomoHome(), "controller-config.yaml") }
+func controllerConfigPath() string {
+	return filepath.Join(mihomoHome(), "controller-config.yaml")
+}
 
 func configHashSource() ([]byte, error) {
-	if data, err := os.ReadFile(controllerConfigPath()); err == nil && len(data) > 0 { return data, nil }
+	if data, err := os.ReadFile(controllerConfigPath()); err == nil && len(data) > 0 {
+		return data, nil
+	}
 	return os.ReadFile(mihomoConfigPath())
 }
 
 func writeControllerConfig(data []byte) error {
 	path := controllerConfigPath()
 	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil { _ = tmp.Close(); return err }
-	if _, err := tmp.Write(data); err != nil { _ = tmp.Close(); return err }
-	if err := tmp.Sync(); err != nil { _ = tmp.Close(); return err }
-	if err := tmp.Close(); err != nil { return err }
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
 	return os.Rename(tmpPath, path)
 }
 
 func centralHostname(centralURL string) string {
 	parsed, err := url.Parse(strings.TrimSpace(centralURL))
-	if err != nil || parsed.Host == "" { return "" }
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
 	return strings.TrimSuffix(strings.TrimSpace(parsed.Hostname()), ".")
 }
 
 func resolvedCentralRouteCIDRs(centralURL string) ([]string, error) {
 	host := centralHostname(centralURL)
-	if host == "" { return nil, fmt.Errorf("主控域名无效") }
+	if host == "" {
+		return nil, fmt.Errorf("主控域名无效")
+	}
 	ips := []net.IP{}
-	if ip := net.ParseIP(host); ip != nil { ips = append(ips, ip) } else {
+	if ip := net.ParseIP(host); ip != nil {
+		ips = append(ips, ip)
+	} else {
 		var err error
 		ips, err = net.LookupIP(host)
-		if err != nil { return nil, fmt.Errorf("解析主控域名 %s 失败: %w", host, err) }
+		if err != nil {
+			return nil, fmt.Errorf("解析主控域名 %s 失败: %w", host, err)
+		}
 	}
 	seen := map[string]bool{}
 	result := make([]string, 0, len(ips))
 	for _, ip := range ips {
-		if ip == nil { continue }
+		if ip == nil {
+			continue
+		}
 		cidr := ""
-		if v4 := ip.To4(); v4 != nil { cidr = v4.String() + "/32" } else if v6 := ip.To16(); v6 != nil { cidr = ip.String() + "/128" }
-		if cidr != "" && !seen[cidr] { seen[cidr] = true; result = append(result, cidr) }
+		if v4 := ip.To4(); v4 != nil {
+			cidr = v4.String() + "/32"
+		} else if v6 := ip.To16(); v6 != nil {
+			cidr = ip.String() + "/128"
+		}
+		if cidr != "" && !seen[cidr] {
+			seen[cidr] = true
+			result = append(result, cidr)
+		}
 	}
-	if len(result) == 0 { return nil, fmt.Errorf("主控域名 %s 没有可用的 A/AAAA 记录", host) }
+	if len(result) == 0 {
+		return nil, fmt.Errorf("主控域名 %s 没有可用的 A/AAAA 记录", host)
+	}
 	return result, nil
 }
 
@@ -267,7 +303,8 @@ func readManagedRouteCIDRs() map[string]bool {
 	}
 	result := make(map[string]bool, len(values))
 	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
+		value = strings.TrimSpace(value)
+		if value != "" {
 			result[value] = true
 		}
 	}
@@ -303,8 +340,6 @@ func writeManagedRouteCIDRs(values []string) error {
 	return os.Rename(tmpPath, managedRouteCIDRsPath())
 }
 
-// setCentralRouteExclusions replaces previously managed CIDRs while retaining
-// all operator-authored route exclusions.
 func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([]string, bool, error) {
 	cidrs, err := resolvedCentralRouteCIDRs(centralURL)
 	if err != nil {
@@ -409,8 +444,6 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 	return true, nil
 }
 
-// mergeConfig applies the complete controller-generated Mihomo YAML.
-// The previous config is kept until Mihomo successfully reloads.
 func mergeConfig(agentYml []byte) (bool, error) {
 	return mergeConfigWithCentralURL(agentYml, "")
 }
