@@ -695,7 +695,6 @@ func TestMarshalProxiesWithSharedAnchorFallsBackForDifferentProtocolOptions(t *t
 	}
 }
 
-
 func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-anchor-expansion.db"))
 	if err != nil {
