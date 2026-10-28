@@ -655,7 +655,10 @@ func processAgentCommandWebSocket(cfg Config) error {
 	if len(message) > 2048 {
 		message = message[:2048]
 	}
-	if err := conn.WriteJSON(map[string]string{"type": "command.ack", "id": cmd.ID, "command_status": status, "message": message}); err != nil {
+	// The command may take longer than the initial connection deadlines (for
+	// example, downloading and restarting Mihomo). Refresh the deadline for the
+	// ACK write instead of reusing the deadline set before command execution.
+	if err := writeAgentWSJSON(conn, map[string]string{"type": "command.ack", "id": cmd.ID, "command_status": status, "message": message}); err != nil {
 		return fmt.Errorf("命令已执行但 WebSocket ACK 发送失败，主控端可能重新投递: %w", err)
 	}
 	var ack struct {
@@ -664,7 +667,8 @@ func processAgentCommandWebSocket(cfg Config) error {
 		OK      bool   `json:"ok"`
 		Message string `json:"message"`
 	}
-	if err := conn.ReadJSON(&ack); err != nil {
+	// Command execution may also outlive the original read deadline.
+	if err := readAgentWSJSON(conn, &ack, 12*time.Second); err != nil {
 		return fmt.Errorf("读取命令 ACK 确认失败：%w", err)
 	}
 	if ack.Type != "command.acknowledged" || ack.ID != cmd.ID || !ack.OK {
