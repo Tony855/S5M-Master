@@ -313,8 +313,11 @@ func TestBuildConfigMapsDisabledCIDRToEnabledEndpoint(t *testing.T) {
 	if strings.Contains(got, "NETWORK,UDP,DIRECT") {
 		t.Fatal("不应生成全局 UDP 直连规则")
 	}
-	if !strings.Contains(got, "MATCH,DIRECT") {
-		t.Fatal("缺少默认 MATCH,DIRECT 规则")
+	if !strings.Contains(got, "GEOIP,CN,DIRECT") {
+		t.Fatal("有代理时应生成中国大陆直连规则")
+	}
+	if !strings.Contains(got, "MATCH,socks5-151.242.11.70:23049") {
+		t.Fatal("有代理时未命中规则的流量应默认走已启用代理")
 	}
 	for _, unwanted := range []string{"221111cdn", "^abc.*2222com"} {
 		if strings.Contains(got, unwanted) {
