@@ -45,11 +45,11 @@ type browserEventClient struct {
 }
 
 type browserControlMessage struct {
-	Type string `+"`"+`json:"type"`+"`"+`
-	RequestID string `+"`"+`json:"request_id"`+"`"+`
-	MachineCode string `+"`"+`json:"machine_code"`+"`"+`
-	Version string `+"`"+`json:"version"`+"`"+`
-	SHA256 string `+"`"+`json:"sha256"`+"`"+`
+	Type string `json:"type"`
+	RequestID string `json:"request_id"`
+	MachineCode string `json:"machine_code"`
+	Version string `json:"version"`
+	SHA256 string `json:"sha256"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
