@@ -1172,3 +1172,39 @@ func TestAgentWebSocketHelpersRefreshExpiredDeadlines(t *testing.T) {
 		t.Fatalf("unexpected acknowledgement: %+v", ack)
 	}
 }
+
+
+func TestGeoIPDownloadFailureDetection(t *testing.T) {
+	if !isGeoIPDownloadFailure([]byte("can't initial GeoIP: can't download MMDB: EOF")) {
+		t.Fatal("expected transient GeoIP download failure to be recognized")
+	}
+	if isGeoIPDownloadFailure([]byte("yaml: line 4: did not find expected key")) {
+		t.Fatal("YAML syntax errors must not be classified as GeoIP download failures")
+	}
+}
+
+func TestDisableGeoIPFallbackForValidationOnly(t *testing.T) {
+	cfg := map[string]interface{}{
+		"fallback-filter": map[string]interface{}{"geoip": true, "geoip-code": "CN"},
+	}
+	if !disableGeoIPFallbackForValidation(cfg) {
+		t.Fatal("expected enabled GeoIP fallback filter to be disabled for validation copy")
+	}
+	fallback := cfg["fallback-filter"].(map[string]interface{})
+	if fallback["geoip"] != false || fallback["geoip-code"] != "CN" {
+		t.Fatalf("unexpected validation-only fallback filter: %#v", fallback)
+	}
+	if disableGeoIPFallbackForValidation(map[string]interface{}{"fallback-filter": map[string]interface{}{"geoip": false}}) {
+		t.Fatal("must not modify a disabled GeoIP fallback filter")
+	}
+}
+
+func TestSafeMihomoValidationDiagnosticRedactsSecretsAndPaths(t *testing.T) {
+	got := safeMihomoValidationDiagnostic([]byte("error loading /opt/s5m-agent/data/config.yaml secret: abc123\ncan't download MMDB: EOF"))
+	if strings.Contains(got, "/opt/s5m-agent") || strings.Contains(got, "abc123") {
+		t.Fatalf("diagnostic leaked a path or secret: %q", got)
+	}
+	if !strings.Contains(got, "can't download MMDB: EOF") {
+		t.Fatalf("diagnostic lost useful validation detail: %q", got)
+	}
+}
