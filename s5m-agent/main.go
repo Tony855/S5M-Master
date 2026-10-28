@@ -1450,12 +1450,12 @@ func agentConfigHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"has_token": strings.TrimSpace(cfg.Token) != "",
-		"central_url": cfg.CentralURL,
-		"connected": agentConnected.Load(),
-		"config_exists": configExists,
+		"has_token":       strings.TrimSpace(cfg.Token) != "",
+		"central_url":     cfg.CentralURL,
+		"connected":       agentConnected.Load(),
+		"config_exists":   configExists,
 		"config_readable": configReadable,
-		"config_valid": configValid,
+		"config_valid":    configValid,
 	})
 }
 
