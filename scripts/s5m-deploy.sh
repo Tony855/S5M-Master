@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# S5M Agent 安全更新：仅替换 Agent 容器，保留持久化数据和宿主机其他 Docker 资源
+# S5M Agent 一键部署：仅替换本项目容器，保护其他 Docker 资源，支持 TUN 模式
 set -uo pipefail
 
 IMAGE_NAME="s5m-agent-linux-amd64.tar"
@@ -75,6 +75,8 @@ log "启动容器 $CONTAINER ..."
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
+  --cap-add=NET_ADMIN \
+  --device=/dev/net/tun:/dev/net/tun \
   -p "${PORT_WEB}:80" \
   -p "${PORT_PROXY}:7890" \
   -v "$DATA_DIR":/data \
@@ -100,6 +102,3 @@ log "完成。浏览器访问： http://<服务器公网IP>"
 warn "请确认安全组/防火墙按需放行 ${PORT_WEB} 和 ${PORT_PROXY}"
 
 echo
-log "进入实时日志模式：docker logs -f $CONTAINER"
-warn "按 Ctrl+C 退出日志查看；这不会停止或删除容器。"
-docker logs -f "$CONTAINER"
