@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"crypto/subtle"
 	"fmt"
 	"math"
 	"net/http"
