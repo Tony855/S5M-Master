@@ -233,7 +233,7 @@ createApp({
               loadAgentsData();
             }
             if (page.value === 'dashboard') loadOverview();
-          } else if (message.type === 'agent.command.updated' && message.machine_code) {
+          } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
             loadAgentsData();
           }
         };
