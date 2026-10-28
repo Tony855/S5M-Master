@@ -561,13 +561,15 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 	}
 	if string(oldNorm) == string(newNorm) {
 		if strings.TrimSpace(centralURL) != "" {
-			if err := writeControllerConfig(agentYml); err != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
-			}
 			if len(managedCentralCIDRs) > 0 {
 				if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
 					return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
 				}
+			}
+			// Commit the source hash last so a metadata write failure cannot
+			// make the controller believe an unapplied config is already active.
+			if err := writeControllerConfig(agentYml); err != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
 			}
 		}
 		return false, nil
@@ -610,12 +612,6 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if strings.TrimSpace(centralURL) != "" {
-		if err := writeControllerConfig(agentYml); err != nil {
-			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
-			}
-			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
-		}
 		if len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
 				if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
@@ -623,6 +619,14 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 				}
 				return false, fmt.Errorf("保存动态主控地址记录失败，已恢复旧运行配置: %w", err)
 			}
+		}
+		// Write the hash source last. If this fails, the next config request
+		// still compares against the previously applied controller YAML.
+		if err := writeControllerConfig(agentYml); err != nil {
+			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
+			}
+			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
 		}
 	}
 	return true, nil
