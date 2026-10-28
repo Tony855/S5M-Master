@@ -294,7 +294,19 @@ createApp({
               loadAgentsData();
             }
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
-            loadAgentsData();
+            const code = String(message.machine_code);
+            const index = agentEntries.value.findIndex(item => item.code === code);
+            if (index >= 0) {
+              const previous = agentEntries.value[index];
+              const queued = message.type === 'agent.command.queued';
+              agentEntries.value.splice(index, 1, {
+                ...previous,
+                lastCommandId: String(message.command_id || previous.lastCommandId || ''),
+                lastCommandStatus: queued ? 'queued' : String(message.status || 'unknown'),
+                lastCommandMessage: queued ? ('命令已排队' + (message.version ? '：' + message.version : '')) : String(message.message || ''),
+                lastCommandAt: Number(message.at) || Math.floor(Date.now() / 1000)
+              });
+            }
           }
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
@@ -873,7 +885,6 @@ createApp({
           sha256
         });
         kernelUpdateDialog.value = false;
-        await loadAgentsData();
         showMsg(data.message || '更新任务已排队；Agent 在线时将执行', 'success');
       } catch (e) {
         showMsg(e.message || '排队更新失败', 'error');
