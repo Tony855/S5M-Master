@@ -10,6 +10,18 @@ if [[ -f "$ROOT/source/main.go" ]]; then SRC="$ROOT/source"; elif [[ -f "$ROOT/m
 ENV_FILE="/etc/s5m-server.env"
 OLD_ENV_FILE="/etc/s5m-server/server.env"
 DB_DIR="/var/lib/s5m-server"
+# Optional Let's Encrypt setup: S5M_DOMAIN must resolve to this server and ports 80/443 must be reachable.
+S5M_DOMAIN="${S5M_DOMAIN:-}"
+S5M_EMAIL="${S5M_EMAIL:-}"
+if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
+if [[ -n "$S5M_DOMAIN" && ! "$S5M_DOMAIN" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]]; then
+  echo "❌ S5M_DOMAIN 格式无效：$S5M_DOMAIN" >&2
+  exit 1
+fi
+if [[ -n "$S5M_DOMAIN" && -z "$S5M_EMAIL" ]]; then
+  echo "❌ 配置 HTTPS 证书时必须同时设置 S5M_EMAIL，例如 S5M_DOMAIN=panel.example.com S5M_EMAIL=admin@example.com bash scripts/install.sh" >&2
+  exit 1
+fi
 BIN="/opt/S5M-Server/S5M-Server"
 
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
@@ -25,7 +37,9 @@ done
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl python3 gzip > /dev/null
+apt_packages=(ca-certificates curl git build-essential golang-go sqlite3 libcap2-bin openssl python3 gzip)
+if [[ -n "$S5M_DOMAIN" ]]; then apt_packages+=(nginx certbot python3-certbot-nginx); fi
+apt-get install -y -qq "${apt_packages[@]}" > /dev/null
 
 # === 新增：智能处理端口占用 ===
 PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
@@ -224,7 +238,7 @@ elif [[ -f "$OLD_ENV_FILE" && -f "$ENV_FILE" ]]; then mv "$OLD_ENV_FILE" "$OLD_E
 if [[ ! -f "$ENV_FILE" ]]; then
   ADMIN_PASS="$(openssl rand -hex 24)"
   cat > "$ENV_FILE" <<ENVEOF
-S5M_ADDR=:80
+S5M_ADDR=$([[ -n "$S5M_DOMAIN" ]] && echo "127.0.0.1:8080" || echo ":80")
 S5M_DB=$DB_DIR/s5m.db
 S5M_CONFIG=$DB_DIR/config.yaml
 S5M_BACKUP=$DB_DIR/backups
@@ -241,7 +255,14 @@ ENVEOF
 fi
 
 # Backfill required S5M paths/address for older environment files as well.
-# Keep existing user choices intact; missing values use the native-install defaults.
+# Keep existing user choices intact except when HTTPS reverse proxy is explicitly enabled.
+if [[ -n "$S5M_DOMAIN" ]]; then
+  if grep -qE '^S5M_ADDR=' "$ENV_FILE"; then
+    sed -i 's#^S5M_ADDR=.*#S5M_ADDR=127.0.0.1:8080#' "$ENV_FILE"
+  else
+    printf '\nS5M_ADDR=127.0.0.1:8080\n' >> "$ENV_FILE"
+  fi
+fi
 for entry in \
   "S5M_ADDR=:80" \
   "S5M_DB=$DB_DIR/s5m.db" \
@@ -420,6 +441,52 @@ if [[ "$HEALTH_OK" -ne 1 ]] || ! grep -q '"status":"ok"' /tmp/s5m-server-health.
   exit 1
 fi
 
+if [[ -n "$S5M_DOMAIN" ]]; then
+  NGINX_SITE="/etc/nginx/sites-available/s5m-server"
+  NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
+  if [[ -e "$NGINX_SITE" && ! -f "$BACKUP/nginx-s5m-server.conf" ]]; then
+    cp -a "$NGINX_SITE" "$BACKUP/nginx-s5m-server.conf"
+  fi
+  cat > "$NGINX_SITE" <<NGINXEOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $S5M_DOMAIN;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+NGINXEOF
+  ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
+  if [[ -e /etc/nginx/sites-enabled/default ]]; then
+    mv /etc/nginx/sites-enabled/default "/etc/nginx/sites-enabled/default.disabled-by-s5m-$STAMP"
+  fi
+  if ! nginx -t || ! systemctl enable --now nginx; then
+    rollback_install "Nginx HTTPS 反向代理配置失败"
+    exit 1
+  fi
+  if ! certbot --nginx --non-interactive --agree-tos --redirect --email "$S5M_EMAIL" -d "$S5M_DOMAIN"; then
+    echo "❌ Let's Encrypt 证书签发失败。请确认域名 DNS 已指向本机，且 TCP 80/443 可从公网访问。" >&2
+    rollback_install "HTTPS 证书签发失败"
+    exit 1
+  fi
+  if ! curl -fsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
+    rollback_install "HTTPS 端点健康检查失败"
+    exit 1
+  fi
+  echo "🔐 HTTPS 证书已签发并配置自动续期： https://$S5M_DOMAIN"
+fi
+
 echo "✅ S5M-Server 安装成功"
 echo "   服务: $UNIT（端口 $PORT）"
 echo "   健康: $(cat /tmp/s5m-server-health.json)"
+if [[ -n "$S5M_DOMAIN" ]]; then echo "   HTTPS: https://$S5M_DOMAIN"; else echo "   HTTPS: 未配置（设置 S5M_DOMAIN 与 S5M_EMAIL 可启用 Let's Encrypt）"; fi
