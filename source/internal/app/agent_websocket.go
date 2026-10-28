@@ -16,7 +16,10 @@ import (
 
 const (
 	agentWSMaxMessageBytes = 16 << 10
-	agentWSHeartbeatTTL    = 75 * time.Second
+	// Kernel downloads and verified restarts can take several minutes while the Agent is
+	// executing a command and cannot send a heartbeat on the same WebSocket. Keep the
+	// session alive long enough for the bounded update + health-check + ACK path.
+	agentWSHeartbeatTTL    = 10 * time.Minute
 	agentWSMaxVersionBytes = 128
 	agentWSMaxErrorBytes   = 2048
 )
