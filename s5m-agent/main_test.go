@@ -90,13 +90,15 @@ func TestHostnameHandler(t *testing.T) {
 
 func TestValidateCentralURL(t *testing.T) {
 	tests := []struct {
-		name string
-		in   string
-		want string
-		ok   bool
+		name        string
+		in          string
+		want        string
+		ok          bool
+		allowHTTP   bool
 	}{
 		{name: "https", in: " https://controller.example.com/ ", want: "https://controller.example.com", ok: true},
-		{name: "http local network", in: "http://192.0.2.10:8080", want: "http://192.0.2.10:8080", ok: true},
+		{name: "http rejected by default", in: "http://192.0.2.10:8080", ok: false},
+		{name: "http explicit trusted-network opt-in", in: "http://192.0.2.10:8080", want: "http://192.0.2.10:8080", ok: true, allowHTTP: true},
 		{name: "missing scheme", in: "controller.example.com", ok: false},
 		{name: "unsupported scheme", in: "ftp://controller.example.com", ok: false},
 		{name: "missing host", in: "https://", ok: false},
@@ -107,6 +109,10 @@ func TestValidateCentralURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("S5M_ALLOW_INSECURE_HTTP", "")
+			if tt.allowHTTP {
+				t.Setenv("S5M_ALLOW_INSECURE_HTTP", "1")
+			}
 			got, err := validateCentralURL(tt.in)
 			if tt.ok {
 				if err != nil {
