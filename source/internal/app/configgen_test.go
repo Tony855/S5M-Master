@@ -9,6 +9,34 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "config-ports.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	app := &App{store: store}
+	controllerYAML, err := app.BuildConfigForMachine("")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(controller): %v", err)
+	}
+	if !strings.Contains(controllerYAML, "mixed-port: 8080") {
+		t.Fatalf("controller config should retain port 8080:\n%s", controllerYAML)
+	}
+
+	agentYAML, err := app.BuildConfigForMachine("node-a")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(agent): %v", err)
+	}
+	if !strings.Contains(agentYAML, "mixed-port: 7890") {
+		t.Fatalf("Agent config should match the published container port 7890:\n%s", agentYAML)
+	}
+	if strings.Contains(agentYAML, "mixed-port: 8080") {
+		t.Fatalf("Agent config unexpectedly retained controller port 8080:\n%s", agentYAML)
+	}
+}
+
 func TestSyncAuthorizedNodeConfigsRejectsNullExistingYAMLWithoutPanicOrWrites(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-null-yaml.db"))
 	if err != nil {
