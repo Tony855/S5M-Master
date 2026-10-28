@@ -307,8 +307,8 @@
                   <span>{{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</span>
                 </div>
                 <div class="instance-summary-secondary">
-                  <span class="instance-summary-mihomo" :class="item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown')">
-                    Mihomo：{{ item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知') }}{{ item.mihomoVersion ? ' · v' + item.mihomoVersion : '' }}
+                  <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown'))">
+                    Mihomo：{{ !item.online ? (item.runtimeReported ? '状态未知（Agent 离线）' : '状态未知') : (item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知')) }}{{ item.mihomoVersion ? (item.online ? ' · v' : ' · 最后上报 v') + item.mihomoVersion : '' }}
                   </span>
                   <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
                 </div>
