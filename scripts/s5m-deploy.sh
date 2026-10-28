@@ -64,9 +64,12 @@ if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
 fi
 
 log "启动容器 $CONTAINER ..."
+# Keep Mihomo TUN routes inside the Agent container's network namespace.
+# Do not use --network host: changing the host namespace's routes can lock out SSH.
 docker run -d \
   --name "$CONTAINER" \
   --restart unless-stopped \
+  --network bridge \
   --cap-add=NET_ADMIN \
   --device=/dev/net/tun:/dev/net/tun \
   -p "${PORT_WEB}:80" \
