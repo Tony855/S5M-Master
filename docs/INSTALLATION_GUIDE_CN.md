@@ -28,6 +28,28 @@ cd S5M-Master
 sudo bash scripts/install.sh
 ```
 
+### 一键安装同时配置 HTTPS 证书（推荐）
+
+如果主控需要通过公网供 Agent 绑定，建议使用域名并在安装时自动申请 Let's Encrypt 证书。先将域名的 A/AAAA 记录指向主控服务器，并确保公网 TCP 80、443 未被安全组/防火墙拦截：
+
+```bash
+cd S5M-Master
+sudo env S5M_DOMAIN=panel.example.com S5M_EMAIL=admin@example.com bash scripts/install.sh
+```
+
+将 `panel.example.com` 和 `admin@example.com` 替换为你自己的域名和有效邮箱。脚本会安装 Nginx、Certbot，配置反向代理与 WebSocket Upgrade，申请并安装证书、启用 HTTP 到 HTTPS 重定向，并检查 `https://域名/api/v1/health`。Certbot 会配置证书自动续期。若签发或 HTTPS 健康检查失败，脚本会执行回滚；请查看终端输出及 `/var/log/letsencrypt/`。
+
+安装后验证：
+
+```bash
+sudo nginx -t
+sudo certbot certificates
+sudo systemctl status certbot.timer --no-pager
+curl -fsS https://panel.example.com/api/v1/health
+```
+
+没有可用域名时，脚本仍可按原方式安装，但不会自动签发公网证书。不要把自签名证书当作公网 Agent 的默认方案。
+
 脚本成功后检查服务、端口、健康接口：
 
 ```bash
