@@ -289,11 +289,10 @@ func controllerHostFromSettings(settings map[string]string) string {
 	return ""
 }
 
-
 // marshalProxiesWithSharedAnchor emits a YAML merge anchor only when every
- // generated proxy has identical protocol, server and protocol-specific options.
- // Name and port are intentionally excluded: aliases override those per node.
- // Mixed endpoints/protocols fall back to ordinary YAML serialization.
+// generated proxy has identical protocol, server and protocol-specific options.
+// Name and port are intentionally excluded: aliases override those per node.
+// Mixed endpoints/protocols fall back to ordinary YAML serialization.
 func marshalProxiesWithSharedAnchor(proxies []proxyOut) ([]byte, error) {
 	if len(proxies) < 2 {
 		return yaml.Marshal(proxies)
