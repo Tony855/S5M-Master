@@ -351,12 +351,14 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 		}
 		return fmt.Errorf("命令已被替换或不存在")
 	}
-	result, _ := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
-	if err := a.store.UpdateSettings(map[string]string{"agent_command_result_" + machineCode: string(result)}); err != nil {
-		return fmt.Errorf("保存命令结果失败: %w", err)
+	result, err := json.Marshal(map[string]any{"id": commandID, "type": pending["type"], "status": status, "message": message, "updated_at": time.Now().Unix()})
+	if err != nil {
+		return fmt.Errorf("编码命令结果失败: %w", err)
 	}
-	if err := a.store.DeleteSettings([]string{"agent_command_" + machineCode}); err != nil {
-		return fmt.Errorf("清除已执行命令失败: %w", err)
+	// Commit the result and remove the pending command in one SQLite transaction.
+	// Otherwise a failed delete could leave a completed command queued for rerun.
+	if err := a.store.CompleteAgentCommand(machineCode, commandID, string(result)); err != nil {
+		return fmt.Errorf("原子确认 Agent 命令失败: %w", err)
 	}
 	return nil
 }

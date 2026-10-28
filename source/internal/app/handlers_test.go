@@ -894,3 +894,68 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 		}
 	}
 }
+
+
+func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "command-complete.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "cmd_atomic_01"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_command_"+code: `{"id":"cmd-1","type":"update_mihomo","version":"v1.2.3"}`,
+	}); err != nil {
+		t.Fatalf("seed pending command: %v", err)
+	}
+	if err := store.CompleteAgentCommand(code, "wrong-id", `{"id":"wrong-id","status":"success"}`); err == nil {
+		t.Fatal("stale command ACK unexpectedly succeeded")
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after stale ACK: %v", err)
+	}
+	if settings["agent_command_"+code] == "" || settings["agent_command_result_"+code] != "" {
+		t.Fatalf("stale ACK changed queue state: %#v", settings)
+	}
+
+	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err != nil {
+		t.Fatalf("CompleteAgentCommand: %v", err)
+	}
+	settings, err = store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after completion: %v", err)
+	}
+	if settings["agent_command_"+code] != "" || settings["agent_command_result_"+code] == "" {
+		t.Fatalf("completion was not committed as a unit: %#v", settings)
+	}
+	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err == nil {
+		t.Fatal("already completed command should not be completed again at storage layer")
+	}
+}
+
+func TestHandleAgentCommandSerializesWithQueueAndAck(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_command_"+code: `{"id":"cmd-http-1","type":"update_mihomo"}`,
+	}); err != nil {
+		t.Fatalf("seed pending command: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/command", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentCommand(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP status = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Command map[string]string `json:"command"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode command response: %v", err)
+	}
+	if body.Command["id"] != "cmd-http-1" {
+		t.Fatalf("command ID = %q, want cmd-http-1", body.Command["id"])
+	}
+}

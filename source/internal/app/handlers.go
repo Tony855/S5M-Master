@@ -1700,6 +1700,19 @@ func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+
+	// Keep the HTTP poll in the same per-Agent critical section as enqueue,
+	// ACK, WebSocket delivery and reconnect/revocation-related operations.
+	operationMu := a.agentWSOperationLock(code)
+	operationMu.Lock()
+	defer operationMu.Unlock()
+
+	// Revalidate authorization after waiting for the lock. A token can be
+	// revoked or rotated while this request is queued behind another operation.
+	if currentCode, authErr := a.agentMachineFromRequest(r); authErr != nil || currentCode != code {
+		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效，请重新注册")
+		return
+	}
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 命令失败")

@@ -495,3 +495,48 @@ func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
 		machineCode, yamlText, time.Now().Format(time.RFC3339))
 	return err
 }
+
+
+// CompleteAgentCommand stores a result and removes only the matching pending
+// command atomically. It protects against partial ACK commits and stale ACKs.
+func (s *Store) CompleteAgentCommand(machineCode, commandID, resultJSON string) error {
+	if strings.TrimSpace(machineCode) == "" || strings.TrimSpace(commandID) == "" {
+		return fmt.Errorf("机器码和命令 ID 不能为空")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	commandKey := "agent_command_" + machineCode
+	resultKey := "agent_command_result_" + machineCode
+	var raw string
+	err = tx.QueryRow(`SELECT value FROM settings WHERE key = ?`, commandKey).Scan(&raw)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("命令已被替换或不存在")
+		}
+		return err
+	}
+	var pending map[string]string
+	if err := json.Unmarshal([]byte(raw), &pending); err != nil || pending["id"] != commandID {
+		return fmt.Errorf("命令已被替换或不存在")
+	}
+	if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES(?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, resultKey, resultJSON); err != nil {
+		return fmt.Errorf("保存命令结果失败: %w", err)
+	}
+	res, err := tx.Exec(`DELETE FROM settings WHERE key=?`, commandKey)
+	if err != nil {
+		return fmt.Errorf("清除已执行命令失败: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("待执行命令在确认过程中已发生变化")
+	}
+	return tx.Commit()
+}
