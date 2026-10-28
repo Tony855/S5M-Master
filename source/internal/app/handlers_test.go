@@ -1156,3 +1156,36 @@ func TestParseProxyLinePreservesProtocolOptions(t *testing.T) {
 		t.Fatalf("WebSocket options not detected: %#v", p.Extra["ws-opts"])
 	}
 }
+
+func TestSaveNodeConfigRejectsUnpublishedProxyPort(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-port.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "node_port"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":           "global-secret",
+		"agent_machine_" + code: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	app := &App{store: store}
+	body := `{"config_yaml":"mixed-port: 7899\nsecret: node-secret\ntun:\n  enable: false\ndns:\n  enable: false\n"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+code+"/config", strings.NewReader(body))
+	req.SetPathValue("code", code)
+	rec := httptest.NewRecorder()
+
+	app.handleSaveNodeConfig(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(code)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg != nil {
+		t.Fatalf("invalid proxy port config was persisted: %#v", cfg)
+	}
+}
