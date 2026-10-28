@@ -520,7 +520,7 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 		want []string
 	}{
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
-		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
+		{mode: "split", want: []string{"MATCH,proxy-a"}},
 		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
 		{mode: "game", want: []string{"DOMAIN-SUFFIX,steampowered.com,game-a", "MATCH,DIRECT"}},
 	}
@@ -543,6 +543,23 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 	}
 	if !strings.Contains(ipConfig, "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve") {
 		t.Fatal("controller IPv4 must be explicitly routed direct")
+	}
+}
+
+func TestRoutingModeForMachineUsesNodeMode(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "node-a-proxy", Mode: "return", MachineCode: "node-a", Enabled: true},
+		{Name: "node-b-proxy", Mode: "split", MachineCode: "node-b", Enabled: true},
+		{Name: "global-proxy", Mode: "game", MachineCode: "__GLOBAL__", Enabled: true},
+	}
+	if got := routingModeForMachine(proxies, "node-a"); got != "return" {
+		t.Fatalf("node-a routing mode = %q, want return", got)
+	}
+	if got := routingModeForMachine(proxies, "node-b"); got != "split" {
+		t.Fatalf("node-b routing mode = %q, want split", got)
+	}
+	if got := routingModeForMachine(proxies, ""); got != "game" {
+		t.Fatalf("global routing mode = %q, want game", got)
 	}
 }
 
