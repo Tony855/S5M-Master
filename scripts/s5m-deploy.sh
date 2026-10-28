@@ -77,6 +77,15 @@ docker run -d \
   -v "$DATA_DIR":/data \
   "$IMAGE_LOCAL" || die "容器启动失败"
 
+# Runtime guard: fail closed if Docker did not keep the Agent in bridge mode.
+network_mode="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$CONTAINER")" || die "无法核实 Agent 容器网络模式"
+if [ "$network_mode" != "bridge" ]; then
+  warn "Agent 网络模式异常：$network_mode；仅停止并移除本次目标容器以避免影响宿主机网络"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  die "拒绝保留非 bridge 网络模式的 Agent 容器；宿主机 SSH 安全检查未通过"
+fi
+log "网络隔离检查通过：Agent 使用 bridge 网络；容器 TUN 路由不应修改宿主机路由。"
+
 sleep 3
 echo
 log "===== 部署结果 ====="
