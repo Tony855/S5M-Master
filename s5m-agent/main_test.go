@@ -1054,6 +1054,38 @@ func TestAgentConfigHandlerDistinguishesBindingFromConnection(t *testing.T) {
 	}
 }
 
+func TestAgentConfigHandlerReportsMissingAndInvalidConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MIHOMO_HOME", dir)
+	previous := agentConnected.Load()
+	defer agentConnected.Store(previous)
+	agentConnected.Store(false)
+
+	readConfig := func() map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		agentConfigHandler(rec, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return got
+	}
+
+	got := readConfig()
+	if got["config_exists"] != false || got["config_readable"] != true || got["config_valid"] != true || got["has_token"] != false {
+		t.Fatalf("unexpected missing-config status: %#v", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "agent.json"), []byte("{invalid"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got = readConfig()
+	if got["config_exists"] != true || got["config_valid"] != false || got["has_token"] != false {
+		t.Fatalf("unexpected invalid-config status: %#v", got)
+	}
+}
+
 func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
 	cases := []struct {
 		name    string
