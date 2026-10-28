@@ -353,19 +353,32 @@ func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([
 	values, _ := tun["route-exclude-address"].([]interface{})
 	seen := map[string]bool{}
 	next := make([]interface{}, 0, len(values)+len(cidrs))
+	changed := false
 	for _, value := range values {
 		text, ok := value.(string)
 		if !ok {
 			continue
 		}
 		text = strings.TrimSpace(text)
-		if text == "" || managed[text] || seen[text] {
+		if text == "" || seen[text] {
 			continue
+		}
+		if managed[text] {
+			isCurrent := false
+			for _, cidr := range cidrs {
+				if text == cidr {
+					isCurrent = true
+					break
+				}
+			}
+			if !isCurrent {
+				changed = true
+				continue
+			}
 		}
 		seen[text] = true
 		next = append(next, text)
 	}
-	changed := false
 	for _, cidr := range cidrs {
 		if !seen[cidr] {
 			seen[cidr] = true
