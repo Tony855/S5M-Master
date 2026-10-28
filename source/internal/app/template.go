@@ -527,6 +527,10 @@ func (a *App) handleApplyMihomoTemplate(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, 400, "应用到节点的完整配置必须包含 dns 配置块")
 		return
 	}
+	if err := validateAgentPublishedProxyPort(template); err != nil {
+		writeErr(w, http.StatusBadRequest, "模板不能应用: "+err.Error())
+		return
+	}
 	tx, err := a.store.db.Begin()
 	if err != nil {
 		writeErr(w, 500, "开始应用模板事务失败")
