@@ -1303,3 +1303,41 @@ func TestSafeMihomoValidationDiagnosticRedactsSecretsAndPaths(t *testing.T) {
 		t.Fatalf("diagnostic lost useful validation detail: %q", got)
 	}
 }
+
+
+func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MIHOMO_HOME", dir)
+	if err := writeManagedRouteCIDRs([]string{"198.51.100.10/32"}); err != nil {
+		t.Fatalf("write managed route CIDRs: %v", err)
+	}
+	cfg := map[string]interface{}{
+		"tun": map[string]interface{}{
+			"enable": true,
+			"route-exclude-address": []interface{}{
+				"192.0.2.7/32",
+				"198.51.100.10/32",
+			},
+		},
+	}
+	cidrs, changed, err := setCentralRouteExclusions(cfg, "https://198.51.100.10")
+	if err != nil {
+		t.Fatalf("setCentralRouteExclusions() error = %v", err)
+	}
+	if changed {
+		t.Fatal("unchanged managed controller CIDR must not trigger a config reload")
+	}
+	if len(cidrs) != 1 || cidrs[0] != "198.51.100.10/32" {
+		t.Fatalf("managed CIDRs = %#v, want current controller IP", cidrs)
+	}
+	got := cfg["tun"].(map[string]interface{})["route-exclude-address"].([]interface{})
+	want := []interface{}{"192.0.2.7/32", "198.51.100.10/32"}
+	if len(got) != len(want) {
+		t.Fatalf("route exclusions = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("route exclusions = %#v, want %#v", got, want)
+		}
+	}
+}
