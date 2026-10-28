@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +68,33 @@ func decodeErrorStatus(err error) int {
 		return http.StatusRequestEntityTooLarge
 	}
 	return http.StatusBadRequest
+}
+
+func (a *App) handleCreateBrowserEventsTicket(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil || u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "需要管理员权限")
+		return
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成实时通道授权失败")
+		return
+	}
+	ticket := hex.EncodeToString(buf)
+	now := time.Now()
+	a.browserTicketMu.Lock()
+	if a.browserTickets == nil {
+		a.browserTickets = make(map[string]browserWSTicket)
+	}
+	for key, value := range a.browserTickets {
+		if !value.ExpiresAt.After(now) {
+			delete(a.browserTickets, key)
+		}
+	}
+	a.browserTickets[ticket] = browserWSTicket{Username: u.Username, ExpiresAt: now.Add(30 * time.Second)}
+	a.browserTicketMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"ticket": ticket, "expires_in": 30})
 }
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -1698,6 +1726,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
 		return
 	}
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": in.MachineCode, "command_id": command["id"], "command_type": command["type"], "version": command["version"], "at": time.Now().Unix()})
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本", "command_id": command["id"]})
 }
 

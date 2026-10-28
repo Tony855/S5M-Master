@@ -21,6 +21,10 @@ type App struct {
 	agentWSMu         sync.Mutex
 	agentWSGeneration map[string]uint64
 	agentHeartbeatAt  map[string]int64
+	browserWSMu       sync.Mutex
+	browserWSClients  map[*browserEventClient]struct{}
+	browserTicketMu   sync.Mutex
+	browserTickets    map[string]browserWSTicket
 }
 
 func New(cfg Config) (*App, error) {
@@ -77,10 +81,12 @@ func (a *App) Router(static fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/v1/subscribe", a.handleSubscribe)
 	mux.HandleFunc("POST /api/v1/agent/register", a.handleAgentRegister)
 	mux.HandleFunc("GET /api/v1/agent/ws", a.handleAgentWebSocket)
+	mux.HandleFunc("GET /api/v1/events/ws", a.handleBrowserEventsWebSocket)
 
 	authed := map[string]http.HandlerFunc{
 		"GET /api/v1/backup":                       a.handleDownloadBackup,
 		"GET /api/v1/auth/me":                      a.handleMe,
+		"POST /api/v1/events/ticket":               a.handleCreateBrowserEventsTicket,
 		"GET /api/v1/agents":                       a.handleGetAgents,
 		"POST /api/v1/agents/generate":             a.handleGenerateAgentToken,
 		"GET /api/v1/agents/kernel-update-info":    a.handleAgentMihomoUpdateInfo,

@@ -14,6 +14,11 @@ createApp({
 
     const overview = ref({});
     const traffic = ref({ up: 0, down: 0, conns: 0 });
+    const realtimeStatus = ref('disconnected');
+    let browserEventsSocket = null;
+    let browserEventsRetryTimer = null;
+    let browserEventsStopped = false;
+    let staleStatusTimer = null;
     let overviewTimer = null;
     const proxies = ref([]);
     const loadingProxies = ref(false);
@@ -175,7 +180,105 @@ createApp({
       catch (e) { return 'HTTP ' + res.status; }
     }
 
+    const stopBrowserEvents = () => {
+      browserEventsStopped = true;
+      realtimeStatus.value = 'disconnected';
+      if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
+      browserEventsRetryTimer = null;
+      if (browserEventsSocket) {
+        const socket = browserEventsSocket;
+        browserEventsSocket = null;
+        socket.onclose = null;
+        try { socket.close(); } catch (_) {}
+      }
+    };
+
+    const startStaleStatusTimer = () => {
+      if (staleStatusTimer !== null) return;
+      staleStatusTimer = setInterval(() => {
+        const now = Math.floor(Date.now() / 1000);
+        agentEntries.value = agentEntries.value.map(item => {
+          const age = now - (Number(item.last_seen) || 0);
+          if (item.online && (age < 0 || age >= 90)) {
+            return { ...item, online: false, mihomoRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
+          }
+          return item;
+        });
+      }, 5000);
+    };
+
+    const connectBrowserEvents = async () => {
+      if (!token.value || browserEventsSocket || browserEventsStopped) return;
+      realtimeStatus.value = 'connecting';
+      try {
+        const res = await api('/api/v1/events/ticket', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ticket) throw new Error(data.error || '获取实时通道授权失败');
+        const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(scheme + '//' + window.location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(data.ticket));
+        browserEventsSocket = socket;
+        socket.onopen = () => {
+          realtimeStatus.value = 'connected';
+          // Resync the full snapshot after every connect/reconnect; WebSocket events are deltas.
+          loadAgentsData();
+          loadOverview();
+        };
+        socket.onmessage = (event) => {
+          let message;
+          try { message = JSON.parse(event.data); } catch (_) { return; }
+          if (message.type === 'agent.status.updated' && message.machine_code) {
+            const code = String(message.machine_code);
+            const status = message.status && typeof message.status === 'object' ? message.status : {};
+            const receivedAt = Number(message.last_seen) || Math.floor(Date.now() / 1000);
+            const index = agentEntries.value.findIndex(item => item.code === code);
+            if (index >= 0) {
+              const previous = agentEntries.value[index];
+              const updated = {
+                ...previous,
+                online: true,
+                last_seen: receivedAt,
+                hostname: String(status.hostname || previous.hostname || ''),
+                os: String(status.os || previous.os || ''),
+                arch: String(status.arch || previous.arch || ''),
+                mihomoRunning: status.mihomo_healthy === true,
+                mihomoVersion: normalizeMihomoVersion(status.mihomo_version || previous.mihomoVersion),
+                runtimeReported: true,
+                lastError: String(status.last_error || ''),
+                runtimeMessage: status.mihomo_healthy === true ? '' : String(status.last_error || 'Agent 已连接，但 Mihomo 健康检查未通过'),
+                updated_at: new Date(receivedAt * 1000).toLocaleString()
+              };
+              agentEntries.value.splice(index, 1, updated);
+            } else {
+              loadAgentsData();
+            }
+            if (page.value === 'dashboard') loadOverview();
+          } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
+            loadAgentsData();
+          }
+        };
+        socket.onerror = () => { try { socket.close(); } catch (_) {} };
+        socket.onclose = () => {
+          if (browserEventsSocket === socket) browserEventsSocket = null;
+          if (browserEventsStopped || !token.value) return;
+          realtimeStatus.value = 'reconnecting';
+          browserEventsRetryTimer = setTimeout(() => {
+            browserEventsRetryTimer = null;
+            connectBrowserEvents();
+          }, 3000);
+        };
+      } catch (e) {
+        realtimeStatus.value = 'reconnecting';
+        if (!browserEventsStopped && token.value) {
+          browserEventsRetryTimer = setTimeout(() => {
+            browserEventsRetryTimer = null;
+            connectBrowserEvents();
+          }, 3000);
+        }
+      }
+    };
+
     const logout = () => {
+      stopBrowserEvents();
       localStorage.removeItem('s5m_next_token');
       localStorage.removeItem('s5m_next_user');
       token.value = ''; currentUser.value = ''; loginPass.value = '';
@@ -222,7 +325,7 @@ createApp({
           localStorage.setItem('s5m_next_token', data.token);
           localStorage.setItem('s5m_next_user', data.user.username || loginUser.value);
           token.value = data.token; currentUser.value = data.user.username || loginUser.value;
-          loginPass.value = ''; switchPage('dashboard');
+          loginPass.value = ''; browserEventsStopped = false; switchPage('dashboard'); startStaleStatusTimer(); connectBrowserEvents();
         } else { showMsg(data.error || data.message || '账号或密码错误', 'error'); }
       } catch (e) { showMsg('网络错误', 'error'); }
       loggingIn.value = false;
@@ -1048,18 +1151,24 @@ const safeCopy = async (text) => {
           }, 3000);
         }
         loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        browserEventsStopped = false;
+        connectBrowserEvents();
+        startStaleStatusTimer();
       }
     });
 
     onUnmounted(() => {
       if (overviewTimer !== null) clearInterval(overviewTimer);
       overviewTimer = null;
+      if (staleStatusTimer !== null) clearInterval(staleStatusTimer);
+      staleStatusTimer = null;
+      stopBrowserEvents();
     });
 
     return {
       page, token, loginUser, loginPass, loggingIn, currentUser,
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
-      overview, traffic, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
