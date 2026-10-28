@@ -187,11 +187,6 @@ checks.update({
     "Agent WebSocket control keeps auth-revocation, session ACK, and long-command TTL regressions covered": "TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation" in browser_ws_tests and "TestAgentWebSocketDeliversAndAcknowledgesPendingCommand" in browser_ws_tests and "TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate" in browser_ws_tests,
 })
 
-failed = [name for name, ok in checks.items() if not ok]
-for name, ok in checks.items():
-    print(("PASS" if ok else "FAIL") + ": " + name)
-if failed:
-    raise SystemExit(1)
 
 # Agent enrollment and authorization state must not depend on a forced browser reload.
 agent_registration_html = Path("s5m-agent/index.html").read_text(encoding="utf-8")
@@ -214,3 +209,9 @@ checks.update({
         and "agent.binding.revoked" in agent_list_html
     ),
 })
+
+failed = [name for name, ok in checks.items() if not ok]
+for name, ok in checks.items():
+    print(("PASS" if ok else "FAIL") + ": " + name)
+if failed:
+    raise SystemExit(1)
