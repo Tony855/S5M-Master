@@ -168,7 +168,7 @@ func safeMihomoValidationDiagnostic(output []byte) string {
 	}
 	message = strings.Join(lines, " | ")
 	message = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(message, "$1$2[已隐藏]")
-	message = regexp.MustCompile(`(?:[A-Za-z]:)?[/\\][^[:space:]\"']+`).ReplaceAllString(message, "[路径已隐藏]")
+	message = regexp.MustCompile(`([A-Za-z]:)?[/\\][^[:space:]\"']+`).ReplaceAllString(message, "[路径已隐藏]")
 	message = strings.Join(strings.Fields(message), " ")
 	if len(message) > 700 {
 		message = message[:700] + "…"
