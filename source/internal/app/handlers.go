@@ -1538,18 +1538,38 @@ func parseProxyImportContent(content string) ([]*Proxy, []string) {
 					p.Name = fmt.Sprintf("%s-%s:%d", protocol, p.Server, p.Port)
 				}
 				if protocol == "vmess" {
-					if uuid := strings.TrimSpace(server.UUID); uuid != "" { p.Extra["uuid"] = uuid }
-					if server.AlterID >= 0 { p.Extra["alterId"] = server.AlterID }
-					if cipher := strings.TrimSpace(server.Cipher); cipher != "" { p.Extra["cipher"] = cipher } else { p.Extra["cipher"] = "auto" }
-					if network := strings.TrimSpace(server.Network); network != "" { p.Extra["network"] = network }
-					if server.TLS { p.Extra["tls"] = true }
+					if uuid := strings.TrimSpace(server.UUID); uuid != "" {
+						p.Extra["uuid"] = uuid
+					}
+					if server.AlterID >= 0 {
+						p.Extra["alterId"] = server.AlterID
+					}
+					if cipher := strings.TrimSpace(server.Cipher); cipher != "" {
+						p.Extra["cipher"] = cipher
+					} else {
+						p.Extra["cipher"] = "auto"
+					}
+					if network := strings.TrimSpace(server.Network); network != "" {
+						p.Extra["network"] = network
+					}
+					if server.TLS {
+						p.Extra["tls"] = true
+					}
 					serverName := strings.TrimSpace(server.ServerName)
-					if serverName == "" { serverName = strings.TrimSpace(server.SNI) }
-					if serverName != "" { p.Extra["servername"] = serverName }
+					if serverName == "" {
+						serverName = strings.TrimSpace(server.SNI)
+					}
+					if serverName != "" {
+						p.Extra["servername"] = serverName
+					}
 					if strings.EqualFold(strings.TrimSpace(server.Network), "ws") {
 						ws := map[string]any{}
-						if path := strings.TrimSpace(server.Path); path != "" { ws["path"] = path }
-						if host := strings.TrimSpace(server.Host); host != "" { ws["headers"] = map[string]any{"Host": host} }
+						if path := strings.TrimSpace(server.Path); path != "" {
+							ws["path"] = path
+						}
+						if host := strings.TrimSpace(server.Host); host != "" {
+							ws["headers"] = map[string]any{"Host": host}
+						}
 						p.Extra["ws-opts"] = ws
 					}
 				}
