@@ -47,6 +47,17 @@ jobs:
         run: go vet ./...
       - name: Build server
         run: go build -trimpath -o /tmp/s5m-server .
+      - name: Validate shared proxy YAML anchors with Mihomo
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="v1.19.33"
+          archive="/tmp/mihomo-${version}.gz"
+          curl --fail --location --retry 3 --output "$archive" \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${version}/mihomo-linux-amd64-${version}.gz"
+          gzip -dc "$archive" > /tmp/mihomo
+          chmod +x /tmp/mihomo
+          /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
 
   agent:
     name: Agent tests, vet and build

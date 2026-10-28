@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -289,6 +290,70 @@ func controllerHostFromSettings(settings map[string]string) string {
 	return ""
 }
 
+// marshalProxiesWithSharedAnchor emits a YAML merge anchor only when every
+// generated proxy has identical protocol, server and protocol-specific options.
+// Name and port are intentionally excluded: aliases override those per node.
+// Mixed endpoints/protocols fall back to ordinary YAML serialization.
+func marshalProxiesWithSharedAnchor(proxies []proxyOut) ([]byte, error) {
+	if len(proxies) < 2 {
+		return yaml.Marshal(proxies)
+	}
+	options := func(p proxyOut) (string, error) {
+		b, err := yaml.Marshal(p.Extra)
+		return string(b), err
+	}
+	firstOptions, err := options(proxies[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range proxies[1:] {
+		currentOptions, err := options(p)
+		if err != nil {
+			return nil, err
+		}
+		if p.Type != proxies[0].Type || p.Server != proxies[0].Server || currentOptions != firstOptions {
+			return yaml.Marshal(proxies)
+		}
+	}
+	root := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for i, p := range proxies {
+		m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		add := func(k string, v *yaml.Node) {
+			m.Content = append(m.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+				v,
+			)
+		}
+		if i == 0 {
+			m.Anchor = "s5m_shared_proxy"
+			add("name", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Name})
+			add("type", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Type})
+			add("server", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Server})
+			add("port", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(p.Port)})
+			keys := make([]string, 0, len(p.Extra))
+			for k := range p.Extra {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				var value yaml.Node
+				if err := value.Encode(p.Extra[k]); err != nil {
+					return nil, err
+				}
+				add(k, &value)
+			}
+		} else {
+			alias := &yaml.Node{Kind: yaml.AliasNode, Alias: root.Content[0], Value: "s5m_shared_proxy"}
+			add("<<", alias)
+			m.Content[len(m.Content)-2].Tag = "!!merge"
+			add("name", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.Name})
+			add("port", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: fmt.Sprint(p.Port)})
+		}
+		root.Content = append(root.Content, m)
+	}
+	return yaml.Marshal(root)
+}
+
 func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
 	return buildConfigFromProxiesWithMode(proxies, machineCode, secret, "legacy", "")
 }
@@ -371,7 +436,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 
 	proxiesYAML := " []"
 	if len(outs) > 0 {
-		b, err := yaml.Marshal(outs)
+		b, err := marshalProxiesWithSharedAnchor(outs)
 		if err != nil {
 			return "", err
 		}

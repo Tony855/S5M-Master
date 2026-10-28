@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestSyncAuthorizedNodeConfigsRejectsNullExistingYAMLWithoutPanicOrWrites(t *testing.T) {
@@ -624,5 +626,71 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 	}
 	if !strings.Contains(got, "Bootstrap DNS is plain DNS") {
 		t.Errorf("generated config should document bootstrap DNS limitation:\n%s", got)
+	}
+}
+
+func TestBuildConfigUsesSharedYAMLAnchorForSameProtocolAndServer(t *testing.T) {
+	proxies := []Proxy{
+		{Name: "node-443", Mode: "proxy", Type: "vless", Server: "1.2.3.4", Port: 443, MachineCode: "__GLOBAL__", Enabled: true,
+			Extra: map[string]any{"uuid": "test-uuid", "network": "tcp", "tls": true, "servername": "example.com"}},
+		{Name: "node-8443", Mode: "proxy", Type: "vless", Server: "1.2.3.4", Port: 8443, MachineCode: "__GLOBAL__", Enabled: true,
+			Extra: map[string]any{"uuid": "test-uuid", "network": "tcp", "tls": true, "servername": "example.com"}},
+		{Name: "node-2053", Mode: "proxy", Type: "vless", Server: "1.2.3.4", Port: 2053, MachineCode: "__GLOBAL__", Enabled: true,
+			Extra: map[string]any{"uuid": "test-uuid", "network": "tcp", "tls": true, "servername": "example.com"}},
+	}
+	got, err := buildConfigFromProxies(proxies, "", "test-secret")
+	if err != nil {
+		t.Fatalf("build config: %v", err)
+	}
+	if !strings.Contains(got, "&s5m_shared_proxy") || !strings.Contains(got, "<<: *s5m_shared_proxy") {
+		t.Fatalf("expected YAML merge anchor for equivalent proxies:\\n%s", got)
+	}
+	var decoded map[string]any
+	if err := yaml.Unmarshal([]byte(got), &decoded); err != nil {
+		t.Fatalf("generated anchor YAML did not parse: %v\\n%s", err, got)
+	}
+	items, ok := decoded["proxies"].([]any)
+	if !ok || len(items) != 3 {
+		t.Fatalf("decoded proxies = %#v, want 3 entries", decoded["proxies"])
+	}
+	wantPorts := []int{443, 8443, 2053}
+	wantNames := []string{"node-443", "node-8443", "node-2053"}
+	for i, item := range items {
+		p, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("proxy %d has type %T", i, item)
+		}
+		if p["name"] != wantNames[i] {
+			t.Errorf("proxy %d name = %#v, want %q", i, p["name"], wantNames[i])
+		}
+		if p["port"] != wantPorts[i] {
+			t.Errorf("proxy %d port = %#v, want %d", i, p["port"], wantPorts[i])
+		}
+		for key, want := range map[string]any{"type": "vless", "server": "1.2.3.4", "uuid": "test-uuid", "network": "tcp", "tls": true, "servername": "example.com"} {
+			if p[key] != want {
+				t.Errorf("proxy %d field %s = %#v, want %#v", i, key, p[key], want)
+			}
+		}
+	}
+}
+
+func TestMarshalProxiesWithSharedAnchorFallsBackForDifferentProtocolOptions(t *testing.T) {
+	proxies := []proxyOut{
+		{Name: "vless-a", Type: "vless", Server: "1.2.3.4", Port: 443, Extra: map[string]any{"uuid": "uuid-a"}},
+		{Name: "vless-b", Type: "vless", Server: "1.2.3.4", Port: 8443, Extra: map[string]any{"uuid": "uuid-b"}},
+	}
+	got, err := marshalProxiesWithSharedAnchor(proxies)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(got), "&s5m_shared_proxy") || strings.Contains(string(got), "<<:") {
+		t.Fatalf("different credentials must not be merged through an anchor:\\n%s", got)
+	}
+	var decoded []map[string]any
+	if err := yaml.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("fallback YAML invalid: %v", err)
+	}
+	if len(decoded) != 2 || decoded[0]["uuid"] != "uuid-a" || decoded[1]["uuid"] != "uuid-b" {
+		t.Fatalf("fallback changed protocol options: %#v", decoded)
 	}
 }

@@ -1,0 +1,30 @@
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: info
+proxies:
+  - &s5m_shared_proxy
+    name: node-443
+    type: vless
+    server: 1.2.3.4
+    port: 443
+    uuid: 00000000-0000-4000-8000-000000000001
+    network: tcp
+    tls: true
+    servername: example.com
+  - <<: *s5m_shared_proxy
+    name: node-8443
+    port: 8443
+  - <<: *s5m_shared_proxy
+    name: node-2053
+    port: 2053
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - node-443
+      - node-8443
+      - node-2053
+      - DIRECT
+rules:
+  - MATCH,PROXY
