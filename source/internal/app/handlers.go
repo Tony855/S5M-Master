@@ -1683,9 +1683,15 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.queueAgentMihomoUpdate(in.MachineCode, in.Version, in.SHA256); err != nil {
 		status := http.StatusBadRequest
-		if strings.Contains(err.Error(), "未授权") { status = http.StatusNotFound }
-		if strings.Contains(err.Error(), "已有待执行命令") { status = http.StatusConflict }
-		if strings.Contains(err.Error(), "读取 Agent 授权") || strings.Contains(err.Error(), "保存内核更新命令") { status = http.StatusInternalServerError }
+		if strings.Contains(err.Error(), "未授权") {
+			status = http.StatusNotFound
+		}
+		if strings.Contains(err.Error(), "已有待执行命令") {
+			status = http.StatusConflict
+		}
+		if strings.Contains(err.Error(), "读取 Agent 授权") || strings.Contains(err.Error(), "保存内核更新命令") {
+			status = http.StatusInternalServerError
+		}
 		writeErr(w, status, err.Error())
 		return
 	}
