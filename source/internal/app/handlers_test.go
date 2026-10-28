@@ -895,8 +895,8 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 	}
 }
 
-func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
-	store, err := OpenStore(filepath.Join(t.TempDir(), "command-complete.db"))
+func TestAgentCommandAckIsAtomicAndRejectsStaleIDs(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "command-ack.db"))
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
 	}
@@ -908,8 +908,9 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed pending command: %v", err)
 	}
-	if err := store.CompleteAgentCommand(code, "wrong-id", `{"id":"wrong-id","status":"success"}`); err == nil {
-		t.Fatal("stale command ACK unexpectedly succeeded")
+	duplicate, matched, err := store.AckAgentCommand(code, "wrong-id", "success", "", 1)
+	if err != nil || matched || duplicate {
+		t.Fatalf("stale command ACK = duplicate:%v matched:%v err:%v", duplicate, matched, err)
 	}
 	settings, err := store.GetSettings()
 	if err != nil {
@@ -919,8 +920,9 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 		t.Fatalf("stale ACK changed queue state: %#v", settings)
 	}
 
-	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err != nil {
-		t.Fatalf("CompleteAgentCommand: %v", err)
+	duplicate, matched, err = store.AckAgentCommand(code, "cmd-1", "success", "", 2)
+	if err != nil || !matched || duplicate {
+		t.Fatalf("valid command ACK = duplicate:%v matched:%v err:%v", duplicate, matched, err)
 	}
 	settings, err = store.GetSettings()
 	if err != nil {
@@ -929,8 +931,9 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	if settings["agent_command_"+code] != "" || settings["agent_command_result_"+code] == "" {
 		t.Fatalf("completion was not committed as a unit: %#v", settings)
 	}
-	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err == nil {
-		t.Fatal("already completed command should not be completed again at storage layer")
+	duplicate, matched, err = store.AckAgentCommand(code, "cmd-1", "success", "", 3)
+	if err != nil || !matched || !duplicate {
+		t.Fatalf("duplicate ACK = duplicate:%v matched:%v err:%v", duplicate, matched, err)
 	}
 }
 
