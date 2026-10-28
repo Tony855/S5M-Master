@@ -1214,7 +1214,6 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 	}
 }
 
-
 func TestQueueAgentMihomoUpdateValidatesAndPersistsCommand(t *testing.T) {
 	app, _, _ := websocketTestApp(t)
 	sha := strings.Repeat("a", 64)
