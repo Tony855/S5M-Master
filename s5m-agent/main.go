@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -1242,6 +1243,11 @@ func runAgentWebSocketSession(cfg Config) error {
 	if welcome.Type != "welcome" || welcome.Protocol != 1 {
 		return fmt.Errorf("WebSocket 协议版本或欢迎消息无效")
 	}
+	// Report connected only while an authenticated, protocol-valid control-plane
+	// WebSocket session is active; a saved token alone only means "bound".
+	agentConnected.Store(true)
+	defer agentConnected.Store(false)
+
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalSec) * time.Second
 	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
 		heartbeatInterval = 30 * time.Second
@@ -1399,6 +1405,20 @@ func runAgentWebSocketSession(cfg Config) error {
 	}
 }
 
+var agentConnected atomic.Bool
+
+func agentConfigHandler(w http.ResponseWriter, r *http.Request) {
+	data, _ := os.ReadFile(filepath.Join(mihomoHome(), "agent.json"))
+	var cfg Config
+	_ = json.Unmarshal(data, &cfg)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"has_token":   strings.TrimSpace(cfg.Token) != "",
+		"central_url": cfg.CentralURL,
+		"connected":   agentConnected.Load(),
+	})
+}
+
 func writeAgentWSJSON(conn *websocket.Conn, value any) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(8 * time.Second)); err != nil {
 		return err
@@ -1424,18 +1444,7 @@ func main() {
 		http.HandleFunc("/api/machine-id", machineIDHandler)
 		http.HandleFunc("/api/hostname", hostnameHandler)
 
-		http.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-			data, _ := os.ReadFile(mihomoHome() + "/agent.json")
-			var cfg Config
-			_ = json.Unmarshal(data, &cfg)
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"has_token":   cfg.Token != "",
-				"central_url": cfg.CentralURL,
-				// This is local binding state, not a live reachability probe.
-				"connected": cfg.Token != "",
-			})
-		})
+		http.HandleFunc("/api/config", agentConfigHandler)
 
 		http.HandleFunc("/api/bind", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {

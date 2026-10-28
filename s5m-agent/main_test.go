@@ -977,6 +977,49 @@ func TestNextReconnectDelayCapsAtSixtySeconds(t *testing.T) {
 	}
 }
 
+
+func TestAgentConfigHandlerDistinguishesBindingFromConnection(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MIHOMO_HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "agent.json"), []byte(`{"central_url":"https://controller.example","token":"saved-token"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous := agentConnected.Load()
+	defer agentConnected.Store(previous)
+
+	cases := []struct {
+		name      string
+		connected bool
+	}{
+		{name: "bound but disconnected", connected: false},
+		{name: "active websocket", connected: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agentConnected.Store(tc.connected)
+			req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+			rec := httptest.NewRecorder()
+			agentConfigHandler(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if got["has_token"] != true {
+				t.Fatalf("has_token = %#v, want true", got["has_token"])
+			}
+			if got["connected"] != tc.connected {
+				t.Fatalf("connected = %#v, want %v", got["connected"], tc.connected)
+			}
+			if got["central_url"] != "https://controller.example" {
+				t.Fatalf("central_url = %#v", got["central_url"])
+			}
+		})
+	}
+}
+
 func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
 	cases := []struct {
 		name    string
