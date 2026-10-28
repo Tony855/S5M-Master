@@ -175,6 +175,18 @@ checks.update({
     ),
 })
 
+# WebSocket-first control-plane regression guards. These checks make sure live
+# node operations and command lifecycle updates cannot silently fall back to polling.
+browser_ws_source = Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+browser_ws_tests = Path("source/internal/app/agent_websocket_test.go").read_text(encoding="utf-8")
+checks.update({
+    "Agent Mihomo update UI uses browser WebSocket control instead of the legacy HTTP command endpoint": "sendBrowserWSControl({" in app_js and "type: 'agent.mihomo.update'" in app_js and "/api/v1/agents/kernel-update'" not in app_js and "/api/v1/agents/kernel-update\"" not in app_js,
+    "browser WebSocket correlates request results and enforces a bounded request timeout": "browserWSRequests.set(requestId" in app_js and "request.result" in app_js and "15_000" in app_js and "clearTimeout" in app_js,
+    "Agent status and command lifecycle are delivered as browser WebSocket events": '"type": "agent.status.updated"' in browser_ws_source and '"type": "agent.command.queued"' in browser_ws_source and '"type": "agent.command.updated"' in browser_ws_source and "publishBrowserEvent" in browser_ws_source,
+    "dashboard overview and traffic are not driven by a periodic HTTP polling timer": "setInterval(() => loadOverview" not in app_js and "setInterval(loadOverview" not in app_js and "setInterval(() => loadTraffic" not in app_js and "setInterval(loadTraffic" not in app_js,
+    "Agent WebSocket control keeps auth-revocation, session ACK, and long-command TTL regressions covered": "TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation" in browser_ws_tests and "TestAgentWebSocketDeliversAndAcknowledgesPendingCommand" in browser_ws_tests and "TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate" in browser_ws_tests,
+})
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
