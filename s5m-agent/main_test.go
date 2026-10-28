@@ -75,7 +75,7 @@ func TestSetCentralRouteExclusionsRemovesStaleManagedCIDRs(t *testing.T) {
 	}
 	cfg := map[string]interface{}{
 		"tun": map[string]interface{}{
-			"enable": true,
+			"enable":                true,
 			"route-exclude-address": []interface{}{
 				"198.51.100.10/32",
 				"192.0.2.7/32",
