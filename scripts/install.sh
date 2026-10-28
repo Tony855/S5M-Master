@@ -21,13 +21,14 @@ if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
 
 # Reuse a working TLS virtual host and certificate without rewriting or reissuing them.
-if [[ -z "$S5M_DOMAIN" && -f "$NGINX_SITE" ]] &&
+if [[ -f "$NGINX_SITE" ]] &&
    grep -Eq 'listen[[:space:]]+443[[:space:]]+ssl' "$NGINX_SITE"; then
   detected_domain="$(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) if ($i !~ /;/) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/) {print $i; exit}} }' "$NGINX_SITE")"
   cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
   key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
   if [[ -n "$detected_domain" && -s "$cert_path" && -s "$key_path" ]] &&
-     command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+     command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 &&
+     { [[ -z "$S5M_DOMAIN" ]] || [[ "$S5M_DOMAIN" == "$detected_domain" ]]; }; then
     S5M_DOMAIN="$detected_domain"
     HTTPS_ALREADY_CONFIGURED=1
     echo "🔐 检测到现有 HTTPS 配置和证书：$S5M_DOMAIN，跳过重复配置。"
@@ -542,10 +543,8 @@ NGINXEOF
     exit 1
   fi
   echo "🔐 HTTPS 证书已签发并配置自动续期： https://$S5M_DOMAIN"
-fi
-
 elif [[ -n "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 1 ]]; then
-  if ! curl -kfsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
+  if ! curl -fsS --max-time 10 "https://$S5M_DOMAIN/api/v1/health" >/tmp/s5m-server-https-health.json; then
     echo "❌ 检测到现有 HTTPS 配置，但 HTTPS 健康检查失败；为避免覆盖现有配置，安装器停止。请检查 Nginx/证书/服务状态。" >&2
     exit 1
   fi
