@@ -74,7 +74,7 @@ createApp({
     const restoringBackup = ref(false);
 
     const proxyDialog = ref(false);
-    const proxyForm = reactive({ id: 0, name: '', mode: 'proxy', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
+    const proxyForm = reactive({ id: 0, name: '', mode: 'return', type: 'socks5', server: '', port: 1080, machine_code: '', source_cidr: '0.0.0.0/0', enabled: true, username: '', password: '', extra_json: '{}' });
     const savingProxy = ref(false);
 
     const showImport = ref(false);
@@ -566,7 +566,7 @@ createApp({
     const openEditProxy = (row) => {
       const extra = row.extra && typeof row.extra === 'object' && !Array.isArray(row.extra) ? row.extra : {};
       Object.assign(proxyForm, {
-        id: row.id || 0, name: row.name || row.proxy_name || '', mode: row.mode || 'proxy',
+        id: row.id || 0, name: row.name || row.proxy_name || '', mode: ({ proxy: 'return', china: 'split' }[row.mode] || row.mode || 'return'),
         type: row.type || row.proxy_type || 'socks5',
         server: row.server || '', port: row.port || 1080, machine_code: row.machine_code || '',
         source_cidr: row.source_cidr || '0.0.0.0/0',
@@ -605,7 +605,7 @@ createApp({
           method: isEdit ? 'PUT' : 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            name: proxyForm.name, mode: proxyForm.mode || 'proxy', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
+            name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
           })
@@ -1227,7 +1227,6 @@ const safeCopy = async (text) => {
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
-      retryingNodeConfigSync, retryNodeConfigSync, proxyRoutingMode, savingProxyRoutingMode, saveProxyRoutingMode,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
