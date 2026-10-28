@@ -252,47 +252,160 @@ func resolvedCentralRouteCIDRs(centralURL string) ([]string, error) {
 	return result, nil
 }
 
-func addCentralRouteExclusions(cfg map[string]interface{}, centralURL string) (bool, error) {
+func managedRouteCIDRsPath() string {
+	return filepath.Join(mihomoHome(), "controller-route-cidrs.json")
+}
+
+func readManagedRouteCIDRs() map[string]bool {
+	data, err := os.ReadFile(managedRouteCIDRsPath())
+	if err != nil {
+		return map[string]bool{}
+	}
+	var values []string
+	if json.Unmarshal(data, &values) != nil {
+		return map[string]bool{}
+	}
+	result := make(map[string]bool, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			result[value] = true
+		}
+	}
+	return result
+}
+
+func writeManagedRouteCIDRs(values []string) error {
+	data, err := json.Marshal(values)
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(mihomoHome(), ".controller-routes-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, managedRouteCIDRsPath())
+}
+
+// setCentralRouteExclusions replaces previously managed CIDRs while retaining
+// all operator-authored route exclusions.
+func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([]string, bool, error) {
 	cidrs, err := resolvedCentralRouteCIDRs(centralURL)
-	if err != nil { return false, err }
+	if err != nil {
+		return nil, false, err
+	}
 	tun, ok := cfg["tun"].(map[string]interface{})
-	if !ok { return false, fmt.Errorf("Mihomo 配置缺少 tun 块") }
+	if !ok {
+		return nil, false, fmt.Errorf("Mihomo 配置缺少 tun 块")
+	}
+	managed := readManagedRouteCIDRs()
 	values, _ := tun["route-exclude-address"].([]interface{})
 	seen := map[string]bool{}
 	next := make([]interface{}, 0, len(values)+len(cidrs))
 	for _, value := range values {
 		text, ok := value.(string)
-		if !ok { continue }
+		if !ok {
+			continue
+		}
 		text = strings.TrimSpace(text)
-		if text != "" && !seen[text] { seen[text] = true; next = append(next, text) }
+		if text == "" || managed[text] || seen[text] {
+			continue
+		}
+		seen[text] = true
+		next = append(next, text)
 	}
 	changed := false
 	for _, cidr := range cidrs {
-		if !seen[cidr] { seen[cidr] = true; next = append(next, cidr); changed = true }
+		if !seen[cidr] {
+			seen[cidr] = true
+			next = append(next, cidr)
+			changed = true
+		}
 	}
-	if changed { tun["route-exclude-address"] = next }
-	return changed, nil
+	for oldCIDR := range managed {
+		found := false
+		for _, newCIDR := range cidrs {
+			if oldCIDR == newCIDR {
+				found = true
+				break
+			}
+		}
+		if !found {
+			changed = true
+		}
+	}
+	if changed {
+		tun["route-exclude-address"] = next
+	}
+	return cidrs, changed, nil
+}
+
+func addCentralRouteExclusions(cfg map[string]interface{}, centralURL string) (bool, error) {
+	_, changed, err := setCentralRouteExclusions(cfg, centralURL)
+	return changed, err
 }
 
 func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 	path := mihomoConfigPath()
 	data, err := os.ReadFile(path)
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	var cfg map[string]interface{}
-	if err := yaml.Unmarshal(data, &cfg); err != nil { return false, err }
-	changed, err := addCentralRouteExclusions(cfg, centralURL)
-	if err != nil || !changed { return false, err }
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return false, err
+	}
+	cidrs, changed, err := setCentralRouteExclusions(cfg, centralURL)
+	if err != nil || !changed {
+		return false, err
+	}
 	normalized, err := yaml.Marshal(cfg)
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	tmp, err := os.CreateTemp(mihomoHome(), ".mihomo-route-*")
-	if err != nil { return false, err }
+	if err != nil {
+		return false, err
+	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil { _ = tmp.Close(); return false, err }
-	if _, err := tmp.Write(normalized); err != nil { _ = tmp.Close(); return false, err }
-	if err := tmp.Sync(); err != nil { _ = tmp.Close(); return false, err }
-	if err := tmp.Close(); err != nil { return false, err }
-	if err := os.Rename(tmpPath, path); err != nil { return false, err }
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return false, err
+	}
+	if _, err := tmp.Write(normalized); err != nil {
+		_ = tmp.Close()
+		return false, err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return false, err
+	}
+	if err := tmp.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return false, err
+	}
+	if err := writeManagedRouteCIDRs(cidrs); err != nil {
+		return true, fmt.Errorf("已更新 TUN 排除地址，但保存动态地址记录失败: %w", err)
+	}
 	return true, nil
 }
 
