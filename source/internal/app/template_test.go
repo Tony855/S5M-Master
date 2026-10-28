@@ -34,7 +34,7 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		t.Fatalf("default Mihomo template should be valid YAML: %v", err)
 	}
 	for _, want := range []string{
-		"mixed-port: 8080",
+		"mixed-port: 7890",
 		"external-controller: 127.0.0.1:8088",
 		"listen: 0.0.0.0:5353",
 		"enable: true",
