@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -1056,11 +1056,11 @@ func TestAgentTokenGenerateAndRegisterLifecycle(t *testing.T) {
 func TestParseProxyLineAutoDetectsProtocols(t *testing.T) {
 	vmessPayload := base64.StdEncoding.EncodeToString([]byte(`{"v":"2","ps":"vmess-node","add":"vmess.example.com","port":"443","id":"uuid-123","aid":"0","scy":"auto","net":"ws","tls":"tls","sni":"cdn.example.com","host":"cdn.example.com","path":"/ws"}`))
 	tests := []struct {
-		name string
-		line string
-		wantType string
+		name       string
+		line       string
+		wantType   string
 		wantServer string
-		wantPort int
+		wantPort   int
 	}{
 		{name: "SOCKS5", line: "SOCKS5://user:pass@socks.example.com:1080#socks", wantType: "socks5", wantServer: "socks.example.com", wantPort: 1080},
 		{name: "HTTP", line: "http://user:pass@http.example.com:8080#http", wantType: "http", wantServer: "http.example.com", wantPort: 8080},
