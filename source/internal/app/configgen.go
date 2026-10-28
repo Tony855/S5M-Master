@@ -235,7 +235,7 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 
 func normalizeProxyRoutingMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "global", "split", "return", "game":
+	case "global", "split", "return", "game", "legacy":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
 		return "return"
@@ -260,7 +260,7 @@ func controllerHostFromSettings(settings map[string]string) string {
 }
 
 func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string, error) {
-	return buildConfigFromProxiesWithMode(proxies, machineCode, secret, "return", "")
+	return buildConfigFromProxiesWithMode(proxies, machineCode, secret, "legacy", "")
 }
 
 func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routingMode, controllerHost string) (string, error) {
@@ -428,6 +428,8 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 	case "split", "return":
 		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" { rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy)) } else { rules = append(rules, "MATCH,DIRECT") }
+	case "legacy":
+		rules = append(rules, "MATCH,DIRECT")
 	case "game":
 		gameProxy := firstGameProxy
 		if gameProxy == "" { gameProxy = firstProxy }
