@@ -496,7 +496,6 @@ func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
 	return err
 }
 
-
 // CompleteAgentCommand stores a result and removes only the matching pending
 // command atomically. It protects against partial ACK commits and stale ACKs.
 func (s *Store) CompleteAgentCommand(machineCode, commandID, resultJSON string) error {

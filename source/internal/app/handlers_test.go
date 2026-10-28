@@ -895,7 +895,6 @@ func TestImportProxiesPersistsAndFeedsGeneratedConfig(t *testing.T) {
 	}
 }
 
-
 func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "command-complete.db"))
 	if err != nil {
@@ -905,7 +904,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 
 	const code = "cmd_atomic_01"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_command_"+code: `{"id":"cmd-1","type":"update_mihomo","version":"v1.2.3"}`,
+		"agent_command_" + code: `{"id":"cmd-1","type":"update_mihomo","version":"v1.2.3"}`,
 	}); err != nil {
 		t.Fatalf("seed pending command: %v", err)
 	}
@@ -916,7 +915,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings after stale ACK: %v", err)
 	}
-	if settings["agent_command_"+code] == "" || settings["agent_command_result_"+code] != "" {
+	if settings["agent_command_" + code] == "" || settings["agent_command_result_"+code] != "" {
 		t.Fatalf("stale ACK changed queue state: %#v", settings)
 	}
 
@@ -927,7 +926,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSettings after completion: %v", err)
 	}
-	if settings["agent_command_"+code] != "" || settings["agent_command_result_"+code] == "" {
+	if settings["agent_command_" + code] != "" || settings["agent_command_result_"+code] == "" {
 		t.Fatalf("completion was not committed as a unit: %#v", settings)
 	}
 	if err := store.CompleteAgentCommand(code, "cmd-1", `{"id":"cmd-1","status":"success"}`); err == nil {
@@ -938,7 +937,7 @@ func TestCompleteAgentCommandIsAtomicAndRejectsStaleIDs(t *testing.T) {
 func TestHandleAgentCommandSerializesWithQueueAndAck(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_command_"+code: `{"id":"cmd-http-1","type":"update_mihomo"}`,
+		"agent_command_" + code: `{"id":"cmd-http-1","type":"update_mihomo"}`,
 	}); err != nil {
 		t.Fatalf("seed pending command: %v", err)
 	}
