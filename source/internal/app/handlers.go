@@ -2442,6 +2442,10 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "完整配置缺少 dns 配置块")
 		return
 	}
+	if err := validateAgentPublishedProxyPort(in.YAML); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := a.store.SaveNodeConfig(code, in.YAML); err != nil {
 		writeErr(w, 500, "保存节点配置失败")
 		return
