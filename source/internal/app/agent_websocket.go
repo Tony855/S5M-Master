@@ -45,11 +45,11 @@ type browserEventClient struct {
 }
 
 type browserControlMessage struct {
-	Type string `json:"type"`
-	RequestID string `json:"request_id"`
+	Type        string `json:"type"`
+	RequestID   string `json:"request_id"`
 	MachineCode string `json:"machine_code"`
-	Version string `json:"version"`
-	SHA256 string `json:"sha256"`
+	Version     string `json:"version"`
+	SHA256      string `json:"sha256"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -229,15 +229,25 @@ func (a *App) queueAgentMihomoUpdate(machineCode, version, sha256sum string) err
 		return fmt.Errorf("机器码、版本号或 SHA-256 格式无效")
 	}
 	settings, err := a.store.GetSettings()
-	if err != nil { return fmt.Errorf("读取 Agent 授权失败") }
+	if err != nil {
+		return fmt.Errorf("读取 Agent 授权失败")
+	}
 	token := settings["agent_machine_"+machineCode]
-	if token == "" || token == settings["agent_token"] { return fmt.Errorf("目标 Agent 未授权") }
+	if token == "" || token == settings["agent_token"] {
+		return fmt.Errorf("目标 Agent 未授权")
+	}
 	command := map[string]string{"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": "update_mihomo", "version": version, "sha256": sha256sum}
 	payload, err := json.Marshal(command)
-	if err != nil { return fmt.Errorf("生成内核更新命令失败") }
+	if err != nil {
+		return fmt.Errorf("生成内核更新命令失败")
+	}
 	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
-	if err != nil { return fmt.Errorf("保存内核更新命令失败") }
-	if !created { return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试") }
+	if err != nil {
+		return fmt.Errorf("保存内核更新命令失败")
+	}
+	if !created {
+		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+	}
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "version": version, "at": time.Now().Unix()})
 	return nil
 }
