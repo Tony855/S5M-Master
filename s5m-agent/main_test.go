@@ -90,11 +90,11 @@ func TestHostnameHandler(t *testing.T) {
 
 func TestValidateCentralURL(t *testing.T) {
 	tests := []struct {
-		name        string
-		in          string
-		want        string
-		ok          bool
-		allowHTTP   bool
+		name      string
+		in        string
+		want      string
+		ok        bool
+		allowHTTP bool
 	}{
 		{name: "https", in: " https://controller.example.com/ ", want: "https://controller.example.com", ok: true},
 		{name: "http rejected by default", in: "http://192.0.2.10:8080", ok: false},
