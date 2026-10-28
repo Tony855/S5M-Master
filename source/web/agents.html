@@ -219,7 +219,58 @@
             }
         }
 
-        window.addEventListener('load', loadAgents);
+        let agentsSocket = null;
+        let agentsConnecting = false;
+        let agentsRetryTimer = null;
+        let agentsRefreshTimer = null;
+        function connectAgentEvents() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token || agentsSocket || agentsConnecting) return;
+            agentsConnecting = true;
+            const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            fetch('/api/v1/events/ticket', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + token }
+            }).then(async res => {
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok || !body.ticket) throw new Error(body.error || '实时通道授权失败');
+                const socket = new WebSocket(scheme + '//' + location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(body.ticket));
+                agentsSocket = socket;
+                socket.onopen = () => { agentsConnecting = false; };
+                socket.onmessage = event => {
+                    let message;
+                    try { message = JSON.parse(event.data); } catch (_) { return; }
+                    if (message.type === 'agent.binding.revoked' ||
+                        message.type === 'agent.binding.updated' ||
+                        message.type === 'agent.status.updated') {
+                        loadAgents();
+                    }
+                };
+                socket.onclose = () => {
+                    if (agentsSocket === socket) agentsSocket = null;
+                    agentsConnecting = false;
+                    clearTimeout(agentsRetryTimer);
+                    agentsRetryTimer = setTimeout(connectAgentEvents, 3000);
+                };
+                socket.onerror = () => { try { socket.close(); } catch (_) {} };
+            }).catch(() => {
+                agentsConnecting = false;
+                clearTimeout(agentsRetryTimer);
+                agentsRetryTimer = setTimeout(connectAgentEvents, 3000);
+            });
+        }
+        window.addEventListener('pagehide', () => {
+            clearTimeout(agentsRetryTimer);
+            clearInterval(agentsRefreshTimer);
+            if (agentsSocket) { try { agentsSocket.close(); } catch (_) {} agentsSocket = null; }
+        });
+        window.addEventListener('load', () => {
+            loadAgents();
+            connectAgentEvents();
+            agentsRefreshTimer = setInterval(() => {
+                if (!agentsSocket || agentsSocket.readyState !== WebSocket.OPEN) loadAgents();
+            }, 15000);
+        });
     </script>
 </body>
 </html>
