@@ -89,9 +89,15 @@
       if (!res.ok) throw new Error('状态查询失败');
       const data = await res.json();
       const btn = document.getElementById('btn');
-      if (!data.has_token) {
+      if (data.config_readable === false) {
+        btn.innerText = data.has_token ? '重新绑定' : '一键绑定设备';
+        setStatus('error', '无法读取绑定配置，请检查 /data 挂载和目录权限');
+      } else if (data.config_valid === false) {
+        btn.innerText = '重试绑定';
+        setStatus('error', '绑定配置文件格式异常，请检查 Agent 日志');
+      } else if (!data.has_token) {
         btn.innerText = '一键绑定设备';
-        setStatus('', '等待绑定');
+        setStatus('', data.config_exists ? '未检测到有效绑定 Token，请重新绑定' : '设备尚未绑定');
       } else if (data.connected) {
         btn.innerText = '重新绑定';
         setStatus('active', '已绑定，主控 WebSocket 已连接');

@@ -1434,14 +1434,28 @@ func runAgentWebSocketSession(cfg Config) error {
 var agentConnected atomic.Bool
 
 func agentConfigHandler(w http.ResponseWriter, r *http.Request) {
-	data, _ := os.ReadFile(filepath.Join(mihomoHome(), "agent.json"))
+	configPath := filepath.Join(mihomoHome(), "agent.json")
+	data, readErr := os.ReadFile(configPath)
+	configExists := readErr == nil
+	configReadable := true
+	configValid := true
 	var cfg Config
-	_ = json.Unmarshal(data, &cfg)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		configReadable = false
+	}
+	if readErr == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			configValid = false
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"has_token":   strings.TrimSpace(cfg.Token) != "",
-		"central_url": cfg.CentralURL,
-		"connected":   agentConnected.Load(),
+		"has_token":       strings.TrimSpace(cfg.Token) != "",
+		"central_url":     cfg.CentralURL,
+		"connected":       agentConnected.Load(),
+		"config_exists":   configExists,
+		"config_readable": configReadable,
+		"config_valid":    configValid,
 	})
 }
 
