@@ -1725,6 +1725,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "该 Agent 已有待执行命令，请等待完成后重试")
 		return
 	}
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": in.MachineCode, "command_id": command["id"], "command_type": command["type"], "version": command["version"], "at": time.Now().Unix()})
 	writeJSON(w, http.StatusAccepted, map[string]string{"message": "更新命令已排队；Agent 在线时会下载、校验并应用指定内核版本", "command_id": command["id"]})
 }
 
