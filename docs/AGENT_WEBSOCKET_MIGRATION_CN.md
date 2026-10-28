@@ -2,7 +2,7 @@
 
 ## Status
 
-Design checkpoint for the isolated `routeros-agent` branch. This document does not claim that WebSocket transport is implemented. Existing HTTP endpoints remain authoritative until both server and Agent implementations are tested.
+Implementation is in progress on `fix/websocket-control-plane` and is proposed for `dev` via PR #178. The Agent now uses one persistent authenticated WebSocket session for runtime status, configuration synchronization, command delivery, and command acknowledgements. HTTP is limited to initial registration and controller reachability probing; there is no HTTP fallback for runtime data. Do not merge until CI passes and staging/target-device validation is complete.
 
 ## Goal
 
@@ -43,7 +43,7 @@ The config payload must pass the same validation and safe-apply/rollback path as
 - Command handlers must remain idempotent. A lost ACK must not cause an unsafe repeated kernel replacement.
 - One goroutine owns WebSocket writes and one owns reads. Apply write deadlines, read limits, heartbeat deadlines, bounded outbound queues, and connection cleanup.
 - Reconnect with exponential backoff and jitter, capped at 60 seconds. Reset backoff after a stable connection.
-- During migration, retain HTTP config/heartbeat/command fallback behind a feature flag. Never run the HTTP command poller and WebSocket command consumer concurrently for the same Agent.
+- The refactored Agent must not use HTTP config/heartbeat/command fallback. Legacy HTTP endpoints may remain temporarily for older Agent versions, but the new Agent must never call them. Do not run two command consumers for the same machine code.
 - On a WebSocket disconnect, the UI should mark the transport disconnected after a freshness timeout; a successful heartbeat still does not prove all proxy routes are healthy.
 
 ## Implementation phases
@@ -54,11 +54,11 @@ The config payload must pass the same validation and safe-apply/rollback path as
 4. Add integration tests for unauthorized handshake, duplicate machine connections, disconnect cleanup, reconnect/resync, stale config hash, duplicate command/ACK, and oversized/malformed messages.
 5. Enable WebSocket by feature flag in CI/staging; keep HTTP fallback available.
 6. Test on actual RouterOS 7.21.5 AMD64/ARM64 hardware or verified target devices: outbound WSS, DNS/TLS, long idle connection, reboot, temporary WAN loss, CGNAT, config sync, kernel update and rollback.
-7. Only after successful verification consider making WebSocket the default. Do not merge into `main` or publish a stable release automatically.
+7. After successful verification, merge the PR into `dev` first. Do not merge into `main` or publish a stable release automatically.
 
 ## Acceptance criteria
 
-- Existing HTTP-only Agent continues to work while the feature is disabled.
+- The refactored Agent performs registration over HTTP, then uses HTTP only for reachability probes; all runtime status/config/commands/ACKs use WebSocket. Legacy HTTP endpoints remain server-side only for compatibility during rollout.
 - An authorized Agent can establish WSS and only receives messages for its own machine code.
 - Unauthorized or revoked tokens are rejected before upgrade.
 - Heartbeat/online state becomes stale when the connection is lost and recovers after reconnect.
