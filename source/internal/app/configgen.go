@@ -435,13 +435,22 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		} else {
 			rules = append(rules, "MATCH,DIRECT")
 		}
-	case "split", "return":
+	case "split":
+		// Split mode: mainland destinations go direct; overseas traffic uses the proxy.
 		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
 		} else {
 			rules = append(rules, "MATCH,DIRECT")
 		}
+	case "return":
+		// Return-to-China mode: mainland destinations use the proxy; overseas destinations go direct.
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("GEOIP,CN,%s", firstProxy))
+		} else {
+			rules = append(rules, "GEOIP,CN,DIRECT")
+		}
+		rules = append(rules, "MATCH,DIRECT")
 	case "legacy":
 		rules = append(rules, "MATCH,DIRECT")
 	case "game":
