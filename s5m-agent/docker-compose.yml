@@ -9,7 +9,11 @@ services:
     ports:
       - "80:80"
       - "7890:7890"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       - ./data:/data
-    # TUN is disabled by default. Enable only on hosts that support it and
-    # after configuring /dev/net/tun and NET_ADMIN appropriately.
+    # TUN is enabled by the default Agent config. The host must provide
+    # /dev/net/tun; Docker bridge networking keeps container routes isolated.
