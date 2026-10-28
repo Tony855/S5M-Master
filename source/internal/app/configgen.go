@@ -130,7 +130,8 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	}
 	// The controller's TUN switch controls generated defaults. A saved per-node
 	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
-	if settings["tun_enable"] != "true" {
+	// Missing setting means the default (enabled). Only an explicit false disables TUN.
+	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "false") {
 		yml = strings.Replace(yml, "tun:\n    enable: true", "tun:\n    enable: false", 1)
 	}
 	return yml, nil
