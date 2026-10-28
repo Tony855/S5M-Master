@@ -437,7 +437,11 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		}
 	case "split", "return":
 		rules = append(rules, "GEOIP,CN,DIRECT")
-		if firstProxy != "" { rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy)) } else { rules = append(rules, "MATCH,DIRECT") }
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,DIRECT")
+		}
 	case "legacy":
 		rules = append(rules, "MATCH,DIRECT")
 	case "game":
