@@ -14,6 +14,49 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func TestCentralHostname(t *testing.T) {
+	tests := []struct{ input, want string }{
+		{"https://foodflow.v2net.cc", "foodflow.v2net.cc"},
+		{"https://foodflow.v2net.cc:8443/path", "foodflow.v2net.cc"},
+		{"https://[2001:db8::1]:8443", "2001:db8::1"},
+		{"not a url", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := centralHostname(tt.input); got != tt.want {
+			t.Errorf("centralHostname(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestAddCentralRouteExclusionsWithIPLiteral(t *testing.T) {
+	cfg := map[string]interface{}{
+		"tun": map[string]interface{}{
+			"enable": true,
+			"route-exclude-address": []interface{}{"192.0.2.7/32"},
+		},
+	}
+	changed, err := addCentralRouteExclusions(cfg, "https://198.51.100.10")
+	if err != nil { t.Fatalf("addCentralRouteExclusions() error = %v", err) }
+	if !changed { t.Fatal("expected a new controller IP exclusion") }
+	tun := cfg["tun"].(map[string]interface{})
+	got := tun["route-exclude-address"].([]interface{})
+	want := []string{"192.0.2.7/32", "198.51.100.10/32"}
+	if len(got) != len(want) { t.Fatalf("route exclusions = %#v, want %#v", got, want) }
+	for i := range want {
+		if got[i] != want[i] { t.Fatalf("route exclusions = %#v, want %#v", got, want) }
+	}
+	changed, err = addCentralRouteExclusions(cfg, "https://198.51.100.10")
+	if err != nil { t.Fatalf("idempotent addCentralRouteExclusions() error = %v", err) }
+	if changed { t.Fatal("repeated controller IP should not create duplicate exclusion") }
+}
+
+func TestResolvedCentralRouteCIDRsRejectsInvalidURL(t *testing.T) {
+	if _, err := resolvedCentralRouteCIDRs("not a url"); err == nil {
+		t.Fatal("expected invalid controller URL to be rejected")
+	}
+}
+
 func TestMihomoSecretCandidates(t *testing.T) {
 	dir := t.TempDir()
 	configPath := dir + "/config.yaml"
