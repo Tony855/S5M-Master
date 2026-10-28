@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
