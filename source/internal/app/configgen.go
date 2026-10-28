@@ -371,7 +371,14 @@ func buildConfigFromProxies(proxies []Proxy, machineCode, secret string) (string
 		rules = append(rules, fmt.Sprintf("SRC-IP-CIDR,%s,%s", canonical, target))
 	}
 
-	rules = append(rules, "MATCH,DIRECT")
+	// Default traffic policy: mainland China destinations go direct, while
+	// other unmatched traffic uses the first enabled proxy. Without an enabled
+	// proxy, retain the safe direct fallback.
+	if len(outs) > 0 {
+		rules = append(rules, "GEOIP,CN,DIRECT", fmt.Sprintf("MATCH,%s", outs[0].Name))
+	} else {
+		rules = append(rules, "MATCH,DIRECT")
+	}
 	rb, err := yaml.Marshal(rules)
 	if err != nil {
 		return "", err
