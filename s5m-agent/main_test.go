@@ -1340,3 +1340,24 @@ func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testin
 		}
 	}
 }
+
+
+func TestApplyAgentControlErrorReportsConfigFailureWithoutLosingMihomoError(t *testing.T) {
+	status := map[string]any{"last_error": "读取 Mihomo 版本失败: HTTP 503"}
+	applyAgentControlError(status, "主控配置应用失败: YAML 无效")
+	got, ok := status["last_error"].(string)
+	if !ok || !strings.Contains(got, "主控配置应用失败") || !strings.Contains(got, "读取 Mihomo 版本失败") {
+		t.Fatalf("last_error = %#v; want both config and Mihomo errors", status["last_error"])
+	}
+	if strings.Contains(got, "/opt/s5m-agent") {
+		t.Fatalf("last_error must not expose local filesystem paths: %q", got)
+	}
+}
+
+func TestApplyAgentControlErrorNoopWhenEmpty(t *testing.T) {
+	status := map[string]any{"last_error": "existing diagnostic"}
+	applyAgentControlError(status, "  ")
+	if status["last_error"] != "existing diagnostic" {
+		t.Fatalf("empty control error changed existing diagnostic: %#v", status["last_error"])
+	}
+}
