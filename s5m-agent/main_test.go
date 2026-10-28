@@ -730,26 +730,33 @@ func TestReportHeartbeatWebSocketSuccess(t *testing.T) {
 	}
 }
 
-func TestReportHeartbeatReturnsErrorWhenWebSocketFails(t *testing.T) {
+func TestReportHeartbeatDoesNotFallBackToHTTPWhenWebSocketFails(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v1/agent/heartbeat" {
-			httpCalled = true
+		if r.URL.Path != "/api/v1/agent/heartbeat" {
+			http.NotFound(w, r)
+			return
 		}
-		http.NotFound(w, r)
+		httpCalled = true
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should return an error when WebSocket handshake fails")
+		t.Fatal("reportHeartbeat() should return the WebSocket failure")
 	}
 	if httpCalled {
-		t.Fatal("HTTP heartbeat must not be called as a fallback")
+		t.Fatal("runtime heartbeat must not fall back to HTTP")
 	}
 }
 
-func TestReportHeartbeatReturnsErrorWhenWebSocketIsUnauthorized(t *testing.T) {
+func TestReportHeartbeatDoesNotFallBackWhenWebSocketIsUnauthorized(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -760,6 +767,9 @@ func TestReportHeartbeatReturnsErrorWhenWebSocketIsUnauthorized(t *testing.T) {
 			http.Error(w, "websocket endpoint not enabled", http.StatusUnauthorized)
 		case "/api/v1/agent/heartbeat":
 			httpCalled = true
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Errorf("HTTP Authorization header = %q", r.Header.Get("Authorization"))
+			}
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.NotFound(w, r)
@@ -769,14 +779,15 @@ func TestReportHeartbeatReturnsErrorWhenWebSocketIsUnauthorized(t *testing.T) {
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should return an error when WebSocket handshake is unauthorized")
+		t.Fatal("reportHeartbeat() should return the WebSocket authorization failure")
 	}
 	if httpCalled {
-		t.Fatal("HTTP heartbeat must not be called after WebSocket authorization failure")
+		t.Fatal("runtime heartbeat must not fall back to HTTP")
 	}
 }
 
-func TestReportHeartbeatReturnsErrorWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
+func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIDDoesNotMatch(t *testing.T) {
+	t.Setenv("S5M_AGENT_WEBSOCKET", "1")
 	var httpCalled bool
 	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -811,14 +822,14 @@ func TestReportHeartbeatReturnsErrorWhenWebSocketAckIDDoesNotMatch(t *testing.T)
 
 	err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 	if err == nil {
-		t.Fatal("reportHeartbeat() should return an error when WebSocket ACK ID does not match")
+		t.Fatal("reportHeartbeat() should reject mismatched WebSocket ACK ID")
 	}
 	if httpCalled {
-		t.Fatal("HTTP heartbeat must not be called after a mismatched WebSocket ACK")
+		t.Fatal("runtime heartbeat must not fall back to HTTP")
 	}
 }
 
-func TestReportHeartbeatReturnsErrorWhenWebSocketAckIsInvalid(t *testing.T) {
+func TestReportHeartbeatDoesNotFallBackWhenWebSocketAckIsInvalid(t *testing.T) {
 	for _, ack := range []struct {
 		name string
 		msg  map[string]any
@@ -827,7 +838,8 @@ func TestReportHeartbeatReturnsErrorWhenWebSocketAckIsInvalid(t *testing.T) {
 		{name: "negative acknowledgement", msg: map[string]any{"type": "heartbeat.ack", "id": "matching-id", "ok": false}},
 	} {
 		t.Run(ack.name, func(t *testing.T) {
-			var httpCalled bool
+			t.Setenv("S5M_AGENT_WEBSOCKET", "1")
+			httpCalled := false
 			upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
@@ -868,10 +880,10 @@ func TestReportHeartbeatReturnsErrorWhenWebSocketAckIsInvalid(t *testing.T) {
 
 			err := reportHeartbeat(Config{CentralURL: server.URL, Token: "test-token"}, map[string]any{"mihomo_version": "test-version"})
 			if err == nil {
-				t.Fatal("reportHeartbeat() should return an error when WebSocket ACK is invalid")
+				t.Fatal("reportHeartbeat() should reject invalid WebSocket ACK")
 			}
 			if httpCalled {
-				t.Fatal("HTTP heartbeat must not be called after an invalid WebSocket ACK")
+				t.Fatal("runtime heartbeat must not fall back to HTTP")
 			}
 		})
 	}
@@ -912,5 +924,184 @@ func TestReportHeartbeatWebSocketPreservesCentralBasePath(t *testing.T) {
 	cfg := Config{CentralURL: server.URL + "/gateway", Token: "test-token"}
 	if err := reportHeartbeatWebSocket(cfg, map[string]any{"mihomo_version": "test-version"}); err != nil {
 		t.Fatalf("reportHeartbeatWebSocket() error = %v", err)
+	}
+}
+
+func TestProbeControllerHTTPOnlyChecksReachability(t *testing.T) {
+	called := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called <- struct{}{}
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/health" {
+			t.Errorf("unexpected probe request: %s %s", r.Method, r.URL.Path)
+		}
+		// A 503 still proves the controller is reachable; this probe must not
+		// become an application-data or HTTP fallback channel.
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	if err := probeControllerHTTP(Config{CentralURL: server.URL}); err != nil {
+		t.Fatalf("probeControllerHTTP() error = %v", err)
+	}
+	select {
+	case <-called:
+	default:
+		t.Fatal("controller reachability endpoint was not called")
+	}
+}
+
+func TestProbeControllerHTTPFailsWhenNetworkUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	if err := probeControllerHTTP(Config{CentralURL: url}); err == nil {
+		t.Fatal("expected network error after controller listener closed")
+	}
+}
+
+func TestNextReconnectDelayCapsAtSixtySeconds(t *testing.T) {
+	cases := []struct {
+		current time.Duration
+		want    time.Duration
+	}{
+		{0, 2 * time.Second},
+		{2 * time.Second, 4 * time.Second},
+		{30 * time.Second, 60 * time.Second},
+		{60 * time.Second, 60 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := nextReconnectDelay(tc.current); got != tc.want {
+			t.Errorf("nextReconnectDelay(%s) = %s, want %s", tc.current, got, tc.want)
+		}
+	}
+}
+
+func TestAgentConfigHandlerDistinguishesBindingFromConnection(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("MIHOMO_HOME", dir)
+	if err := os.WriteFile(filepath.Join(dir, "agent.json"), []byte(`{"central_url":"https://controller.example","token":"saved-token"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previous := agentConnected.Load()
+	defer agentConnected.Store(previous)
+
+	cases := []struct {
+		name      string
+		connected bool
+	}{
+		{name: "bound but disconnected", connected: false},
+		{name: "active websocket", connected: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			agentConnected.Store(tc.connected)
+			req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+			rec := httptest.NewRecorder()
+			agentConfigHandler(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if got["has_token"] != true {
+				t.Fatalf("has_token = %#v, want true", got["has_token"])
+			}
+			if got["connected"] != tc.connected {
+				t.Fatalf("connected = %#v, want %v", got["connected"], tc.connected)
+			}
+			if got["central_url"] != "https://controller.example" {
+				t.Fatalf("central_url = %#v", got["central_url"])
+			}
+		})
+	}
+}
+
+func TestReconnectDelayWithJitterStaysWithinExpectedBounds(t *testing.T) {
+	cases := []struct {
+		name    string
+		current time.Duration
+		min     time.Duration
+		max     time.Duration
+	}{
+		{"initial", 0, 2 * time.Second, 3 * time.Second},
+		{"normal", 8 * time.Second, 8 * time.Second, 12 * time.Second},
+		{"capped", 90 * time.Second, 60 * time.Second, 90 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for i := 0; i < 100; i++ {
+				got := reconnectDelayWithJitter(tc.current)
+				if got < tc.min || got >= tc.max {
+					t.Fatalf("reconnectDelayWithJitter(%s) = %s, want >= %s and < %s",
+						tc.current, got, tc.min, tc.max)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentWebSocketHelpersRefreshExpiredDeadlines(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		var request map[string]string
+		if err := conn.ReadJSON(&request); err != nil {
+			t.Errorf("read websocket request: %v", err)
+			return
+		}
+		if request["type"] != "command.ack" {
+			t.Errorf("request type = %q, want command.ack", request["type"])
+			return
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"type": "command.acknowledged",
+			"id":   request["id"],
+			"ok":   true,
+		}); err != nil {
+			t.Errorf("write websocket acknowledgement: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// Simulate a command that outlived the deadlines configured at connection
+	// startup. The helpers must set fresh deadlines for the ACK exchange.
+	if err := conn.SetWriteDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAgentWSJSON(conn, map[string]string{
+		"type": "command.ack",
+		"id":   "command-123",
+	}); err != nil {
+		t.Fatalf("writeAgentWSJSON should refresh an expired deadline: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var ack struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		OK   bool   `json:"ok"`
+	}
+	if err := readAgentWSJSON(conn, &ack, 2*time.Second); err != nil {
+		t.Fatalf("readAgentWSJSON should refresh an expired deadline: %v", err)
+	}
+	if ack.Type != "command.acknowledged" || ack.ID != "command-123" || !ack.OK {
+		t.Fatalf("unexpected acknowledgement: %+v", ack)
 	}
 }

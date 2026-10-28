@@ -6,8 +6,18 @@ This document records the currently implemented controller/Agent contract and di
 
 - Controller UI API uses `Authorization: Bearer <user JWT>`.
 - `POST /api/v1/agent/register` is the Agent registration endpoint.
-- `GET /api/v1/agent/config` is called by the Agent using its machine-specific credential. The controller records `agent_lastseen_<machine_code>` when a valid config request is processed.
 - `GET /api/v1/agents` is an authenticated controller endpoint. It returns a map keyed by machine code. Each value contains `authorized` (boolean) and `last_seen` (Unix seconds). It must not return raw Agent credentials.
+
+## Agent control-plane transport
+
+- Initial registration remains HTTP: `POST /api/v1/agent/register`.
+- After registration, the Agent performs a lightweight HTTP GET to `/api/v1/health` only to verify controller reachability. The HTTP response body is not used for Agent status, configuration, or commands; a reachable 4xx/5xx response still proves network connectivity.
+- All Agent runtime traffic uses one Agent-initiated, authenticated persistent WebSocket at `GET /api/v1/agent/ws`: status/heartbeat telemetry, configuration hash checks and YAML delivery, command delivery, and command acknowledgements.
+- The Agent must not fall back to HTTP heartbeat, configuration polling, command polling, or HTTP command ACK when WebSocket fails. It reconnects with exponential backoff capped at 60 seconds.
+- The server validates the Agent bearer token at handshake and revalidates authorization for each message. A newer connection supersedes an older connection for the same machine code.
+- Application messages are versioned JSON envelopes with request/command IDs. The server stores command results before clearing pending work; duplicate ACKs for the same completed command are idempotent.
+- HTTP Mihomo API requests to `127.0.0.1:8088` are local core operations, not Agent-to-controller transport. Never expose that local API beyond loopback.
+
 
 ## Current limitations
 
