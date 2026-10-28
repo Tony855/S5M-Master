@@ -629,7 +629,6 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 	}
 }
 
-
 func TestBuildConfigUsesSharedYAMLAnchorForSameProtocolAndServer(t *testing.T) {
 	proxies := []Proxy{
 		{Name: "node-443", Mode: "proxy", Type: "vless", Server: "1.2.3.4", Port: 443, MachineCode: "__GLOBAL__", Enabled: true,
