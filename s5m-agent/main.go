@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	mathrand "math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -1181,6 +1182,20 @@ func nextReconnectDelay(current time.Duration) time.Duration {
 	return current
 }
 
+// reconnectDelayWithJitter spreads reconnect attempts across Agents after a
+// controller outage. The returned delay is in [base, base+50% of base).
+func reconnectDelayWithJitter(current time.Duration) time.Duration {
+	base := nextReconnectDelay(current)
+	if base <= 0 {
+		return 2 * time.Second
+	}
+	jitterMax := int64(base / 2)
+	if jitterMax <= 0 {
+		return base
+	}
+	return base + time.Duration(mathrand.Int63n(jitterMax))
+}
+
 // runAgentWebSocketSession owns one persistent connection for all Agent control-plane
 // traffic. Every request/response is correlated by ID, and the existing safe config
 // apply/rollback and idempotent kernel-upgrade paths are reused.
@@ -1525,10 +1540,16 @@ func main() {
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
+		sessionStarted := time.Now()
 		if err := runAgentWebSocketSession(cfg); err != nil {
 			fmt.Printf("Agent WebSocket 会话断开: %v\n", err)
 		}
-		time.Sleep(backoff)
+		// A session that stayed healthy for at least two minutes resets the
+		// exponential backoff; short-lived sessions continue backing off.
+		if time.Since(sessionStarted) >= 2*time.Minute {
+			backoff = 2 * time.Second
+		}
+		time.Sleep(reconnectDelayWithJitter(backoff))
 		backoff = nextReconnectDelay(backoff)
 	}
 }

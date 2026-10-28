@@ -2,11 +2,11 @@
 
 ## Status
 
-Implementation is in progress on `fix/websocket-control-plane` and is proposed for `dev` via PR #178. The Agent now uses one persistent authenticated WebSocket session for runtime status, configuration synchronization, command delivery, and command acknowledgements. HTTP is limited to initial registration and controller reachability probing; there is no HTTP fallback for runtime data. Do not merge until CI passes and staging/target-device validation is complete.
+Implementation is on `fix/websocket-control-plane`; PR #178 is closed pending follow-up fixes and target-device validation. The Agent now uses one persistent authenticated WebSocket session for runtime status, configuration synchronization, command delivery, and command acknowledgements. HTTP is limited to initial registration and controller reachability probing; there is no HTTP fallback for runtime data. Do not merge until CI passes and staging/target-device validation is complete.
 
 ## Goal
 
-Replace the Agent's 30-second command/config polling as the primary transport with an Agent-initiated, authenticated WebSocket connection. Keep HTTP registration and a temporary HTTP fallback for safe rollout and recovery.
+Replace the Agent's 30-second command/config polling with an Agent-initiated, authenticated WebSocket connection. Keep HTTP only for initial registration and a lightweight controller reachability probe; the new Agent must never use HTTP for runtime status, configuration, commands, or ACK fallback.
 
 ## Compatibility guardrails
 
@@ -42,7 +42,7 @@ The config payload must pass the same validation and safe-apply/rollback path as
 - Commands are acknowledged only after execution finishes. The server persists the command/result before clearing pending work; reconnecting Agents can request pending work again.
 - Command handlers must remain idempotent. A lost ACK must not cause an unsafe repeated kernel replacement.
 - One goroutine owns WebSocket writes and one owns reads. Apply write deadlines, read limits, heartbeat deadlines, bounded outbound queues, and connection cleanup.
-- Reconnect with exponential backoff and jitter, capped at 60 seconds. Reset backoff after a stable connection.
+- Reconnect with exponential backoff capped at 60 seconds plus up to 50% jitter. Reset backoff after a connection session remains stable for at least two minutes.
 - The refactored Agent must not use HTTP config/heartbeat/command fallback. Legacy HTTP endpoints may remain temporarily for older Agent versions, but the new Agent must never call them. Do not run two command consumers for the same machine code.
 - On a WebSocket disconnect, the UI should mark the transport disconnected after a freshness timeout; a successful heartbeat still does not prove all proxy routes are healthy.
 
@@ -52,7 +52,7 @@ The config payload must pass the same validation and safe-apply/rollback path as
 2. Implement the server WebSocket endpoint, shared Agent-token authentication, per-machine connection registry, lifecycle cleanup, heartbeat persistence, and config/command delivery without changing the Agent's default transport.
 3. Implement the Agent WebSocket client with reconnect/backoff, ping/pong, message limits, command ACK, and existing config/kernel safety functions.
 4. Add integration tests for unauthorized handshake, duplicate machine connections, disconnect cleanup, reconnect/resync, stale config hash, duplicate command/ACK, and oversized/malformed messages.
-5. Enable WebSocket by feature flag in CI/staging; keep HTTP fallback available.
+5. Validate the WebSocket-only runtime path in CI/staging. Legacy HTTP runtime endpoints may remain server-side temporarily for older Agent releases, but this Agent must not call them.
 6. Test on actual RouterOS 7.21.5 AMD64/ARM64 hardware or verified target devices: outbound WSS, DNS/TLS, long idle connection, reboot, temporary WAN loss, CGNAT, config sync, kernel update and rollback.
 7. After successful verification, merge the PR into `dev` first. Do not merge into `main` or publish a stable release automatically.
 
