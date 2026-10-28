@@ -36,7 +36,7 @@ func TestAddCentralRouteExclusionsWithIPLiteral(t *testing.T) {
 	t.Setenv("MIHOMO_HOME", t.TempDir())
 	cfg := map[string]interface{}{
 		"tun": map[string]interface{}{
-			"enable":                true,
+			"enable": true,
 			"route-exclude-address": []interface{}{"192.0.2.7/32"},
 		},
 	}
