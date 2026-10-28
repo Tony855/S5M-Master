@@ -1,0 +1,49 @@
+name: Mihomo node-sync integration
+
+on:
+  push:
+    branches: ["test/node-config-anchor-expansion"]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mihomo-node-sync:
+    name: Generate synced config and validate with Mihomo
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.x"
+          cache: true
+          cache-dependency-path: source/go.sum
+      - name: Download Go dependencies
+        run: go mod download
+      - name: Download pinned Mihomo
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="v1.19.33"
+          curl --fail --location --retry 3 --output "/tmp/mihomo-${version}.gz" \
+            "https://github.com/MetaCubeX/mihomo/releases/download/${version}/mihomo-linux-amd64-${version}.gz"
+          gzip -dc "/tmp/mihomo-${version}.gz" > /tmp/mihomo
+          chmod +x /tmp/mihomo
+          /tmp/mihomo -v
+      - name: Validate anchor fixture with Mihomo
+        run: /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
+      - name: Generate node-synced config and validate with Mihomo
+        shell: bash
+        run: |
+          set -euo pipefail
+          S5M_MIHOMO_TEST_CONFIG=/tmp/s5m-node-sync-mihomo.yaml go test ./internal/app -run '^TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors$' -count=1
+          test -s /tmp/s5m-node-sync-mihomo.yaml
+          /tmp/mihomo -t -f /tmp/s5m-node-sync-mihomo.yaml
