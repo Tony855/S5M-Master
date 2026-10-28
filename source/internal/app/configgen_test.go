@@ -527,14 +527,20 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.mode, func(t *testing.T) {
 			got, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", tt.mode, "controller.example.com")
-			if err != nil { t.Fatalf("build config: %v", err) }
+			if err != nil {
+				t.Fatalf("build config: %v", err)
+			}
 			for _, want := range tt.want {
-				if !strings.Contains(got, want) { t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got) }
+				if !strings.Contains(got, want) {
+					t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got)
+				}
 			}
 		})
 	}
 	ipConfig, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", "global", "203.0.113.10")
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(ipConfig, "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve") {
 		t.Fatal("controller IPv4 must be explicitly routed direct")
 	}
