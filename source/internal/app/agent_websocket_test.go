@@ -1213,3 +1213,45 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 		t.Fatalf("unexpected second heartbeat ACK: %#v", secondAck)
 	}
 }
+
+
+func TestQueueAgentMihomoUpdateValidatesAndPersistsCommand(t *testing.T) {
+	app, _, _ := websocketTestApp(t)
+	sha := strings.Repeat("a", 64)
+	if err := app.queueAgentMihomoUpdate("ws_node_01", "v1.19.33", sha); err != nil {
+		t.Fatalf("queueAgentMihomoUpdate: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var command map[string]string
+	if err := json.Unmarshal([]byte(settings["agent_command_ws_node_01"]), &command); err != nil {
+		t.Fatalf("decode persisted command: %v", err)
+	}
+	if command["type"] != "update_mihomo" || command["version"] != "v1.19.33" || command["sha256"] != sha || command["id"] == "" {
+		t.Fatalf("unexpected persisted command: %#v", command)
+	}
+	if err := app.queueAgentMihomoUpdate("ws_node_01", "v1.19.33", sha); err == nil || !strings.Contains(err.Error(), "已有待执行命令") {
+		t.Fatalf("expected duplicate pending command rejection, got %v", err)
+	}
+}
+
+func TestQueueAgentMihomoUpdateRejectsInvalidInputAndUnknownAgent(t *testing.T) {
+	app, _, _ := websocketTestApp(t)
+	cases := []struct {
+		name, machineCode, version, sha string
+	}{
+		{name: "bad machine code", machineCode: "bad code", version: "v1.19.33", sha: strings.Repeat("a", 64)},
+		{name: "bad version", machineCode: "ws_node_01", version: "latest", sha: strings.Repeat("a", 64)},
+		{name: "bad sha", machineCode: "ws_node_01", version: "v1.19.33", sha: "deadbeef"},
+		{name: "unknown agent", machineCode: "unknown", version: "v1.19.33", sha: strings.Repeat("a", 64)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := app.queueAgentMihomoUpdate(tc.machineCode, tc.version, tc.sha); err == nil {
+				t.Fatal("expected invalid command to be rejected")
+			}
+		})
+	}
+}
