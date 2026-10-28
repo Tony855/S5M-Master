@@ -677,23 +677,66 @@ createApp({
             const arr = findProxyArray(JSON.parse(content));
             if (!arr || !arr.length) throw new Error('找不到包含 server/address 的节点数组');
             const lines = arr.map((item, index) => {
-              const name = String(item.name || item.remark || item.proxy_name || `节点-${index + 1}`).trim();
-              const type = String(item.type || item.protocol || 'socks5').trim().toLowerCase();
-              const server = String(item.server || item.address || item.host || '').trim();
-              const port = Number(item.port || item.server_port || 1080);
+              const name = String(item.name || item.remark || item.proxy_name || item.ps || \`节点-\${index + 1}\`).trim().replace(/[\r\n#]/g, ' ');
+              const directURI = String(item.uri || item.url || item.link || item.proxy || '').trim();
+              if (directURI && /^(socks5|socks|http|https|ss|vmess|vless|trojan):\/\//i.test(directURI)) {
+                return directURI.includes('#') ? directURI : directURI + '#' + encodeURIComponent(name);
+              }
+              const type = String(item.type || item.protocol || item.scheme || '').trim().toLowerCase();
+              const server = String(item.server || item.address || item.host || item.add || '').trim();
+              const port = Number(item.port || item.server_port || item.serverPort || 0);
               if (!server || !Number.isInteger(port) || port < 1 || port > 65535) return '';
-              if (!/^[a-z][a-z0-9+.-]*$/.test(type)) return '';
-              // The backend's text importer expects URI syntax, not space-separated columns.
-              // Encode credentials to keep delimiters in usernames/passwords from breaking the URI.
+              if (!['socks5', 'socks', 'http', 'https', 'ss', 'vmess', 'vless', 'trojan'].includes(type)) return '';
+              const host = server.includes(':') && !server.startsWith('[') ? '[' + server + ']' : server;
+              const fragment = encodeURIComponent(name);
               const username = item.username == null ? '' : String(item.username);
               const password = item.password == null ? '' : String(item.password);
-              const auth = username || password
-                ? encodeURIComponent(username) + ':' + encodeURIComponent(password) + '@'
-                : '';
-              const host = server.includes(':') && !server.startsWith('[') ? '[' + server + ']' : server;
-              return `${type}://${auth}${host}:${port}#${name.replace(/[\r\n#]/g, ' ')}`;
+              if (type === 'vmess') {
+                const ws = item['ws-opts'] || item.wsOpts || {};
+                const headers = ws.headers || {};
+                const vmess = {
+                  v: '2', ps: name, add: server, port: String(port),
+                  id: String(item.uuid || item.id || ''), aid: String(item.alterId ?? item.aid ?? 0),
+                  scy: String(item.cipher || item.scy || 'auto'),
+                  net: String(item.network || item.net || 'tcp'),
+                  tls: item.tls ? 'tls' : '',
+                  sni: String(item.servername || item.sni || ''),
+                  host: String(headers.Host || headers.host || item.host || ''),
+                  path: String(ws.path || item.path || '')
+                };
+                const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(vmess))));
+                return 'vmess://' + encoded;
+              }
+              if (type === 'ss') {
+                const cipher = String(item.cipher || item.method || '');
+                if (!cipher || !password) return '';
+                const auth = btoa(unescape(encodeURIComponent(cipher + ':' + password)));
+                return 'ss://' + auth + '@' + host + ':' + port + '#' + fragment;
+              }
+              const query = new URLSearchParams();
+              const network = String(item.network || item.net || '');
+              if (network) query.set('type', network);
+              const tls = item.tls === true || String(item.tls).toLowerCase() === 'true' || item.security === 'tls' || item.security === 'reality';
+              if (tls) query.set('security', item.security || 'tls');
+              const sni = String(item.servername || item.sni || '');
+              if (sni) query.set('sni', sni);
+              const flow = String(item.flow || '');
+              if (flow) query.set('flow', flow);
+              const ws = item['ws-opts'] || item.wsOpts || {};
+              const headers = ws.headers || {};
+              if (network === 'ws') {
+                if (headers.Host || headers.host) query.set('host', headers.Host || headers.host);
+                if (ws.path || item.path) query.set('path', ws.path || item.path);
+              }
+              const auth = type === 'vless'
+                ? encodeURIComponent(String(item.uuid || item.id || username))
+                : (type === 'trojan'
+                  ? encodeURIComponent(password || username)
+                  : ((username || password) ? encodeURIComponent(username) + ':' + encodeURIComponent(password) : ''));
+              const queryString = query.toString();
+              return type + '://' + auth + (auth ? '@' : '') + host + ':' + port + (queryString ? '?' + queryString : '') + '#' + fragment;
             }).filter(Boolean);
-            if (!lines.length) throw new Error('解析出了节点，但缺少有效服务器、端口或协议字段');
+            if (!lines.length) throw new Error('无法识别代理协议或缺少有效服务器/端口。请确保 JSON 节点包含 type/protocol，或提供完整代理链接。');
             importText.value = lines.join('\n'); showMsg(`成功解析 ${lines.length} 条节点；导入时将按协议链接格式提交`, 'success');
           } catch (err) { showMsg('JSON 解析失败：' + err.message, 'error'); importText.value = ''; }
         } else {
