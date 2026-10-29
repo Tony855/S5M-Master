@@ -149,7 +149,7 @@ jobs:
 
   publish:
     name: Publish multi-arch image to GHCR
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/s5m-agent-smartdns'
     needs: [test-amd64, build-arm64]
     runs-on: ubuntu-latest
     permissions:
