@@ -24,9 +24,18 @@ dns:
   fake-ip-filter:
     - "*.lan"
     - "+.v2net.cc"
+  proxy-server-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
   nameserver:
     - 223.5.5.5
     - 119.29.29.29
+  fallback:
+    - https://dns.cloudflare.com/dns-query
+    - https://dns.google/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
 
 # 代理节点与代理组
 proxies: []
