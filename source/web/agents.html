@@ -95,8 +95,8 @@
                     const smartdnsAvailable = status.smartdns_available === true;
                     const smartdnsRunning = status.smartdns_running === true;
                     const smartdnsDNSHealthy = status.smartdns_dns_healthy === true;
-                    const smartdnsStatus = !smartdnsAvailable ? '未安装（标准镜像）' : (smartdnsRunning ? (smartdnsDNSHealthy ? '运行中 / DNS 正常' : '进程运行 / DNS 异常') : '异常');
-                    const smartdnsClass = smartdnsRunning && smartdnsDNSHealthy ? 'online' : (smartdnsAvailable ? 'error' : 'offline');
+                    const smartdnsStatus = !smartdnsAvailable ? '未安装（标准镜像）' : (!online ? 'Agent 离线（状态过期）' : (smartdnsRunning ? (smartdnsDNSHealthy ? '运行中 / DNS 正常' : '进程运行 / DNS 异常') : '异常'));
+                    const smartdnsClass = smartdnsAvailable && !online ? 'offline' : (smartdnsRunning && smartdnsDNSHealthy ? 'online' : (smartdnsAvailable ? 'error' : 'offline'));
                     const connections = Number(status.connections || 0);
                     const up = Number(status.upload_speed || 0);
                     const down = Number(status.download_speed || 0);
