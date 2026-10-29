@@ -56,11 +56,11 @@ func validateControllerSmartDNSConfig(config string) error {
 		if strings.ContainsAny(line, "`$") || strings.Contains(strings.ToLower(line), "include") {
 			return fmt.Errorf("第 %d 行包含不允许的特殊内容", i+1)
 		}
-		if (fields[0] == "bind" || fields[0] == "bind-tcp") {
+		if fields[0] == "bind" || fields[0] == "bind-tcp" {
 			if len(fields) != 2 || fields[1] != "127.0.0.1:6053" {
 				return fmt.Errorf("第 %d 行监听地址必须保持在容器回环地址 127.0.0.1:6053", i+1)
 			}
-			if fields[0] == "bind" { bindUDP = true } else { bindTCP = true }
+			if fields[0] == "bind" {\n\t\t\t\tbindUDP = true\n\t\t\t} else {\n\t\t\t\tbindTCP = true\n\t\t\t}
 		}
 		usable++
 	}
@@ -161,7 +161,7 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 func (a *App) handleQueueAgentSmartDNSConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		Config string `json:"config"`
+		Config      string `json:"config"`
 	}
 	if err := decodeLimited(r, 10<<10, "10 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "SmartDNS 配置请求无效")
