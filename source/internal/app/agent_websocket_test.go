@@ -1334,3 +1334,17 @@ func TestSanitizeAgentWebSocketTextRedactsJSONCredentialsAndBearerTokens(t *test
 		t.Fatalf("expected JSON credentials and bearer token to be redacted: %q", got)
 	}
 }
+
+
+func TestSanitizeAgentWebSocketTextRedactsQuotedCredentialsWithSpacesAndEscapes(t *testing.T) {
+	input := `{"token":"secret with spaces","password":"value with \\"quote\\"","api_key": "key with spaces"} token='plain value with spaces' Authorization: Bearer bearer-secret`
+	got := sanitizeAgentWebSocketText(input)
+	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "plain value with spaces", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sensitive value %q remained in sanitized text: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 4 {
+		t.Fatalf("expected quoted JSON credentials and bearer token to be redacted: %q", got)
+	}
+}
