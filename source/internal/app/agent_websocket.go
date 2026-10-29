@@ -137,6 +137,14 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
 		case "proxies.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
+		case "settings.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
+		case "mihomo.status.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMihomoStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/status", nil))
+		case "mihomo.template.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
+		case "mihomo.template.nodes.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetNodeTemplateStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template/nodes", nil))
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()

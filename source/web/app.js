@@ -467,9 +467,8 @@ createApp({
     const loadMainMihomoStatus = async () => {
       mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: true };
       try {
-        const res = await api('/api/v1/mihomo/status?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取主控 Mihomo 状态失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.status.get' });
+        const data = result.data || {};
         mainMihomoStatus.value = { ...data, loading: false };
       } catch (e) {
         mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: false, online: false, queryError: e.message || '状态查询失败' };
@@ -958,9 +957,8 @@ createApp({
 
     const loadMihomoTemplate = async () => {
       try {
-        const res = await api('/api/v1/mihomo/template?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.get' });
+        const data = result.data || {};
         templateYaml.value = data.draft_yaml || '';
         templateVersions.value = Array.isArray(data.versions) ? data.versions : [];
         templateCurrentVersion.value = Number(data.current_version || 0);
@@ -970,9 +968,8 @@ createApp({
 
     const loadTemplateNodeStatus = async () => {
       try {
-        const res = await api('/api/v1/mihomo/template/nodes?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取节点版本状态失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.nodes.get' });
+        const data = result.data || {};
         templateNodes.value = Array.isArray(data.nodes) ? data.nodes : [];
         if (!selectedTemplateNode.value && templateNodes.value.length) selectedTemplateNode.value = templateNodes.value[0].machine_code;
       } catch (e) { showMsg(e.message || '读取节点版本状态失败', 'error'); }
@@ -1237,9 +1234,8 @@ const safeCopy = async (text) => {
       const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
       subUrl.value = fallback;
       try {
-        const res = await api('/api/v1/settings?t=' + Date.now());
-        if (!res.ok) return;
-        const s = await res.json().catch(() => ({}));
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
         const configured = String(s.subscribe_url || s.sub_url || '').trim();
         subUrl.value = configured || fallback;
       } catch (e) {

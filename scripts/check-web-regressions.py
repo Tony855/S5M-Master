@@ -238,6 +238,40 @@ checks.update({
     ),
 })
 
+# Read-only control-plane snapshots continue migrating to the authenticated
+# WebSocket RPC channel; writes remain on their existing validated endpoints.
+checks.update({
+    "main Mihomo status snapshot uses WebSocket RPC without HTTP polling fallback": (
+        "type: 'mihomo.status.get'" in app_js
+        and "api('/api/v1/mihomo/status?t=" not in app_js
+        and 'case "mihomo.status.get":' in browser_ws_source
+        and "a.handleMihomoStatus" in browser_ws_source
+    ),
+    "Mihomo template and per-node template status snapshots use WebSocket RPC": (
+        "type: 'mihomo.template.get'" in app_js
+        and "type: 'mihomo.template.nodes.get'" in app_js
+        and "api('/api/v1/mihomo/template?t=" not in app_js
+        and "api('/api/v1/mihomo/template/nodes?t=" not in app_js
+        and 'case "mihomo.template.get":' in browser_ws_source
+        and 'case "mihomo.template.nodes.get":' in browser_ws_source
+    ),
+    "settings read uses WebSocket RPC while existing settings update endpoint stays available": (
+        "type: 'settings.get'" in app_js
+        and "api('/api/v1/settings?t=" not in app_js
+        and 'case "settings.get":' in browser_ws_source
+        and "a.handleGetSettings" in browser_ws_source
+        and '"PUT /api/v1/settings"' in router_source
+    ),
+    "read-only WebSocket snapshot RPCs remain explicitly allowlisted and admin-session checked": (
+        "Revalidate the administrator session for every browser RPC" in browser_ws_source
+        and 'case "settings.get":' in browser_ws_source
+        and 'case "mihomo.status.get":' in browser_ws_source
+        and 'case "mihomo.template.get":' in browser_ws_source
+        and 'case "mihomo.template.nodes.get":' in browser_ws_source
+        and 'default:' in browser_ws_source
+    ),
+})
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
