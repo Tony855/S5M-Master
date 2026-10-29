@@ -47,7 +47,6 @@
         <textarea id="configYaml" spellcheck="false" rows="28" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#020617;color:#dbeafe;border:1px solid #475569;border-radius:6px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace"></textarea>
         <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="applyQuickSettings()">将上方 TUN/DNS 设置写入 YAML</button><button type="button" onclick="saveNodeConfig()">保存并下发</button><span id="editorMessage"></span></div>
     </div>
-    <script>
     <div id="smartdnsModal" class="container" style="display:none;margin-top:16px;max-width:1200px">
         <div class="header"><h2 id="smartdnsTitle">SmartDNS 配置</h2><button type="button" onclick="closeSmartDNS()">关闭</button></div>
         <p>此处配置只作用于包含 SmartDNS 的独立 Agent 镜像。主控会先校验配置格式，再通过 Agent 的 WebSocket 下发；Agent 会在本地预检、备份旧配置、重载并回报结果。</p>
@@ -56,6 +55,7 @@
         <textarea id="smartdnsConfig" spellcheck="false" rows="16" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#020617;color:#dbeafe;border:1px solid #475569;border-radius:6px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace"></textarea>
         <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="saveSmartDNS()">校验并下发 SmartDNS 配置</button><span id="smartdnsMessage"></span></div>
     </div>
+    <script>
         const TOKEN_KEY = 's5m_next_token';
         const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
         function formatTime(seconds) {
@@ -286,7 +286,6 @@
         let agentsSocket = null;
         let agentsConnecting = false;
         let agentsRetryTimer = null;
-        let agentsRefreshTimer = null;
         function connectAgentEvents() {
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token || agentsSocket || agentsConnecting) return;
@@ -306,7 +305,6 @@
                     try { message = JSON.parse(event.data); } catch (_) { return; }
                     if (message.type === 'agent.binding.revoked' ||
                         message.type === 'agent.binding.updated' ||
-                        message.type === 'agent.status.updated' ||
                         message.type === 'agent.command.updated' ||
                         message.type === 'agent.command.queued') {
                         loadAgents();
@@ -327,15 +325,11 @@
         }
         window.addEventListener('pagehide', () => {
             clearTimeout(agentsRetryTimer);
-            clearInterval(agentsRefreshTimer);
             if (agentsSocket) { try { agentsSocket.close(); } catch (_) {} agentsSocket = null; }
         });
         window.addEventListener('load', () => {
             loadAgents();
             connectAgentEvents();
-            agentsRefreshTimer = setInterval(() => {
-                if (!agentsSocket || agentsSocket.readyState !== WebSocket.OPEN) loadAgents();
-            }, 15000);
         });
     </script>
 </body>
