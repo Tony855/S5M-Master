@@ -1116,21 +1116,20 @@ createApp({
     };
 
     const loadNodeConfig = async () => {
-      const code = selectedConfigNode.value;
+      const code = String(selectedConfigNode.value || '').trim();
       configYaml.value = '';
       if (!code) return;
       try {
-        const res = await api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          configYaml.value = data.config_yaml || '';
-          showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
-        } else {
-          configYaml.value = '';
-          showMsg(data.error || data.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        if (result.ok === false) {
+          throw new Error(result.error || result.message || '读取节点配置失败');
         }
+        const data = result.data || result;
+        configYaml.value = data.config_yaml || '';
+        showMsg('已通过实时通道加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
-        showMsg(e.message || '读取节点配置失败', 'error');
+        configYaml.value = '';
+        showMsg(e.message || '读取节点配置失败', 'warning');
       }
     };
 
@@ -1149,59 +1148,39 @@ createApp({
       if (savingConfig.value) return;
 
       savingConfig.value = true;
-      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
+      showMsg('正在通过实时通道保存节点 ' + code + ' 的 YAML…', 'info');
 
       try {
-        const path = '/api/v1/nodes/' +
-          encodeURIComponent(code) + '/config';
-
-        const res = await api(path, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config_yaml: yaml })
+        const result = await sendBrowserWSControl({
+          type: 'node.config.save',
+          machine_code: code,
+          config_yaml: yaml
         });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          const message = data.error || data.message ||
-            ('HTTP ' + res.status);
-          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
-          console.error('[S5M node config] PUT failed', {
-            code, status: res.status, message
-          });
-          return;
+        if (result.ok === false) {
+          throw new Error(result.error || result.message || '保存节点配置失败');
         }
 
-        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
-        const verify = await api(path + '?t=' + Date.now());
-        const saved = await verify.json().catch(() => ({}));
-
-        if (!verify.ok) {
-          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
-            verify.status + '）', 'warning');
-          console.error('[S5M node config] verification failed', {
-            code, status: verify.status, response: saved
-          });
-          return;
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        if (verify.ok === false) {
+          throw new Error('保存已提交，但回读验证失败：' + (verify.error || verify.message || '未知错误'));
         }
-
+        const saved = verify.data || verify;
         if (String(saved.config_yaml || '') !== yaml) {
           showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
           console.error('[S5M node config] verification mismatch', { code });
           return;
         }
 
-        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+        showMsg('节点 ' + code + ' 的 YAML 已通过实时通道保存并验证成功', 'success');
       } catch (e) {
-        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
-        console.error('[S5M node config] request exception', e);
+        showMsg('节点配置实时操作失败：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] WebSocket request exception', e);
       } finally {
         savingConfig.value = false;
       }
     };
 
-const safeCopy = async (text) => {
+    const safeCopy = async (text) => {
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(String(text ?? ''));
