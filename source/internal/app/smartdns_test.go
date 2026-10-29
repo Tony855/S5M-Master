@@ -130,3 +130,64 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 		t.Fatalf("unexpected SmartDNS config/status response: %#v", result)
 	}
 }
+
+
+func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigConsistent(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "smartdns-concurrent.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const code = "node_smartdns_concurrent"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":           "global-token",
+		"agent_machine_" + code: "dedicated-token",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	a := &App{store: store}
+
+	const contenders = 12
+	start := make(chan struct{})
+	results := make(chan error, contenders)
+	var wg sync.WaitGroup
+	for i := 0; i < contenders; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			config := defaultAgentSmartDNSConfig + fmt.Sprintf("\n# contender %d\n", i)
+			<-start
+			results <- a.queueAgentSmartDNSConfig(code, config)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful queue requests = %d, want exactly 1", successes)
+	}
+
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var command map[string]string
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil {
+		t.Fatalf("decode pending command: %v", err)
+	}
+	desired := settings["agent_smartdns_config_"+code]
+	if command["type"] != "configure_smartdns" || command["config"] == "" {
+		t.Fatalf("invalid pending command: %#v", command)
+	}
+	if command["config"] != desired {
+		t.Fatalf("pending command config differs from desired config")
+	}
+}
