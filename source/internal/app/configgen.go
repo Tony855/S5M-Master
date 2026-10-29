@@ -35,6 +35,9 @@ dns:
     fake-ip-filter:
         - '*.lan'
         - '+.v2net.cc'
+    proxy-server-nameserver:
+        - 223.5.5.5
+        - 119.29.29.29
     nameserver:
         - 223.5.5.5
         - 119.29.29.29
@@ -130,6 +133,37 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 	}
 	if !filterHasControllerDomain {
 		filter.Content = append(filter.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "+.v2net.cc"})
+	}
+
+	// Resolve proxy endpoint hostnames through explicit bootstrap DNS servers rather
+	// than fake-IP answers. Preserve existing entries and append missing defaults.
+	proxyDNS := mappingValue(dns, "proxy-server-nameserver")
+	if proxyDNS == nil || proxyDNS.Kind != yaml.SequenceNode {
+		proxyDNS = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "proxy-server-nameserver" {
+				dns.Content[i+1] = proxyDNS
+				found = true
+				break
+			}
+		}
+		if !found {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "proxy-server-nameserver"}, proxyDNS)
+		}
+	}
+	for _, server := range []string{"223.5.5.5", "119.29.29.29"} {
+		found := false
+		for _, item := range proxyDNS.Content {
+			if item.Value == server {
+				found = true
+				break
+			}
+		}
+		if !found {
+			proxyDNS.Content = append(proxyDNS.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+		}
 	}
 
 	// Exclude private/local ranges from TUN route capture and also exclude literal
