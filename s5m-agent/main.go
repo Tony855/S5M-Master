@@ -1374,6 +1374,7 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 	if _, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核自检失败（已隐藏底层路径详情）")
 	}
+	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
 		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%v\n", cmd.ID, err)
