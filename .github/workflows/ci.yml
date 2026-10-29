@@ -2,7 +2,7 @@ name: S5M CI
 
 on:
   push:
-    branches: [dev, main, "fix/**"]
+    branches: [dev, main, "fix/**", s5m-agent-smartdns]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
