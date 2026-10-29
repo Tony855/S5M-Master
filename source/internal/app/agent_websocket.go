@@ -54,6 +54,9 @@ type browserControlMessage struct {
 	SHA256      string `json:"sha256"`
 	Config      string `json:"config"`
 	ConfigYAML  string `json:"config_yaml"`
+	Note        string `json:"note"`
+	Confirm     bool   `json:"confirm"`
+	Version     int    `json:"version"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -149,6 +152,21 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
+		case "mihomo.template.publish":
+			body, _ := json.Marshal(map[string]string{"note": message.Note})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/publish", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePublishMihomoTemplate, req)
+		case "mihomo.template.apply":
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "version": message.Version, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/apply", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleApplyMihomoTemplate, req)
+		case "mihomo.template.rollback":
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()

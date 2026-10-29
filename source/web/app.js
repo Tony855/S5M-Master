@@ -1012,12 +1012,8 @@ createApp({
       if (publishingTemplate.value) return;
       publishingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/publish', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note: templateNote.value || '' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '发布模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.publish', note: templateNote.value || '' });
+        const data = result.data || result;
         templateNote.value = '';
         showMsg((data.message || '模板已发布') + '（v' + data.version + '）', 'success');
         await loadMihomoTemplate();
@@ -1071,12 +1067,8 @@ createApp({
       if (applyingTemplate.value) return;
       applyingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/rollback', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: code, confirm: true })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '恢复节点配置失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.rollback', machine_code: code, confirm: true });
+        const data = result.data || result;
         showMsg(data.message || '节点配置已恢复', 'success');
         await loadTemplateNodeStatus();
         if (selectedConfigNode.value === code) await loadNodeConfig();
@@ -1092,12 +1084,8 @@ createApp({
       if (applyingTemplate.value) return;
       applyingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/apply', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: code, version, confirm: true })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '应用模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.apply', machine_code: code, version, confirm: true });
+        const data = result.data || result;
         showMsg(data.message || '模板已应用到节点', 'success');
         await loadTemplateNodeStatus();
         if (selectedConfigNode.value === code) await loadNodeConfig();

@@ -280,6 +280,23 @@ checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP f
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+
+checks["Mihomo template publish/apply/rollback mutations use explicit authenticated WebSocket RPC"] = (
+    "type: 'mihomo.template.publish'" in app_js
+    and "type: 'mihomo.template.apply'" in app_js
+    and "type: 'mihomo.template.rollback'" in app_js
+    and "api('/api/v1/mihomo/template/publish'" not in app_js
+    and "api('/api/v1/mihomo/template/apply'" not in app_js
+    and "api('/api/v1/mihomo/template/rollback'" not in app_js
+    and 'case "mihomo.template.publish":' in browser_ws_source
+    and 'case "mihomo.template.apply":' in browser_ws_source
+    and 'case "mihomo.template.rollback":' in browser_ws_source
+    and "a.handlePublishMihomoTemplate" in browser_ws_source
+    and "a.handleApplyMihomoTemplate" in browser_ws_source
+    and "a.handleRollbackNodeTemplate" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
     and "api('/api/v1/nodes/config-sync'" not in app_js
