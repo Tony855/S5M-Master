@@ -5,7 +5,7 @@ ARG ALPINE_VERSION=3.22
 FROM alpine:${ALPINE_VERSION} AS build
 ARG SMARTDNS_REF=Release48.4
 RUN apk add --no-cache --virtual .build-deps \
-      build-base git openssl-dev zlib-dev
+      build-base git linux-headers openssl-dev zlib-dev
 RUN git clone --depth 1 --branch "${SMARTDNS_REF}" \
       https://github.com/pymumu/smartdns.git /src \
     && git -C /src rev-parse HEAD > /tmp/SMARTDNS_SOURCE_COMMIT \
