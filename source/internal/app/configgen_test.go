@@ -102,6 +102,26 @@ proxies:
 			t.Errorf("proxy-server-nameserver missing %q: %#v", want, bootstrap)
 		}
 	}
+	fallback, ok := dns["fallback"].([]any)
+	if !ok {
+		t.Fatalf("fallback is not a sequence: %#v", dns["fallback"])
+	}
+	for _, want := range []string{"https://dns.cloudflare.com/dns-query", "https://dns.google/dns-query"} {
+		found := false
+		for _, item := range fallback {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("fallback missing %q: %#v", want, fallback)
+		}
+	}
+	fallbackFilter, ok := dns["fallback-filter"].(map[string]any)
+	if !ok || fallbackFilter["geoip"] != true || fallbackFilter["geoip-code"] != "CN" {
+		t.Errorf("fallback-filter = %#v, want geoip=true and geoip-code=CN", dns["fallback-filter"])
+	}
 	tun, ok := config["tun"].(map[string]any)
 	if !ok {
 		t.Fatalf("tun is not a mapping: %#v", config["tun"])
@@ -773,6 +793,11 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 		"fake-ip-filter:",
 		"'+.v2net.cc'",
 		"proxy-server-nameserver:",
+		"fallback:",
+		"https://dns.cloudflare.com/dns-query",
+		"https://dns.google/dns-query",
+		"fallback-filter:",
+		"geoip-code: CN",
 		"223.5.5.5",
 		"119.29.29.29",
 	} {
