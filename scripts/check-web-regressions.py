@@ -372,6 +372,16 @@ checks["browser WebSocket close rejects pending RPCs immediately and marks write
     and "pending.reject(new Error(message))" in app_js
 )
 
+checks["Agent management page rejects pending WebSocket RPCs on disconnect and stops reconnecting after pagehide"] = (
+    "function rejectPendingAgentWSRequests(message) {" in agent_list_html
+    and "rejectPendingAgentWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in agent_list_html
+    and "let agentEventsStopped = false;" in agent_list_html
+    and "agentEventsStopped = true;" in agent_list_html
+    and "if (!agentEventsStopped && localStorage.getItem(TOKEN_KEY))" in agent_list_html
+    and "页面已离开，实时操作结果未确认；重新进入后请刷新状态" in agent_list_html
+    and "WebSocket 操作超时，操作结果未确认" in agent_list_html
+)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
