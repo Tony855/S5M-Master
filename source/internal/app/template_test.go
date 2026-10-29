@@ -49,14 +49,9 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		t.Fatal("starter template must not expose a user's proxy endpoint or API secret")
 	}
 
-	// Check only unindented, top-level section declarations. A substring check
-	// for "rules:" incorrectly matches the valid DNS option "respect-rules:".
-	for _, line := range strings.Split(defaultMihomoTemplate, "\n") {
-		switch strings.TrimSpace(line) {
-		case "proxies:", "proxy-groups:", "rules:":
-			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
-				t.Fatalf("default template must not define controller-managed top-level section %q", strings.TrimSpace(line))
-			}
+	for _, want := range []string{"proxies: []", "proxy-groups: []", "rules:", "tun:", "auto-route: true"} {
+		if !strings.Contains(defaultMihomoTemplate, want) {
+			t.Errorf("default template missing baseline section %q", want)
 		}
 	}
 	for _, unwanted := range []string{"YOUR_PROXY_SERVER", "221111cdn"} {
