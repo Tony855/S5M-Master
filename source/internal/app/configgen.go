@@ -54,6 +54,45 @@ type proxyOut struct {
 	Extra  map[string]any `yaml:",inline"`
 }
 
+// normalizeAgentMixedPort enforces the Agent container's published proxy port.
+ // Controller configs intentionally keep port 8080; every per-machine config must use 7890.
+func normalizeAgentMixedPort(yml string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
+		return "", fmt.Errorf("解析 Agent Mihomo 配置失败: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("Agent Mihomo 配置必须是 YAML 对象")
+	}
+	root := doc.Content[0]
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "mixed-port" {
+			root.Content[i+1].Tag = "!!int"
+			root.Content[i+1].Value = "7890"
+			var out strings.Builder
+			enc := yaml.NewEncoder(&out)
+			enc.SetIndent(2)
+			if err := enc.Encode(&doc); err != nil {
+				return "", fmt.Errorf("序列化 Agent Mihomo 配置失败: %w", err)
+			}
+			_ = enc.Close()
+			return out.String(), nil
+		}
+	}
+	root.Content = append([]*yaml.Node{
+		{Kind: yaml.ScalarNode, Tag: "!!str", Value: "mixed-port"},
+		{Kind: yaml.ScalarNode, Tag: "!!int", Value: "7890"},
+	}, root.Content...)
+	var out strings.Builder
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return "", fmt.Errorf("序列化 Agent Mihomo 配置失败: %w", err)
+	}
+	_ = enc.Close()
+	return out.String(), nil
+}
+
 func indent(s, prefix string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	for i, l := range lines {
@@ -85,11 +124,12 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The Agent deployment publishes host port 7890 to container port 7890.
-	// Keep generated remote-node configs aligned with that mapping; the
-	// controller's own config continues to use its separate 8080 listener.
+	// Controller configs use 8080; Agent configs must always match Docker's 7890:7890 mapping.
 	if strings.TrimSpace(machineCode) != "" {
-		yml = strings.Replace(yml, "mixed-port: 8080", "mixed-port: 7890", 1)
+		yml, err = normalizeAgentMixedPort(yml)
+		if err != nil {
+			return "", err
+		}
 	}
 	// TUN is opt-in for generated configs. Existing saved per-node YAML remains authoritative.
 	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "true") {
@@ -180,6 +220,10 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 				return fmt.Errorf("序列化机器 %s 的独立配置失败: %w", machineCode, marshalErr)
 			}
 			generated = string(marshaled)
+		}
+		generated, err = normalizeAgentMixedPort(generated)
+		if err != nil {
+			return fmt.Errorf("机器 %s 的代理端口校正失败: %w", machineCode, err)
 		}
 		var doc map[string]any
 		if err := yaml.Unmarshal([]byte(generated), &doc); err != nil {
