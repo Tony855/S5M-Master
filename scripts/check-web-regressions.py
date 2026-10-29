@@ -362,6 +362,16 @@ checks["node config sync retry mutation uses explicit authenticated WebSocket RP
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+# Pending browser RPC promises must settle immediately when their socket closes.
+# Do not wait for the generic 15-second timeout; the remote write may already have run.
+checks["browser WebSocket close rejects pending RPCs immediately and marks write outcomes as unknown"] = (
+    "const rejectPendingBrowserWSRequests = (message) => {" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试')" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
+    and "if (browserEventsSocket === socket) {" in app_js
+    and "pending.reject(new Error(message))" in app_js
+)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)

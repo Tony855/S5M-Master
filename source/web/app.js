@@ -206,15 +206,19 @@ createApp({
       }
     });
 
+    const rejectPendingBrowserWSRequests = (message) => {
+      for (const [requestId, pending] of browserWSRequests.entries()) {
+        browserWSRequests.delete(requestId);
+        pending.reject(new Error(message));
+      }
+    };
+
     const stopBrowserEvents = () => {
       browserEventsStopped = true;
       realtimeStatus.value = 'disconnected';
       if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
       browserEventsRetryTimer = null;
-      for (const [requestId, pending] of browserWSRequests.entries()) {
-        browserWSRequests.delete(requestId);
-        pending.reject(new Error('实时通道已断开，请重新连接后重试'));
-      }
+      rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试');
       if (browserEventsSocket) {
         const socket = browserEventsSocket;
         browserEventsSocket = null;
@@ -332,7 +336,13 @@ createApp({
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
         socket.onclose = () => {
-          if (browserEventsSocket === socket) browserEventsSocket = null;
+          if (browserEventsSocket === socket) {
+            browserEventsSocket = null;
+            // Fail pending requests immediately instead of making each caller wait
+            // for its 15-second timeout. The server may have completed a write
+            // before the reply was lost, so callers must treat the outcome as unknown.
+            rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试');
+          }
           if (browserEventsStopped || !token.value) return;
           realtimeStatus.value = 'reconnecting';
           browserEventsRetryTimer = setTimeout(() => {
