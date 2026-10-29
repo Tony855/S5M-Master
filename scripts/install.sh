@@ -90,28 +90,35 @@ apt_packages=(ca-certificates curl git build-essential golang-go sqlite3 libcap2
 if [[ -n "$S5M_DOMAIN" ]]; then apt_packages+=(nginx certbot python3-certbot-nginx); fi
 apt-get install -y -qq "${apt_packages[@]}" > /dev/null
 
-# === 新增：智能处理端口占用 ===
-PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
-PORT_TO_USE=${PORT_TO_USE:-80}
+# Check the S5M backend port, not the public Nginx listener.
+# S5M_ADDR may be ":8080", "127.0.0.1:8080", or another host:port value.
+PORT_TO_USE=""
+if [[ -r "$ENV_FILE" ]]; then
+  EXISTING_ADDR="$(sed -n 's/^S5M_ADDR=//p' "$ENV_FILE" | tail -n1)"
+  if [[ "$EXISTING_ADDR" =~ :([0-9]+)$ ]]; then PORT_TO_USE="${BASH_REMATCH[1]}"; fi
+fi
+if [[ -z "$PORT_TO_USE" ]]; then
+  if [[ -n "$S5M_DOMAIN" ]] || { command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx 2>/dev/null; }; then
+    PORT_TO_USE=8080
+  else
+    PORT_TO_USE=80
+  fi
+fi
 
-if ss -lntp 2>/dev/null | grep -q ":${PORT_TO_USE} "; then
-    echo "⚠️ 端口 ${PORT_TO_USE} 被占用，正在检查是否是旧的 s5m-server 进程..."
-    OLD_PID=$(ss -lntp | grep ":${PORT_TO_USE} " | grep -oP 'pid=\K[0-9]+' | head -n1)
-    OLD_CMD=$(ps -p "$OLD_PID" -o comm= 2>/dev/null || true)
-    
+if ss -lntp 2>/dev/null | grep -Eq "[:.]${PORT_TO_USE}[[:space:]]"; then
+    echo "⚠️ S5M 后端端口 ${PORT_TO_USE} 已被占用，正在识别进程..."
+    OLD_PID="$(ss -lntp 2>/dev/null | grep -E "[:.]${PORT_TO_USE}[[:space:]]" | grep -oP 'pid=\K[0-9]+' | head -n1 || true)"
+    OLD_CMD="$(ps -p "$OLD_PID" -o comm= 2>/dev/null || true)"
     if [[ "$OLD_CMD" == *"S5M-Server"* ]]; then
-        echo "🔄 检测到旧版 S5M-Server 正在运行 (PID: $OLD_PID)，自动停止以释放端口..."
-        systemctl stop s5m-server || kill "$OLD_PID" || true
-        sleep 1
-    elif [[ -n "$S5M_DOMAIN" && "$OLD_CMD" == *"nginx"* ]]; then
-        echo "ℹ️ 检测到现有 Nginx，保留其服务并添加 S5M 域名虚拟主机。"
+        echo "ℹ️ 检测到现有 S5M-Server（PID: $OLD_PID），保留进程，不强制停止。"
+    elif [[ "$OLD_CMD" == *"nginx"* && "$PORT_TO_USE" == "80" ]]; then
+        echo "ℹ️ 端口 80 是现有 Nginx 的公共入口；不将其误判为 S5M 后端冲突。"
     else
-        echo "❌ 端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: $OLD_PID) 占用！" >&2
-        echo "请手动停止该程序，或修改 $ENV_FILE 中的端口后重试。" >&2
+        echo "❌ S5M 后端端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: ${OLD_PID:-未知}) 占用！" >&2
+        echo "为避免中断现有服务，安装器停止操作；请先确认后端端口配置。" >&2
         exit 1
     fi
 fi
-# ==============================
 
 # Ensure the main-controller Mihomo binary exists before installing the panel.
 # An already working installation is preserved; this bootstrap never overwrites it.
