@@ -372,6 +372,17 @@ checks["browser WebSocket close rejects pending RPCs immediately and marks write
     and "pending.reject(new Error(message))" in app_js
 )
 
+checks["main browser WebSocket ignores stale ticket responses and stale socket events across logout/reconnect"] = (
+    "let browserEventsConnecting = false;" in app_js
+    and "let browserEventsGeneration = 0;" in app_js
+    and "browserEventsGeneration++;" in app_js
+    and "const generation = ++browserEventsGeneration;" in app_js
+    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;" in app_js
+    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) return;" in app_js
+    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
+    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
+)
+
 checks["Agent management page rejects pending WebSocket RPCs on disconnect and stops reconnecting after pagehide"] = (
     "function rejectPendingAgentWSRequests(message) {" in agent_list_html
     and "rejectPendingAgentWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in agent_list_html
