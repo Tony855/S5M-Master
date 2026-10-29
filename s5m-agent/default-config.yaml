@@ -1,4 +1,5 @@
 # 基础设置
+# Existing /data/config.yaml is intentionally preserved by init script.
 mixed-port: 7890
 allow-lan: true
 mode: rule
