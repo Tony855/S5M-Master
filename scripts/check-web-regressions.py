@@ -393,6 +393,13 @@ checks["Agent management page rejects pending WebSocket RPCs on disconnect and s
     and "WebSocket 操作超时，操作结果未确认" in agent_list_html
 )
 
+checks["Agent management list snapshot uses authenticated WebSocket RPC instead of HTTP"] = (
+    "sendAgentWSControl({ type: 'agents.list.get' })" in agent_list_html
+    and "fetch('/api/v1/agents'" not in agent_list_html
+    and "window.addEventListener('load', () => {\n            connectAgentEvents();" in agent_list_html
+    and "socket.onopen" in agent_list_html
+)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
