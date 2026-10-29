@@ -10,34 +10,69 @@ if [[ -f "$ROOT/source/main.go" ]]; then SRC="$ROOT/source"; elif [[ -f "$ROOT/m
 ENV_FILE="/etc/s5m-server.env"
 OLD_ENV_FILE="/etc/s5m-server/server.env"
 DB_DIR="/var/lib/s5m-server"
-# HTTPS is checked before prompting: preserve a working certificate and virtual host.
+# Resolve an existing S5M TLS virtual host BEFORE prompting or deciding to issue a certificate.
+# Search enabled/available Nginx sites and conf.d, not just our preferred filename: Certbot
+# may have created the TLS block in another file. Only reuse a vhost that proxies to S5M.
 S5M_DOMAIN="${S5M_DOMAIN:-}"
 S5M_EMAIL="${S5M_EMAIL:-}"
+REQUESTED_DOMAIN="$S5M_DOMAIN"
 HTTPS_ALREADY_CONFIGURED=0
 NGINX_SITE="/etc/nginx/sites-available/s5m-server"
 NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
-if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
+if [[ -n "${1:-}" && -z "$REQUESTED_DOMAIN" ]]; then
+  REQUESTED_DOMAIN="$1"
+  S5M_DOMAIN="$REQUESTED_DOMAIN"
+fi
 
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
 
-# Reuse a working TLS virtual host and certificate without rewriting or reissuing them.
-if [[ -f "$NGINX_SITE" ]] &&
-   grep -Eq 'listen[[:space:]]+443[[:space:]]+ssl' "$NGINX_SITE"; then
-  detected_domain="$(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) if ($i !~ /;/) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/) {print $i; exit}} }' "$NGINX_SITE")"
-  cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
-  key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
-  if [[ -n "$detected_domain" && -s "$cert_path" && -s "$key_path" ]] &&
-     command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 &&
-     { [[ -z "$S5M_DOMAIN" ]] || [[ "$S5M_DOMAIN" == "$detected_domain" ]]; }; then
-    S5M_DOMAIN="$detected_domain"
-    HTTPS_ALREADY_CONFIGURED=1
-    echo "🔐 检测到现有 HTTPS 配置和证书：$S5M_DOMAIN，跳过重复配置。"
-  fi
+# Parse Nginx's expanded configuration so directives brought in via include are visible.
+# Keep each server block isolated; never combine a certificate from one vhost with
+# a proxy_pass or server_name from another vhost in the same file.
+if command -v nginx >/dev/null 2>&1; then
+  while IFS=$'\t' read -r detected_domain cert_path key_path source_file; do
+    [[ -n "$detected_domain" && -n "$cert_path" && -n "$key_path" ]] || continue
+    [[ "$detected_domain" != "_" && "$detected_domain" != *'*'* ]] || continue
+    [[ -z "$REQUESTED_DOMAIN" || "$REQUESTED_DOMAIN" == "$detected_domain" ]] || continue
+    [[ -s "$cert_path" && -s "$key_path" ]] || continue
+    command -v openssl >/dev/null 2>&1 || continue
+    openssl x509 -in "$cert_path" -noout -checkhost "$detected_domain" >/dev/null 2>&1 || continue
+    openssl x509 -in "$cert_path" -noout -checkend 0 >/dev/null 2>&1 || continue
+    if nginx -t >/dev/null 2>&1; then
+      S5M_DOMAIN="$detected_domain"
+      HTTPS_ALREADY_CONFIGURED=1
+      echo "🔐 检测到现有 S5M HTTPS 配置：$S5M_DOMAIN（$source_file），复用现有证书，不重新询问域名或签发证书。"
+      break
+    fi
+  done < <(nginx -T 2>/dev/null | python3 -c '
+import re, sys
+text = re.sub(r"(?m)^\s*#.*$", "", sys.stdin.read())
+# Split the expanded configuration into brace-balanced server blocks.
+for match in re.finditer(r"(?m)^\s*server\s*\{", text):
+    start = match.end()
+    depth = 1
+    i = start
+    while i < len(text) and depth:
+        if text[i] == "{": depth += 1
+        elif text[i] == "}": depth -= 1
+        i += 1
+    block = text[start:i-1]
+    listen = re.search(r"(?m)^\s*listen\s+(?:\[::\]:)?443\s+[^;]*\bssl\b[^;]*;", block)
+    proxy = re.search(r"(?m)^\s*proxy_pass\s+http://127\.0\.0\.1:8080(?:[/;\s]|$)", block)
+    cert = re.search(r"(?m)^\s*ssl_certificate\s+([^;]+);", block)
+    key = re.search(r"(?m)^\s*ssl_certificate_key\s+([^;]+);", block)
+    names = re.search(r"(?m)^\s*server_name\s+([^;]+);", block)
+    if not (listen and proxy and cert and key and names): continue
+    cert_path, key_path = cert.group(1).strip(), key.group(1).strip()
+    for domain in names.group(1).split():
+        if domain != "_" and "*" not in domain and not domain.startswith("$"):
+            print("\t".join((domain, cert_path, key_path, "nginx -T server block")))
+') 
 fi
 
-# Ask interactively only when HTTPS is not already configured. Blank domain keeps HTTP-only mode.
+# Only prompt when no valid S5M HTTPS virtual host/certificate was found.
 if [[ -z "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 && -t 0 ]]; then
-  echo "尚未检测到可用的 S5M HTTPS 配置。"
+  echo "尚未检测到可复用的 S5M HTTPS 配置。"
   read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: " S5M_DOMAIN
   if [[ -n "$S5M_DOMAIN" ]]; then
     read -r -p "Let's Encrypt 邮箱 [v2wallid@gmail.com]: " S5M_EMAIL
@@ -71,28 +106,38 @@ apt_packages=(ca-certificates curl git build-essential golang-go sqlite3 libcap2
 if [[ -n "$S5M_DOMAIN" ]]; then apt_packages+=(nginx certbot python3-certbot-nginx); fi
 apt-get install -y -qq "${apt_packages[@]}" > /dev/null
 
-# === 新增：智能处理端口占用 ===
-PORT_TO_USE=$(grep -oP 'S5M_ADDR=:\K[0-9]+' "$ENV_FILE" 2>/dev/null || echo "80")
-PORT_TO_USE=${PORT_TO_USE:-80}
+# Check the S5M backend port, not the public Nginx listener.
+# S5M_ADDR may be ":8080", "127.0.0.1:8080", or another host:port value.
+PORT_TO_USE=""
+if [[ -n "$S5M_DOMAIN" ]]; then
+  # HTTPS mode always places S5M behind Nginx on loopback:8080.
+  PORT_TO_USE=8080
+elif [[ -r "$ENV_FILE" ]]; then
+  EXISTING_ADDR="$(sed -n 's/^S5M_ADDR=//p' "$ENV_FILE" | tail -n1)"
+  if [[ "$EXISTING_ADDR" =~ :([0-9]+)$ ]]; then PORT_TO_USE="${BASH_REMATCH[1]}"; fi
+fi
+if [[ -z "$PORT_TO_USE" ]]; then
+  if command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx 2>/dev/null; then
+    PORT_TO_USE=8080
+  else
+    PORT_TO_USE=80
+  fi
+fi
 
-if ss -lntp 2>/dev/null | grep -q ":${PORT_TO_USE} "; then
-    echo "⚠️ 端口 ${PORT_TO_USE} 被占用，正在检查是否是旧的 s5m-server 进程..."
-    OLD_PID=$(ss -lntp | grep ":${PORT_TO_USE} " | grep -oP 'pid=\K[0-9]+' | head -n1)
-    OLD_CMD=$(ps -p "$OLD_PID" -o comm= 2>/dev/null || true)
-    
+if ss -lntp 2>/dev/null | grep -Eq "[:.]${PORT_TO_USE}[[:space:]]"; then
+    echo "⚠️ S5M 后端端口 ${PORT_TO_USE} 已被占用，正在识别进程..."
+    OLD_PID="$(ss -lntp 2>/dev/null | grep -E "[:.]${PORT_TO_USE}[[:space:]]" | grep -oP 'pid=\K[0-9]+' | head -n1 || true)"
+    OLD_CMD="$(ps -p "$OLD_PID" -o comm= 2>/dev/null || true)"
     if [[ "$OLD_CMD" == *"S5M-Server"* ]]; then
-        echo "🔄 检测到旧版 S5M-Server 正在运行 (PID: $OLD_PID)，自动停止以释放端口..."
-        systemctl stop s5m-server || kill "$OLD_PID" || true
-        sleep 1
-    elif [[ -n "$S5M_DOMAIN" && "$OLD_CMD" == *"nginx"* ]]; then
-        echo "ℹ️ 检测到现有 Nginx，保留其服务并添加 S5M 域名虚拟主机。"
+        echo "ℹ️ 检测到现有 S5M-Server（PID: $OLD_PID），保留进程，不强制停止。"
+    elif [[ "$OLD_CMD" == *"nginx"* && "$PORT_TO_USE" == "80" ]]; then
+        echo "ℹ️ 端口 80 是现有 Nginx 的公共入口；不将其误判为 S5M 后端冲突。"
     else
-        echo "❌ 端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: $OLD_PID) 占用！" >&2
-        echo "请手动停止该程序，或修改 $ENV_FILE 中的端口后重试。" >&2
+        echo "❌ S5M 后端端口 ${PORT_TO_USE} 被其他程序 ($OLD_CMD, PID: ${OLD_PID:-未知}) 占用！" >&2
+        echo "为避免中断现有服务，安装器停止操作；请先确认后端端口配置。" >&2
         exit 1
     fi
 fi
-# ==============================
 
 # Ensure the main-controller Mihomo binary exists before installing the panel.
 # An already working installation is preserved; this bootstrap never overwrites it.
