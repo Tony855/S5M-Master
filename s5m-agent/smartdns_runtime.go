@@ -213,6 +213,8 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	if err := os.Rename(liveTmpPath, livePath); err != nil {
 		return "", err
 	}
+	oldPID, _ := exec.Command("pidof", "smartdns").Output()
+	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
 		if oldErr == nil {
 			_ = os.WriteFile(livePath, oldData, 0600)
@@ -222,7 +224,8 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if exec.Command("pidof", "smartdns").Run() == nil {
+		newPID, pidErr := exec.Command("pidof", "smartdns").Output()
+		if pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 && !bytes.Equal(bytes.TrimSpace(newPID), oldPID) {
 			sum := sha256.Sum256(bytes.TrimSpace(data))
 			_ = os.Remove(backupPath)
 			return hex.EncodeToString(sum[:]), nil
