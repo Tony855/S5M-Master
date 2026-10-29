@@ -868,11 +868,9 @@ createApp({
       if (!newMachineCode.value) return showMsg('请输入机器码', 'warning');
       generating.value = true;
       try {
-        const res = await api('/api/v1/agents/generate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: newMachineCode.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.token) {
+        const result = await sendBrowserWSControl({ type: 'agent.binding.generate', machine_code: newMachineCode.value });
+        const data = result.data || result;
+        if (data.token) {
           generatedToken.value = data.token; newMachineCode.value = ''; loadAgentsData();
         } else { showMsg(data.error || data.message || '生成失败', 'error'); }
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }

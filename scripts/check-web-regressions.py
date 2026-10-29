@@ -320,6 +320,16 @@ checks["Mihomo template publish/apply/rollback/delete mutations use explicit aut
 )
 
 
+checks["Agent token generation uses authenticated WebSocket RPC and preserves admin context"] = (
+    "type: 'agent.binding.generate'" in app_js
+    and "api('/api/v1/agents/generate'" not in app_js
+    and 'case "agent.binding.generate":' in browser_ws_source
+    and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
+    and "a.handleGenerateAgentToken" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+
 checks["Agent kernel release lookup and binding revocation use authenticated WebSocket RPC"] = (
     "type: 'agent.mihomo.update-info'" in app_js
     and "type: 'agent.binding.revoke'" in app_js
