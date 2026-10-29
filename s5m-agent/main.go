@@ -2161,7 +2161,8 @@ func main() {
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
 			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
-			time.Sleep(backoff)
+			// Jitter probe failures too, so hundreds of Agents do not retry in lockstep.
+			time.Sleep(reconnectDelayWithJitter(backoff))
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
