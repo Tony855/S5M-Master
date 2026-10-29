@@ -155,7 +155,10 @@ jobs:
           assert ' -v "$DATA_DIR":/data' in script, "Persistent data mount missing"
           assert "--cap-add=NET_ADMIN" in script, "TUN network capability missing"
           assert "--device=/dev/net/tun:/dev/net/tun" in script, "TUN device mapping missing"
-          print("Deploy script shell syntax and Docker cleanup safeguards verified")
+          assert "http_get()" in script and "http_head()" in script, "HTTP health-check fallback helpers missing"
+          assert "command -v wget" in script and "command -v python3" in script, "curl-free HTTP fallback missing"
+          assert 'curl -fsS "http://127.0.0.1:' not in script, "machine-id check still requires curl directly"
+          print("Deploy script syntax, Docker safeguards, TUN parameters and curl-free health checks verified")
           PY
       - name: Validate installer shell syntax and password generator
         shell: bash
