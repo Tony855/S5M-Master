@@ -312,6 +312,10 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" {
 				_ = json.Unmarshal([]byte(raw), &status)
 			}
+			commandResult := map[string]any{}
+			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &commandResult)
+			}
 			_ = client.writeJSON(map[string]any{
 				"type": "request.result", "request_id": message.RequestID, "ok": true,
 				"machine_code": code, "config": config,
@@ -322,6 +326,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				"dns_healthy":            status["smartdns_dns_healthy"] == true,
 				"version":                status["smartdns_version"],
 				"last_error":             status["smartdns_last_error"],
+				"command_result":         commandResult,
 				"last_seen":              settings["agent_lastseen_"+code],
 			})
 		case "agent.smartdns.configure":
