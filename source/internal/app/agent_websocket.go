@@ -50,6 +50,7 @@ type browserControlMessage struct {
 	MachineCode string `json:"machine_code"`
 	Version     string `json:"version"`
 	SHA256      string `json:"sha256"`
+	Config      string `json:"config"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -117,15 +118,22 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
-		if message.Type != "agent.mihomo.update" {
+		switch message.Type {
+		case "agent.mihomo.update":
+			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
+		case "agent.smartdns.configure":
+			if err := a.queueAgentSmartDNSConfig(message.MachineCode, message.Config); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "SmartDNS 配置已通过 WebSocket 校验并排队"})
+		default:
 			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "不支持的实时操作类型"})
-			continue
 		}
-		if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
-			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
-			continue
-		}
-		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
 	}
 }
 
