@@ -639,25 +639,11 @@ createApp({
       if (!row.id) return showMsg('该节点无 id，无法删除', 'warning');
       if (!confirm('确定删除节点 "' + (row.name || row.proxy_name || row.id) + '" ？')) return;
       try {
-        const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
-        if (res.ok) {
-          // Remove from the reactive list immediately so both desktop and mobile
-          // views update without waiting for a second API request.
-          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
-          await loadProxies();
-          showMsg('已删除', 'success');
-          return;
-        }
-        const message = await parseErr(res);
-        // The DB delete may succeed even when node-config synchronization fails.
-        // Reflect that committed deletion immediately, then reload the authoritative list.
-        if (message.includes('代理已删除')) {
-          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
-          await loadProxies();
-          showMsg(message + '。请进入配置管理点击“立即重试同步所有节点”。', 'warning');
-          return;
-        }
-        showMsg(message, 'error');
+        await sendBrowserWSControl({ type: 'proxy.delete', proxy_id: String(row.id) });
+        // Reflect the committed deletion immediately, then reload the authoritative list.
+        proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
+        await loadProxies();
+        showMsg('已删除', 'success');
       } catch (e) {
         showMsg(e.message || '删除失败', 'error');
       }

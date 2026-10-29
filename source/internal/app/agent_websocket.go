@@ -50,6 +50,7 @@ type browserControlMessage struct {
 	Type            string `json:"type"`
 	RequestID       string `json:"request_id"`
 	MachineCode     string `json:"machine_code"`
+	ProxyID         string `json:"proxy_id"`
 	Version         string `json:"version"`
 	TemplateVersion int    `json:"template_version"`
 	SHA256          string `json:"sha256"`
@@ -179,6 +180,16 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "proxy.delete":
+			idText := strings.TrimSpace(message.ProxyID)
+			id, err := strconv.ParseInt(idText, 10, 64)
+			if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxies/"+strconv.FormatInt(id, 10), nil)
+			req.SetPathValue("id", strconv.FormatInt(id, 10))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteProxy, req)
 		case "mihomo.template.delete":
 			versionText := strings.TrimSpace(message.Version)
 			version, err := strconv.Atoi(versionText)
