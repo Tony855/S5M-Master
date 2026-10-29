@@ -514,16 +514,21 @@ func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) err
 	return nil
 }
 
-func safeAgentWebSocketError(operation string, err error) string {
-	detail := "未知错误"
-	if err != nil && strings.TrimSpace(err.Error()) != "" {
-		detail = strings.TrimSpace(err.Error())
-	}
+func sanitizeAgentWebSocketText(value string) string {
+	detail := strings.TrimSpace(value)
 	detail = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(detail, "$1$2[已隐藏]")
 	detail = regexp.MustCompile(`([A-Za-z]:)?[/\\\\][^[:space:]\\"']+`).ReplaceAllString(detail, "[路径已隐藏]")
 	detail = strings.Join(strings.Fields(detail), " ")
 	if len(detail) > 600 {
 		detail = detail[:600] + "…"
+	}
+	return detail
+}
+
+func safeAgentWebSocketError(operation string, err error) string {
+	detail := "未知错误"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		detail = sanitizeAgentWebSocketText(err.Error())
 	}
 	return operation + "失败: " + detail
 }
@@ -778,6 +783,9 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
+	// Treat Agent-provided command output as untrusted: redact credentials and
+	// local filesystem paths before persisting it or publishing it to the UI.
+	message = sanitizeAgentWebSocketText(message)
 	_, matched, err := a.store.AckAgentCommand(machineCode, commandID, status, message, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("原子保存命令结果失败: %w", err)
