@@ -9,11 +9,14 @@ import (
 	"time"
 )
 
-const defaultAgentSmartDNSConfig = `# Managed by S5M. The config is persisted at /data/smartdns.conf.
+const defaultAgentSmartDNSConfig = `# SmartDNS is private to this container unless the operator explicitly publishes 6053.
 bind 127.0.0.1:6053
 bind-tcp 127.0.0.1:6053
+
+# Upstream DNS servers; use literal IPs to avoid bootstrap loops.
 server 223.5.5.5
 server 119.29.29.29
+
 cache-size 16384
 prefetch-domain yes
 serve-expired yes
