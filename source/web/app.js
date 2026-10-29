@@ -1123,17 +1123,12 @@ createApp({
       configYaml.value = '';
       if (!code) return;
       try {
-        const res = await api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          configYaml.value = data.config_yaml || '';
-          showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
-        } else {
-          configYaml.value = '';
-          showMsg(data.error || data.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
-        }
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        configYaml.value = result.config_yaml || '';
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
-        showMsg(e.message || '读取节点配置失败', 'error');
+        configYaml.value = '';
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
       }
     };
 
