@@ -631,11 +631,13 @@ func TestBuildConfigWithoutProxyKeepsDNSBootstrapValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildConfigFromProxies() error = %v", err)
 	}
-	if !strings.Contains(got, "proxy-server-nameserver:") || !strings.Contains(got, "respect-rules: true") {
-		t.Fatalf("DNS bootstrap options should exist even without enabled proxies:\\n%s", got)
+	for _, want := range []string{"listen: 127.0.0.1:5353", "nameserver:", "223.5.5.5", "119.29.29.29", "DOMAIN-SUFFIX,v2net.cc,DIRECT"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("default DNS configuration missing %q:\n%s", want, got)
+		}
 	}
 	if strings.Contains(got, "DOMAIN-SUFFIX,doh.pub,") {
-		t.Fatalf("must not generate DNS proxy rules without an enabled proxy:\\n%s", got)
+		t.Fatalf("must not generate DNS proxy rules without an enabled proxy:\n%s", got)
 	}
 }
 
