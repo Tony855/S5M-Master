@@ -25,7 +25,40 @@ log-console yes
 log-syslog no
 `
 
-var smartDNSMachineCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+// hashSmartDNSConfig matches the Agent runtime, which hashes the trimmed config bytes.
+// This avoids a permanent desired/reported hash mismatch caused only by trailing newlines.
+func hashSmartDNSConfig(config string) string {
+	return hashConfig(strings.TrimSpace(config))
+}
+
+var smartDNSMachineCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}package app
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const defaultAgentSmartDNSConfig = `# SmartDNS is private to this container unless the operator explicitly publishes 6053.
+bind 127.0.0.1:6053
+bind-tcp 127.0.0.1:6053
+
+# Upstream DNS servers; use literal IPs to avoid bootstrap loops.
+server 223.5.5.5
+server 119.29.29.29
+
+cache-size 16384
+prefetch-domain yes
+serve-expired yes
+log-level info
+log-console yes
+log-syslog no
+`
+
+)
 var smartDNSConfigControlChars = regexp.MustCompile("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]")
 var smartDNSAllowedDirectives = map[string]bool{
 	"bind": true, "bind-tcp": true,
@@ -176,7 +209,7 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{
 		"machine_code":           code,
 		"config":                 config,
-		"desired_config_sha256":  hashConfig(config),
+		"desired_config_sha256":  hashSmartDNSConfig(config),
 		"reported_config_sha256": status["smartdns_config_sha256"],
 		"available":              status["smartdns_available"] == true,
 		"running":                status["smartdns_running"] == true,
