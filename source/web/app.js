@@ -417,7 +417,7 @@ createApp({
       // data channel. Do not silently fall back to repeated HTTP requests.
       try {
         const data = await sendBrowserWSControl({ type: 'monitor.overview.get' });
-        overview.value = data || {};
+        overview.value = data.data || {};
       } catch (e) {
         console.warn('通过实时通道读取仪表盘概览失败', e);
       }
@@ -425,9 +425,9 @@ createApp({
       try {
         const data = await sendBrowserWSControl({ type: 'monitor.traffic.get' });
         traffic.value = {
-          up: Math.max(0, Number(data.up) || 0),
-          down: Math.max(0, Number(data.down) || 0),
-          conns: Math.max(0, Number(data.conns) || 0)
+          up: Math.max(0, Number((data.data || {}).up) || 0),
+          down: Math.max(0, Number((data.data || {}).down) || 0),
+          conns: Math.max(0, Number((data.data || {}).conns) || 0)
         };
       } catch (e) {
         console.warn('通过实时通道读取流量失败', e);
@@ -550,11 +550,8 @@ createApp({
     const loadProxies = async () => {
       loadingProxies.value = true;
       try {
-        const res = await api('/api/v1/proxies?t=' + Date.now());
-        if (res.ok) {
-          const d = await res.json();
-          proxies.value = Array.isArray(d) ? d : (d.data || d.proxies || []);
-        }
+        const result = await sendBrowserWSControl({ type: 'proxies.list.get' });
+        proxies.value = Array.isArray(result.data) ? result.data : [];
       } catch (e) { console.warn(e); }
       finally {
         loadingProxies.value = false;
@@ -807,19 +804,8 @@ createApp({
       else agentLoading.value = true;
       if (!hasExistingData) agentLoadError.value = '';
       try {
-        const res = await api('/api/v1/agents?t=' + Date.now());
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '');
-          if (!hasExistingData) {
-            agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
-          } else {
-            console.warn('静默刷新实例失败，保留现有列表（HTTP ' + res.status + '）', detail);
-          }
-          console.error('读取实例失败', res.status, detail);
-          if (!hasExistingData) agentEntries.value = [];
-          return;
-        }
-        const data = await res.json();
+        const result = await sendBrowserWSControl({ type: 'agents.list.get' });
+        const data = result.data || {};
         const now = Math.floor(Date.now() / 1000);
         const list = [];
         Object.keys(data || {}).forEach(code => {
