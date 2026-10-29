@@ -223,11 +223,14 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
-		if oldErr == nil {
-			_ = os.WriteFile(livePath, oldData, 0600)
+		restoreErr := restoreSmartDNSConfig(livePath, oldData, oldErr == nil)
+		if restoreErr == nil && oldErr == nil {
 			_ = exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
 		}
-		return "", fmt.Errorf("重启 SmartDNS 失败，已尝试恢复旧配置")
+		if restoreErr != nil {
+			return "", fmt.Errorf("重启 SmartDNS 失败且恢复旧配置失败: %w", restoreErr)
+		}
+		return "", fmt.Errorf("重启 SmartDNS 失败，已恢复原配置状态")
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -239,11 +242,52 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if oldErr == nil {
-		_ = os.WriteFile(livePath, oldData, 0600)
+	restoreErr := restoreSmartDNSConfig(livePath, oldData, oldErr == nil)
+	if restoreErr == nil && oldErr == nil {
 		_ = exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
 	}
-	return "", fmt.Errorf("SmartDNS 重载后未恢复运行，已尝试回滚旧配置")
+	if restoreErr != nil {
+		return "", fmt.Errorf("SmartDNS 重载后未恢复运行，且回滚失败: %w", restoreErr)
+	}
+	return "", fmt.Errorf("SmartDNS 重载后未恢复运行，已恢复原配置状态")
+}
+
+// restoreSmartDNSConfig restores the previous file atomically. If there was no
+// previous config, it removes the newly installed file instead of leaving a
+// configuration that the caller has already reported as failed.
+func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
+	if !hadOld {
+		if err := os.Remove(livePath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return writeSmartDNSFileAtomically(livePath, oldData, 0600)
+}
+
+func writeSmartDNSFileAtomically(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".smartdns-restore-*.conf")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func safeSmartDNSDiagnostic(message string) string {
