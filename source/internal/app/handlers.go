@@ -2220,7 +2220,7 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 			smartDNSConfig = defaultAgentSmartDNSConfig
 		}
 		if strings.TrimSpace(smartDNSConfig) != "" {
-			info.DesiredSmartDNSConfigSHA256 = hashConfig(smartDNSConfig)
+			info.DesiredSmartDNSConfigSHA256 = hashSmartDNSConfig(smartDNSConfig)
 		}
 		result[code] = info
 	}
