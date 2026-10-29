@@ -348,13 +348,30 @@ func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
 		raw = []interface{}{}
 	}
 	const rule = "DOMAIN-SUFFIX,v2net.cc,DIRECT"
-	for _, item := range raw {
+
+	firstRuleAt := -1
+	ruleCount := 0
+	for i, item := range raw {
 		if value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
-			return false
+			if firstRuleAt == -1 {
+				firstRuleAt = i
+			}
+			ruleCount++
 		}
 	}
-	insertAt := len(raw)
-	for i, item := range raw {
+
+	// Remove existing copies first so a stale rule after MATCH cannot silently
+	// leave controller traffic routed through the proxy.
+	next := make([]interface{}, 0, len(raw)+1)
+	for _, item := range raw {
+		if value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
+			continue
+		}
+		next = append(next, item)
+	}
+
+	insertAt := len(next)
+	for i, item := range next {
 		if value, ok := item.(string); ok {
 			parts := strings.Split(strings.TrimSpace(value), ",")
 			if len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
@@ -363,10 +380,24 @@ func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
 			}
 		}
 	}
-	next := make([]interface{}, 0, len(raw)+1)
-	next = append(next, raw[:insertAt]...)
-	next = append(next, rule)
-	next = append(next, raw[insertAt:]...)
+	if ruleCount == 1 && firstRuleAt >= 0 {
+		matchBeforeRule := false
+		for i := 0; i < firstRuleAt && i < len(raw); i++ {
+			if value, ok := raw[i].(string); ok {
+				parts := strings.Split(strings.TrimSpace(value), ",")
+				if len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
+					matchBeforeRule = true
+					break
+				}
+			}
+		}
+		if !matchBeforeRule {
+			return false
+		}
+	}
+	next = append(next, nil)
+	copy(next[insertAt+1:], next[insertAt:])
+	next[insertAt] = rule
 	cfg["rules"] = next
 	return true
 }
