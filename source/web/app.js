@@ -413,22 +413,25 @@ createApp({
     };
 
     const loadOverview = async () => {
+      // The dashboard uses the authenticated browser WebSocket as its primary
+      // data channel. Do not silently fall back to repeated HTTP requests.
       try {
-        const res = await api('/api/v1/monitor/overview?t=' + Date.now());
-        if (res.ok) overview.value = await res.json() || {};
-      } catch (e) { console.warn('读取仪表盘概览失败', e); }
+        const data = await sendBrowserWSControl({ type: 'monitor.overview.get' });
+        overview.value = data || {};
+      } catch (e) {
+        console.warn('通过实时通道读取仪表盘概览失败', e);
+      }
 
       try {
-        const res = await api('/api/v1/monitor/traffic?t=' + Date.now());
-        if (res.ok) {
-          const data = await res.json() || {};
-          traffic.value = {
-            up: Number(data.up) || 0,
-            down: Number(data.down) || 0,
-            conns: Number(data.conns) || 0
-          };
-        }
-      } catch (e) { console.warn('读取实时流量失败', e); }
+        const data = await sendBrowserWSControl({ type: 'monitor.traffic.get' });
+        traffic.value = {
+          up: Math.max(0, Number(data.up) || 0),
+          down: Math.max(0, Number(data.down) || 0),
+          conns: Math.max(0, Number(data.conns) || 0)
+        };
+      } catch (e) {
+        console.warn('通过实时通道读取流量失败', e);
+      }
     };
 
     const updateKernel = async () => {
