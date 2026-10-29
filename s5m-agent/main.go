@@ -1771,6 +1771,15 @@ func applyAgentControlError(status map[string]any, controlErr string) {
 	status["last_error"] = controlErr
 }
 
+
+func controllerWebSocketResponseError(operation, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "主控端未提供错误详情"
+	}
+	return fmt.Errorf("主控端%s失败: %s", operation, message)
+}
+
 func runAgentWebSocketSession(cfg Config) error {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
@@ -1874,6 +1883,9 @@ func runAgentWebSocketSession(cfg Config) error {
 		if configResponse.ID != configRequestID {
 			return fmt.Errorf("WebSocket 配置响应 ID 不匹配")
 		}
+		if configResponse.Type == "error" {
+			return controllerWebSocketResponseError("配置请求", configResponse.Message)
+		}
 		switch configResponse.Type {
 		case "config.unchanged":
 			lastConfigSyncError = ""
@@ -1933,6 +1945,9 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		if commandEnvelope.ID != commandRequestID {
 			return fmt.Errorf("WebSocket 命令响应 ID 不匹配")
+		}
+		if commandEnvelope.Type == "error" {
+			return controllerWebSocketResponseError("命令请求", commandEnvelope.Message)
 		}
 		switch commandEnvelope.Type {
 		case "command.none":
