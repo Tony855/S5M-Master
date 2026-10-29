@@ -12,8 +12,8 @@ import (
 func TestNormalizeAgentMixedPort(t *testing.T) {
 	for name, input := range map[string]string{
 		"controller port": "mixed-port: 8080\nmode: rule\n",
-		"custom port": "mixed-port: 7899\nmode: rule\n",
-		"missing port": "mode: rule\n",
+		"custom port":     "mixed-port: 7899\nmode: rule\n",
+		"missing port":    "mode: rule\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := normalizeAgentMixedPort(input)
