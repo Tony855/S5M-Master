@@ -1342,7 +1342,6 @@ func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testin
 	}
 }
 
-
 func TestApplyAgentControlErrorReportsConfigFailureWithoutLosingMihomoError(t *testing.T) {
 	status := map[string]any{"last_error": "读取 Mihomo 版本失败: HTTP 503"}
 	applyAgentControlError(status, "主控配置应用失败: YAML 无效")
@@ -1362,7 +1361,6 @@ func TestApplyAgentControlErrorNoopWhenEmpty(t *testing.T) {
 		t.Fatalf("empty control error changed existing diagnostic: %#v", status["last_error"])
 	}
 }
-
 
 func TestEnsureV2NetDirectRulePrecedesMatchAndIsIdempotent(t *testing.T) {
 	cfg := map[string]interface{}{
