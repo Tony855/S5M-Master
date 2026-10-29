@@ -504,11 +504,11 @@ func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) err
 		}
 	}
 	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %v\\n", machineCode, messageType, err)
+		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %v\n", machineCode, messageType, err)
 		return err
 	}
 	if err := conn.WriteJSON(payload); err != nil {
-		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %v\\n", machineCode, messageType, err)
+		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %v\n", machineCode, messageType, err)
 		return err
 	}
 	return nil
@@ -558,7 +558,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		var msg agentWSMessage
 		if err := conn.ReadJSON(&msg); err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				fmt.Printf("agent_ws: read failed machine_code=%q: %v\n", machineCode, err)
+			}
 			return
+		}
+		if msg.Type != "heartbeat" {
+			fmt.Printf("agent_ws: request received machine_code=%q type=%q id=%q\n", machineCode, msg.Type, msg.ID)
 		}
 		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
 			// Serialize sensitive WebSocket operations with connection replacement and
@@ -585,6 +591,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			a.agentWSMu.Unlock()
 			if err != nil {
+				fmt.Printf("agent_ws: request failed machine_code=%q type=%q id=%q: %v\n", machineCode, msg.Type, msg.ID, err)
 				message := err.Error()
 				if msg.Type == "config.request" {
 					message = "读取节点配置失败"
