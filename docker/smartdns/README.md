@@ -36,10 +36,9 @@ A manual workflow run accepts an upstream SmartDNS ref. Manual publishing is opt
 
 ## Run locally, safely
 
-Copy `smartdns.conf` to a writable local directory, then use the example Compose file. It binds the host side to `127.0.0.1:6053`, keeping the service off public/LAN interfaces by default.
+Use the example Compose file; it mounts `docker/smartdns/smartdns.conf` read-only, so edit that file or substitute your own config path if needed. It binds the host side to `127.0.0.1:6053`, keeping the service off public/LAN interfaces by default.
 
 ```sh
-cp docker/smartdns/smartdns.conf ./smartdns.conf
 docker compose -f docker/smartdns/compose.example.yaml up -d
 dig @127.0.0.1 -p 6053 example.com A
 dig +tcp @127.0.0.1 -p 6053 example.com A
