@@ -65,7 +65,7 @@
         }
         async function loadAgents() {
             const tbody = document.getElementById('agentList');
-            tbody.innerHTML = '<tr><td colspan="8" class="empty">正在加载...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="empty">正在加载...</td></tr>';
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token) {
                 tbody.innerHTML = '<tr><td colspan="9" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
@@ -94,8 +94,9 @@
                     const version = status.mihomo_version || '未知';
                     const smartdnsAvailable = status.smartdns_available === true;
                     const smartdnsRunning = status.smartdns_running === true;
-                    const smartdnsStatus = !smartdnsAvailable ? '未安装（标准镜像）' : (smartdnsRunning ? '运行中' : '异常');
-                    const smartdnsClass = smartdnsRunning ? 'online' : (smartdnsAvailable ? 'error' : 'offline');
+                    const smartdnsDNSHealthy = status.smartdns_dns_healthy === true;
+                    const smartdnsStatus = !smartdnsAvailable ? '未安装（标准镜像）' : (smartdnsRunning ? (smartdnsDNSHealthy ? '运行中 / DNS 正常' : '进程运行 / DNS 异常') : '异常');
+                    const smartdnsClass = smartdnsRunning && smartdnsDNSHealthy ? 'online' : (smartdnsAvailable ? 'error' : 'offline');
                     const connections = Number(status.connections || 0);
                     const up = Number(status.upload_speed || 0);
                     const down = Number(status.download_speed || 0);
