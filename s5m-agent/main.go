@@ -216,6 +216,13 @@ func configHashSource() ([]byte, error) {
 	return os.ReadFile(mihomoConfigPath())
 }
 
+// controllerConfigHash follows the WebSocket contract: hash exact payload bytes.
+// Do not trim whitespace or re-serialize YAML before hashing.
+func controllerConfigHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 func writeControllerConfig(data []byte) error {
 	path := controllerConfigPath()
 	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
