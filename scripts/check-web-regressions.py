@@ -369,6 +369,17 @@ checks["Agent token generation uses authenticated WebSocket RPC and preserves ad
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes runtime status"] = (
+    "type: 'agent.smartdns.get'" in app_js
+    and "type: 'agent.smartdns.configure'" in app_js
+    and "saveSmartDNSConfig" in app_js
+    and "期望配置 SHA-256" in Path("source/web/index.html").read_text(encoding="utf-8")
+    and "Agent SmartDNS 配置与运行状态" in Path("source/web/index.html").read_text(encoding="utf-8")
+    and 'case "agent.smartdns.get":' in browser_ws_source
+    and 'case "agent.smartdns.configure":' in browser_ws_source
+    and "hashSmartDNSConfig(config)" in browser_ws_source
+)
+
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
     and "api('/api/v1/nodes/config-sync'" not in app_js
