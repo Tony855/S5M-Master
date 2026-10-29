@@ -234,7 +234,7 @@
             document.getElementById('smartdnsMessage').textContent = '正在读取...';
             document.getElementById('smartdnsModal').style.display = 'block';
             try {
-                const data = await editorAPI('/api/v1/agents/smartdns/config?machine_code=' + encodeURIComponent(code));
+                const data = await sendAgentWSControl({ type: 'agent.smartdns.get', machine_code: code });
                 document.getElementById('smartdnsConfig').value = data.config || '';
                 const state = !data.available ? '未上报/未安装' : (!data.running ? '进程异常' : (data.dns_healthy ? '运行中 / DNS 正常' : '运行中 / DNS 异常'));
                 document.getElementById('smartdnsStatus').textContent =
