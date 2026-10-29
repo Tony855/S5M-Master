@@ -332,6 +332,23 @@ checks["Agent kernel release lookup and binding revocation use authenticated Web
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+checks["main browser WebSocket rejects stale ticket/socket callbacks and settles pending RPCs on disconnect"] = (
+    "let browserEventsConnecting = false;" in app_js
+    and "let browserEventsGeneration = 0;" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
+    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;" in app_js
+    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
+    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
+)
+
+checks["SmartDNS Agent management page stops stale WebSocket callbacks and reconnects after pagehide"] = (
+    "let agentsStopped = false;" in agent_list_html
+    and "let agentsGeneration = 0;" in agent_list_html
+    and "rejectPendingAgentWSRequests('页面已离开，实时操作结果未确认；重新进入后请刷新状态')" in agent_list_html
+    and "if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;" in agent_list_html
+    and "if (!wasCurrentSocket || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;" in agent_list_html
+)
+
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
     and "api('/api/v1/nodes/config-sync'" not in app_js

@@ -18,6 +18,8 @@ createApp({
     let browserEventsSocket = null;
     let browserEventsRetryTimer = null;
     let browserEventsStopped = false;
+    let browserEventsConnecting = false;
+    let browserEventsGeneration = 0;
     let staleStatusTimer = null;
     const browserWSRequests = new Map();
     let overviewTimer = null;
@@ -206,15 +208,21 @@ createApp({
       }
     });
 
+    const rejectPendingBrowserWSRequests = (message) => {
+      for (const [requestId, pending] of browserWSRequests.entries()) {
+        browserWSRequests.delete(requestId);
+        pending.reject(new Error(message));
+      }
+    };
+
     const stopBrowserEvents = () => {
       browserEventsStopped = true;
+      browserEventsConnecting = false;
+      browserEventsGeneration++;
       realtimeStatus.value = 'disconnected';
       if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
       browserEventsRetryTimer = null;
-      for (const [requestId, pending] of browserWSRequests.entries()) {
-        browserWSRequests.delete(requestId);
-        pending.reject(new Error('实时通道已断开，请重新连接后重试'));
-      }
+      rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试');
       if (browserEventsSocket) {
         const socket = browserEventsSocket;
         browserEventsSocket = null;
@@ -238,22 +246,31 @@ createApp({
     };
 
     const connectBrowserEvents = async () => {
-      if (!token.value || browserEventsSocket || browserEventsStopped) return;
+      if (!token.value || browserEventsSocket || browserEventsStopped || browserEventsConnecting) return;
+      browserEventsConnecting = true;
+      const generation = ++browserEventsGeneration;
       realtimeStatus.value = 'connecting';
       try {
         const res = await api('/api/v1/events/ticket', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ticket) throw new Error(data.error || '获取实时通道授权失败');
+        if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;
+        browserEventsConnecting = false;
         const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(scheme + '//' + window.location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(data.ticket));
         browserEventsSocket = socket;
         socket.onopen = () => {
+          if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) {
+            try { socket.close(); } catch (_) {}
+            return;
+          }
           realtimeStatus.value = 'connected';
           // Resync the full snapshot after every connect/reconnect; WebSocket events are deltas.
           loadAgentsData();
           loadOverview();
         };
         socket.onmessage = (event) => {
+          if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) return;
           // Resolve browser-originated control requests on the same primary WebSocket.
           let envelope;
           try { envelope = JSON.parse(event.data); } catch (_) { return; }
@@ -332,8 +349,13 @@ createApp({
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
         socket.onclose = () => {
-          if (browserEventsSocket === socket) browserEventsSocket = null;
-          if (browserEventsStopped || !token.value) return;
+          if (generation !== browserEventsGeneration) return;
+          const wasCurrentSocket = browserEventsSocket === socket;
+          if (wasCurrentSocket) {
+            browserEventsSocket = null;
+            rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试');
+          }
+          if (!wasCurrentSocket || browserEventsStopped || !token.value) return;
           realtimeStatus.value = 'reconnecting';
           browserEventsRetryTimer = setTimeout(() => {
             browserEventsRetryTimer = null;
@@ -341,6 +363,12 @@ createApp({
           }, 3000);
         };
       } catch (e) {
+        if (generation !== browserEventsGeneration) return;
+        browserEventsConnecting = false;
+        if (browserEventsStopped || !token.value) {
+          realtimeStatus.value = 'disconnected';
+          return;
+        }
         realtimeStatus.value = 'reconnecting';
         if (!browserEventsStopped && token.value) {
           browserEventsRetryTimer = setTimeout(() => {

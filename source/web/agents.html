@@ -283,6 +283,8 @@
 
         let agentsSocket = null;
         let agentsConnecting = false;
+        let agentsStopped = false;
+        let agentsGeneration = 0;
         let agentsRetryTimer = null;
         const agentWSRequests = new Map();
         function sendAgentWSControl(payload, timeoutMs = 15000) {
@@ -295,10 +297,17 @@
                 try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); } catch (error) { clearTimeout(timer); agentWSRequests.delete(requestId); reject(error); }
             });
         }
+        function rejectPendingAgentWSRequests(message) {
+            for (const [requestId, pending] of agentWSRequests.entries()) {
+                agentWSRequests.delete(requestId);
+                pending.reject(new Error(message));
+            }
+        }
         function connectAgentEvents() {
             const token = localStorage.getItem(TOKEN_KEY);
-            if (!token || agentsSocket || agentsConnecting) return;
+            if (!token || agentsSocket || agentsConnecting || agentsStopped) return;
             agentsConnecting = true;
+            const generation = ++agentsGeneration;
             const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
             fetch('/api/v1/events/ticket', {
                 method: 'POST',
@@ -306,10 +315,18 @@
             }).then(async res => {
                 const body = await res.json().catch(() => ({}));
                 if (!res.ok || !body.ticket) throw new Error(body.error || '实时通道授权失败');
+                if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;
                 const socket = new WebSocket(scheme + '//' + location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(body.ticket));
                 agentsSocket = socket;
-                socket.onopen = () => { agentsConnecting = false; };
+                socket.onopen = () => {
+                    if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY) || agentsSocket !== socket) {
+                        try { socket.close(); } catch (_) {}
+                        return;
+                    }
+                    agentsConnecting = false;
+                };
                 socket.onmessage = event => {
+                    if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY) || agentsSocket !== socket) return;
                     let message;
                     try { message = JSON.parse(event.data); } catch (_) { return; }
                     if (message.type === 'request.result' && message.request_id) {
@@ -325,21 +342,39 @@
                     }
                 };
                 socket.onclose = () => {
-                    if (agentsSocket === socket) agentsSocket = null;
+                    if (generation !== agentsGeneration) return;
+                    const wasCurrentSocket = agentsSocket === socket;
+                    if (wasCurrentSocket) {
+                        agentsSocket = null;
+                        rejectPendingAgentWSRequests('实时通道已断开，操作结果未确认；请重新进入页面刷新状态后再决定是否重试');
+                    }
                     agentsConnecting = false;
+                    if (!wasCurrentSocket || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;
                     clearTimeout(agentsRetryTimer);
                     agentsRetryTimer = setTimeout(connectAgentEvents, 3000);
                 };
                 socket.onerror = () => { try { socket.close(); } catch (_) {} };
             }).catch(() => {
+                if (generation !== agentsGeneration) return;
                 agentsConnecting = false;
+                if (agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;
                 clearTimeout(agentsRetryTimer);
                 agentsRetryTimer = setTimeout(connectAgentEvents, 3000);
             });
         }
         window.addEventListener('pagehide', () => {
+            agentsStopped = true;
+            agentsConnecting = false;
+            agentsGeneration++;
             clearTimeout(agentsRetryTimer);
-            if (agentsSocket) { try { agentsSocket.close(); } catch (_) {} agentsSocket = null; }
+            agentsRetryTimer = null;
+            rejectPendingAgentWSRequests('页面已离开，实时操作结果未确认；重新进入后请刷新状态');
+            if (agentsSocket) {
+                const socket = agentsSocket;
+                agentsSocket = null;
+                socket.onclose = null;
+                try { socket.close(); } catch (_) {}
+            }
         });
         window.addEventListener('load', () => {
             loadAgents();
