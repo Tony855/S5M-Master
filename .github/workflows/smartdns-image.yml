@@ -7,7 +7,7 @@ on:
       - "docker/smartdns/**"
       - ".github/workflows/smartdns-image.yml"
   push:
-    branches: [dev]
+    branches: [dev, 'feat/smartdns-multiarch-ghcr']
     tags:
       - "smartdns-v*"
     paths:
