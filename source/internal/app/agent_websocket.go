@@ -504,11 +504,11 @@ func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) err
 		}
 	}
 	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %v\n", machineCode, messageType, err)
+		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %s\n", machineCode, messageType, safeAgentWebSocketError("设置写入超时", err))
 		return err
 	}
 	if err := conn.WriteJSON(payload); err != nil {
-		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %v\n", machineCode, messageType, err)
+		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %s\n", machineCode, messageType, safeAgentWebSocketError("发送消息", err))
 		return err
 	}
 	return nil
@@ -573,7 +573,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		var msg agentWSMessage
 		if err := conn.ReadJSON(&msg); err != nil {
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				fmt.Printf("agent_ws: read failed machine_code=%q: %v\n", machineCode, err)
+				fmt.Printf("agent_ws: read failed machine_code=%q: %s\n", machineCode, safeAgentWebSocketError("读取消息", err))
 			}
 			return
 		}
