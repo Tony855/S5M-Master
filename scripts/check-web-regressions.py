@@ -202,7 +202,8 @@ agent_registration_main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
 agent_list_html = Path("source/web/agents.html").read_text(encoding="utf-8")
 checks.update({
     "Agent registration defaults to HTTPS and distinguishes saved credentials from a live connection": (
-        'value="https://"' in agent_registration_html
+        'value="https://bind.v2net.cc"' in agent_registration_html
+        and "else document.getElementById('url').value = 'https://bind.v2net.cc';" in agent_registration_html
         and "url = 'https://' + url" in agent_registration_html
         and "refreshBindingStatus" in agent_registration_html
         and "location.reload()" not in agent_registration_html
