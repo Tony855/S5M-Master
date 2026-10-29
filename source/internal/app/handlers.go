@@ -1764,8 +1764,17 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
 			return
 		}
+	}
+	// Keep legacy config delivery aligned with the Agent container's 7890:7890 mapping.
+	normalized, normalizeErr := normalizeAgentMixedPort(yml)
+	if normalizeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "校正节点代理端口失败")
+		return
+	}
+	if normalized != yml {
+		yml = normalized
 		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存节点配置失败")
+			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
 		}
 	}
