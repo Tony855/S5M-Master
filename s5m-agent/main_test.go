@@ -1311,6 +1311,7 @@ func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testin
 		t.Fatalf("write managed route CIDRs: %v", err)
 	}
 	cfg := map[string]interface{}{
+		"rules": []interface{}{"DOMAIN-SUFFIX,v2net.cc,DIRECT", "MATCH,Proxy"},
 		"tun": map[string]interface{}{
 			"enable": true,
 			"route-exclude-address": []interface{}{
@@ -1359,5 +1360,36 @@ func TestApplyAgentControlErrorNoopWhenEmpty(t *testing.T) {
 	applyAgentControlError(status, "  ")
 	if status["last_error"] != "existing diagnostic" {
 		t.Fatalf("empty control error changed existing diagnostic: %#v", status["last_error"])
+	}
+}
+
+
+func TestEnsureV2NetDirectRulePrecedesMatchAndIsIdempotent(t *testing.T) {
+	cfg := map[string]interface{}{
+		"rules": []interface{}{
+			"DOMAIN,example.com,Proxy",
+			"MATCH,Proxy",
+		},
+	}
+	if !ensureV2NetDirectRule(cfg) {
+		t.Fatal("expected v2net.cc direct rule to be inserted")
+	}
+	rules := cfg["rules"].([]interface{})
+	if len(rules) != 3 || rules[1] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
+		t.Fatalf("unexpected rule order: %#v", rules)
+	}
+	if ensureV2NetDirectRule(cfg) {
+		t.Fatal("existing v2net.cc direct rule should not be inserted twice")
+	}
+}
+
+func TestEnsureV2NetDirectRuleAddsRulesWhenMissing(t *testing.T) {
+	cfg := map[string]interface{}{}
+	if !ensureV2NetDirectRule(cfg) {
+		t.Fatal("expected direct rule to be added when rules block is missing")
+	}
+	rules, ok := cfg["rules"].([]interface{})
+	if !ok || len(rules) != 1 || rules[0] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" {
+		t.Fatalf("unexpected rules: %#v", cfg["rules"])
 	}
 }
