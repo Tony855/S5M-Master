@@ -689,9 +689,18 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 	if err := a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: strconv.FormatInt(time.Now().Unix(), 10)}); err != nil {
 		return err
 	}
-	if clientHash == hash { if err := conn.WriteJSON(map[string]any{"type":"config.unchanged","id":requestID,"sha256":hash}); err != nil { return fmt.Errorf("发送配置未变更确认失败: %w",err) }; fmt.Printf("agent_ws: config unchanged machine_code=%q request_id=%q sha256=%s\n",machineCode,requestID,hash); return nil }
-	if err := conn.WriteJSON(map[string]any{"type":"config.sync","id":requestID,"sha256":hash,"yaml":yml}); err != nil { return fmt.Errorf("发送配置失败: %w",err) }
-	fmt.Printf("agent_ws: config delivered machine_code=%q request_id=%q bytes=%d sha256=%s\n",machineCode,requestID,len(yml),hash); return nil
+	if clientHash == hash {
+		if err := conn.WriteJSON(map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash}); err != nil {
+			return fmt.Errorf("发送配置未变更确认失败: %w", err)
+		}
+		fmt.Printf("agent_ws: config unchanged machine_code=%q request_id=%q sha256=%s\n", machineCode, requestID, hash)
+		return nil
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml}); err != nil {
+		return fmt.Errorf("发送配置失败: %w", err)
+	}
+	fmt.Printf("agent_ws: config delivered machine_code=%q request_id=%q bytes=%d sha256=%s\n", machineCode, requestID, len(yml), hash)
+	return nil
 }
 
 // sendAgentWSCommand redelivers the persisted pending command until an ACK is stored.
@@ -708,8 +717,11 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	if err := json.Unmarshal([]byte(raw), &command); err != nil {
 		return fmt.Errorf("解析待执行命令失败: %w", err)
 	}
-	if err := conn.WriteJSON(map[string]any{"type":"command.deliver","id":requestID,"command":command}); err != nil { return fmt.Errorf("发送待执行命令失败: %w",err) }
-	fmt.Printf("agent_ws: command delivered machine_code=%q request_id=%q command_id=%v command_type=%v\n",machineCode,requestID,command["id"],command["type"]); return nil
+	if err := conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command}); err != nil {
+		return fmt.Errorf("发送待执行命令失败: %w", err)
+	}
+	fmt.Printf("agent_ws: command delivered machine_code=%q request_id=%q command_id=%v command_type=%v\n", machineCode, requestID, command["id"], command["type"])
+	return nil
 }
 
 // ackAgentWSCommand persists an ACK only for the currently pending command.
@@ -722,8 +734,10 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if err != nil {
 		return fmt.Errorf("原子保存命令结果失败: %w", err)
 	}
-	if !matched { return fmt.Errorf("命令已被替换或不存在") }
-	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n",machineCode,commandID,status,message)
+	if !matched {
+		return fmt.Errorf("命令已被替换或不存在")
+	}
+	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
 }
