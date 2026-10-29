@@ -14,6 +14,53 @@ log()  { echo -e "\033[32m[+]\033[0m $*"; }
 warn() { echo -e "\033[33m[!]\033[0m $*"; }
 die()  { echo -e "\033[31m[x]\033[0m $*"; exit 1; }
 
+http_get() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 5 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- -T 5 "$url"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$url" <<'PYHTTP'
+import sys
+import urllib.request
+try:
+    with urllib.request.urlopen(sys.argv[1], timeout=5) as response:
+        sys.stdout.write(response.read().decode("utf-8", "replace"))
+except Exception as exc:
+    print("HTTP probe failed: " + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYHTTP
+  else
+    warn "缺少 curl、wget 和 python3，跳过 HTTP 检查"
+    return 127
+  fi
+}
+
+http_head() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSI --max-time 5 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -S --spider -T 5 "$url" 2>&1 | grep -E 'HTTP/[0-9.]+' | head -n1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$url" <<'PYHEAD'
+import sys
+import urllib.request
+request = urllib.request.Request(sys.argv[1], method="HEAD")
+try:
+    with urllib.request.urlopen(request, timeout=5) as response:
+        print("HTTP", response.status, response.reason)
+except Exception as exc:
+    print("HTTP HEAD probe failed: " + str(exc), file=sys.stderr)
+    sys.exit(1)
+PYHEAD
+  else
+    warn "缺少 curl、wget 和 python3，跳过 HTTP 检查"
+    return 127
+  fi
+}
+
 find_image_tar() {
   local dirs=("$PWD" "$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" /root /tmp)
   local d
@@ -95,10 +142,10 @@ log "容器日志（末 20 行）："
 docker logs --tail 20 "$CONTAINER" 2>&1 || true
 echo
 log "machine-id："
-curl -fsS --max-time 5 "http://127.0.0.1:${PORT_WEB}/api/machine-id" || warn "API 暂无响应，请检查容器日志"
+http_get "http://127.0.0.1:${PORT_WEB}/api/machine-id" || warn "API 暂无响应，请检查容器日志"
 echo
 log "Web 探活："
-curl -sI --max-time 5 "http://127.0.0.1:${PORT_WEB}" | head -n1 || warn "80 端口未响应"
+http_head "http://127.0.0.1:${PORT_WEB}" || warn "80 端口未响应"
 echo
 log "部署脚本执行完毕。浏览器访问：http://<服务器公网IP>"
 warn "请按需确认安全组/防火墙放行 ${PORT_WEB} 和 ${PORT_PROXY}"
