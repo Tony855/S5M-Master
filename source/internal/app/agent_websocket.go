@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -51,6 +52,7 @@ type browserControlMessage struct {
 	Version     string `json:"version"`
 	SHA256      string `json:"sha256"`
 	Config      string `json:"config"`
+	ConfigYAML  string `json:"config_yaml"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -119,6 +121,30 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		switch message.Type {
+		case "node.config.get":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+message.MachineCode+"/config", nil)
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleGetNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload { reply[key] = value }
+			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			_ = client.writeJSON(reply)
+		case "node.config.save":
+			body, _ := json.Marshal(map[string]string{"config_yaml": message.ConfigYAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+message.MachineCode+"/config", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleSaveNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload { reply[key] = value }
+			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			_ = client.writeJSON(reply)
 		case "agent.mihomo.update":
 			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
 				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
