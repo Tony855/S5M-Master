@@ -91,6 +91,8 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"POST /api/v1/agents/generate":             a.handleGenerateAgentToken,
 		"GET /api/v1/agents/kernel-update-info":    a.handleAgentMihomoUpdateInfo,
 		"POST /api/v1/agents/kernel-update":        a.handleQueueMihomoUpdate,
+		"GET /api/v1/agents/smartdns/config":         a.handleGetAgentSmartDNSConfig,
+		"POST /api/v1/agents/smartdns/config":        a.handleQueueAgentSmartDNSConfig,
 		"DELETE /api/v1/agents":                    a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":                a.handlePassword,
 		"GET /api/v1/settings":                     a.handleGetSettings,
