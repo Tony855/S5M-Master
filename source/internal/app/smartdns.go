@@ -112,15 +112,36 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 	if err != nil {
 		return fmt.Errorf("生成 SmartDNS 配置命令失败")
 	}
-	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
+	// Persist the pending command and desired configuration atomically. Otherwise a
+	// failed desired-config write can leave an executable command with stale UI state.
+	tx, err := a.store.db.Begin()
 	if err != nil {
-		return fmt.Errorf("保存 SmartDNS 配置命令失败")
+		return fmt.Errorf("保存 SmartDNS 配置事务失败: %w", err)
 	}
-	if !created {
+	defer tx.Rollback()
+	result, err := tx.Exec(
+		`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`,
+		"agent_command_"+machineCode, string(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("保存 SmartDNS 配置命令失败: %w", err)
+	}
+	created, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("检查 SmartDNS 命令状态失败: %w", err)
+	}
+	if created != 1 {
 		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
 	}
-	if err := a.store.UpdateSettings(map[string]string{"agent_smartdns_config_" + machineCode: config}); err != nil {
-		return fmt.Errorf("SmartDNS 命令已排队，但保存期望配置失败: %w", err)
+	if _, err := tx.Exec(
+		`INSERT INTO settings (key, value) VALUES (?, ?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		"agent_smartdns_config_"+machineCode, config,
+	); err != nil {
+		return fmt.Errorf("保存 SmartDNS 期望配置失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交 SmartDNS 配置事务失败: %w", err)
 	}
 	a.publishBrowserEvent(map[string]any{
 		"type": "agent.command.queued", "machine_code": machineCode,
