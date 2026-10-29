@@ -55,7 +55,7 @@ checks = {
     "bulk proxy import synchronizes authorized node configs and exposes partial failure": "if successCount > 0" in import_handler and "syncAuthorizedNodeConfigs()" in import_handler and '"sync_failed": syncFailed' in import_handler and "data.sync_failed" in app_js and "代理导入已完成" in app_js,
     "JSON proxy import inherits the top-level protocol without silently defaulting to SOCKS5": "parsedJSON.protocol || parsedJSON.type || parsedJSON.scheme" in app_js and "item.type || item.protocol || item.scheme || inheritedProtocol || ''" in app_js and "item.type || item.protocol || 'socks5'" not in app_js,
     "JSON proxy import preserves direct VMess links and protocol-specific VMess/SS options": "item.uri || item.url || item.link || item.proxy || item.vmess_link || item.vmessLink" in app_js and "if (type === 'vmess')" in app_js and "if (type === 'ss')" in app_js,
-    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "/api/v1/logs" in ui and "/api/v1/mihomo/update" in ui and "/api/v1/mihomo/status" in ui,
+    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "type: 'system.logs.get'" in app_js and "/api/v1/logs" not in app_js and "/api/v1/mihomo/update" in app_js and ("type: 'mihomo.status.get'" in app_js or "/api/v1/mihomo/status" in app_js),
     "master Mihomo update is distinguished from Agent updates and requires confirmation": "主控服务器 Mihomo 内核" in html and "当前 Mihomo 版本" in html and "systemd 服务状态" in html and "不会更新各个 Agent 节点" in html and "确认更新主控 Mihomo" in app_js and "ElementPlus.ElMessageBox.confirm" in app_js[app_js.index("const updateKernel ="):app_js.index("const loadSystemLogs")],
     "master Mihomo status distinguishes disk binary, systemd service, and live API version": '"api_version"' in handlers and '"api_online"' in handlers and '"version_mismatch"' in handlers and "runningMihomoAPIVersion" in handlers and "运行中 API 版本" in html and "mainMihomoStatus.api_error" in html,
     "system operations page is reachable through page navigation allowlist": "const PAGES = ['dashboard','proxies','instances','config','system']" in app_js and "if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }" in app_js,
@@ -72,10 +72,10 @@ checks = {
     "global config version APIs remain backend-only for compatibility": "/api/v1/config/versions" in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "/api/v1/config/rollback" in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "确认回滚配置" not in ui,
     "backend rollback still syncs the saved global draft": 'UpdateSettings(map[string]string{"config_yaml": yml})' in configgen and "回滚已完成，但全局配置草稿同步失败" in configgen,
     "backend rollback keeps current database-managed proxy/rule sections": "BuildConfigForMachine(\"\")" in rollback_impl and "mergeManagedProxySections(yml, managedYAML)" in rollback_impl,
-    "node config sync has an authenticated retry action": "/api/v1/nodes/config-sync" in ui and "retryNodeConfigSync" in ui and "立即重试同步所有节点" in ui,
+    "node config sync has an authenticated retry action": "type: 'nodes.config-sync.retry'" in app_js and "/api/v1/nodes/config-sync" not in app_js and "retryNodeConfigSync" in ui and "立即重试同步所有节点" in ui,
     "primary UI loads the extracted application bundle": 'src="/app.js"' in html and Path("source/web/app.js").is_file() and Path("source/web/app.js").stat().st_size > 10000,
     "main UI stylesheet is external and present": '<link rel="stylesheet" href="/app.css">' in html and "<style>" not in html and Path("source/web/app.css").is_file() and Path("source/web/app.css").stat().st_size > 1000,
-    "per-agent Mihomo update automatically fetches official stable release metadata and queues verified checksum": "openAgentKernelUpdate(item.code)" in ui and "/api/v1/agents/kernel-update-info?machine_code=" in ui and "latest_version" in ui and "kernelUpdateInfo.arch" in ui and "handleAgentMihomoUpdateInfo" in handlers and "一键更新" in ui,
+    "per-agent Mihomo update automatically fetches official stable release metadata over authenticated WebSocket RPC and queues verified checksum": "openAgentKernelUpdate(item.code)" in ui and "type: 'agent.mihomo.update-info'" in app_js and "/api/v1/agents/kernel-update-info?machine_code=" not in app_js and "latest_version" in ui and "kernelUpdateInfo.arch" in ui and "handleAgentMihomoUpdateInfo" in handlers and "一键更新" in ui,
     "Agent Mihomo update exposes pending and final results without a stale hardcoded default": "pending_command" in handlers and "command_result" in handlers and "item.pendingCommand.type === 'update_mihomo'" in html and "item.commandResult.type === 'update_mihomo'" in html and "kernelUpdateVersion.value = ''" in app_js and "kernelUpdateVersion.value = 'v1.19.31'" not in app_js,
     "Agent Mihomo update validates semantic version using literal dots and digit classes": r"if (!/^v\d+\.\d+\.\d+$/.test(version))" in app_js and r"if (!/^v\\d+\\.\\d+\\.\\d+$/.test(version))" not in app_js,
     "global Mihomo update validates candidate binary and confirms the live version before reporting success": "candidateVersion != release.TagName" in handlers and "copyFileAtomic(binaryPath, backupPath)" in handlers and "waitForMihomoAPIVersion(candidateVersion, 30*time.Second)" in handlers and "已更新并确认运行版本为 " in handlers,
@@ -193,6 +193,23 @@ checks.update({
     "browser WebSocket correlates request results and enforces a bounded request timeout": "browserWSRequests.set(requestId" in app_js and "request.result" in app_js and "15000" in app_js and "clearTimeout" in app_js,
     "Agent status and command lifecycle are delivered as browser WebSocket events": '"type": "agent.status.updated"' in browser_ws_source and '"type": "agent.command.queued"' in browser_ws_source and '"type": "agent.command.updated"' in browser_ws_source and "publishBrowserEvent" in browser_ws_source,
     "dashboard overview and traffic are not driven by a periodic HTTP polling timer": "setInterval(() => loadOverview" not in app_js and "setInterval(loadOverview" not in app_js and "setInterval(() => loadTraffic" not in app_js and "setInterval(loadTraffic" not in app_js,
+    "dashboard overview and traffic snapshots use authenticated WebSocket RPC with no HTTP fallback": "type: 'monitor.overview.get'" in app_js and "type: 'monitor.traffic.get'" in app_js and "api('/api/v1/monitor/overview" not in app_js and "api('/api/v1/monitor/traffic" not in app_js and 'case "monitor.overview.get":' in browser_ws_source and 'case "monitor.traffic.get":' in browser_ws_source and "Revalidate the administrator session for every browser RPC" in browser_ws_source,
+    "Proxy deletion preserves committed-delete sync failure recovery": (
+        "message.includes('代理已删除')" in app_js
+        and "立即重试同步所有节点" in app_js
+        and "type: 'proxy.delete'" in app_js
+    ),
+    "Proxy deletion uses authenticated WebSocket RPC with validated numeric ID": (
+        "type: 'proxy.delete'" in app_js
+        and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js
+        and 'case "proxy.delete":' in browser_ws_source
+        and 'ProxyID         string `json:"proxy_id"`' in browser_ws_source
+        and 'req.SetPathValue("id", strconv.FormatInt(id, 10))' in browser_ws_source
+        and "a.handleDeleteProxy" in browser_ws_source
+        and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+    ),
+    "Agent and proxy list snapshots use WebSocket RPC and preserve nested response data": "type: 'agents.list.get'" in app_js and "type: 'proxies.list.get'" in app_js and "api('/api/v1/agents?t=" not in app_js and "api('/api/v1/proxies?t=" not in app_js and 'case "agents.list.get":' in browser_ws_source and 'case "proxies.list.get":' in browser_ws_source and 'reply["data"] = payload' in browser_ws_source,
+    "live traffic values update directly from Agent WebSocket telemetry without an HTTP polling fallback": "Live telemetry is authoritative while WebSocket is connected." in app_js and "Number(status.upload_speed)" in app_js and "Number(status.download_speed)" in app_js and "Number(status.connections)" in app_js,
     "Agent WebSocket control keeps auth-revocation, session ACK, and long-command TTL regressions covered": "TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation" in browser_ws_tests and "TestAgentWebSocketDeliversAndAcknowledgesPendingCommand" in browser_ws_tests and "TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate" in browser_ws_tests,
 })
 
@@ -218,7 +235,110 @@ checks.update({
         and "connectAgentEvents" in agent_list_html
         and "agent.binding.revoked" in agent_list_html
     ),
+    "Agent management config and kernel update use WebSocket without HTTP polling fallback": (
+        "type: 'node.config.get'" in agent_list_html
+        and "type: 'node.config.save'" in agent_list_html
+        and "type: 'agent.mihomo.update-info'" in agent_list_html
+        and "type: 'agent.mihomo.update'" in agent_list_html
+        and "editorAPI('/api/v1/nodes/" not in agent_list_html
+        and "/api/v1/agents/kernel-update-info?machine_code=" not in agent_list_html
+        and "/api/v1/agents/kernel-update" not in agent_list_html
+        and 'case "node.config.get":' in browser_ws_source
+        and 'case "node.config.save":' in browser_ws_source
+        and 'case "agent.mihomo.update-info":' in browser_ws_source
+        and 'case "agent.mihomo.update":' in browser_ws_source
+        and "agentsRefreshTimer" not in agent_list_html
+    ),
+
 })
+
+# Read-only control-plane snapshots continue migrating to the authenticated
+# WebSocket RPC channel; writes remain on their existing validated endpoints.
+checks.update({
+    "main Mihomo status snapshot uses WebSocket RPC without HTTP polling fallback": (
+        "type: 'mihomo.status.get'" in app_js
+        and "api('/api/v1/mihomo/status?t=" not in app_js
+        and 'case "mihomo.status.get":' in browser_ws_source
+        and "a.handleMihomoStatus" in browser_ws_source
+    ),
+    "Mihomo template and per-node template status snapshots use WebSocket RPC": (
+        "type: 'mihomo.template.get'" in app_js
+        and "type: 'mihomo.template.nodes.get'" in app_js
+        and "api('/api/v1/mihomo/template?t=" not in app_js
+        and "api('/api/v1/mihomo/template/nodes?t=" not in app_js
+        and 'case "mihomo.template.get":' in browser_ws_source
+        and 'case "mihomo.template.nodes.get":' in browser_ws_source
+    ),
+    "settings read uses WebSocket RPC while existing settings update endpoint stays available": (
+        "type: 'settings.get'" in app_js
+        and "api('/api/v1/settings?t=" not in app_js
+        and 'case "settings.get":' in browser_ws_source
+        and "a.handleGetSettings" in browser_ws_source
+        and '"PUT /api/v1/settings"' in router_source
+    ),
+    "read-only WebSocket snapshot RPCs remain explicitly allowlisted and admin-session checked": (
+        "Revalidate the administrator session for every browser RPC" in browser_ws_source
+        and 'case "settings.get":' in browser_ws_source
+        and 'case "mihomo.status.get":' in browser_ws_source
+        and 'case "mihomo.template.get":' in browser_ws_source
+        and 'case "mihomo.template.nodes.get":' in browser_ws_source
+        and 'default:' in browser_ws_source
+    ),
+})
+
+checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP fallback"] = (
+    "type: 'system.logs.get'" in app_js
+    and "api('/api/v1/logs?t=" not in app_js
+    and 'case "system.logs.get":' in browser_ws_source
+    and "a.handleGetLogs" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+
+checks["Mihomo template publish/apply/rollback/delete mutations use explicit authenticated WebSocket RPC"] = (
+    "type: 'mihomo.template.publish'" in app_js
+    and "type: 'mihomo.template.apply'" in app_js
+    and 'TemplateVersion int    `json:"template_version"`' in browser_ws_source
+    and '"version": message.TemplateVersion' in browser_ws_source
+    and "template_version: version" in app_js
+    and "type: 'mihomo.template.rollback'" in app_js
+    and "type: 'mihomo.template.delete'" in app_js
+    and "api('/api/v1/mihomo/template/publish'" not in app_js
+    and "api('/api/v1/mihomo/template/apply'" not in app_js
+    and "api('/api/v1/mihomo/template/rollback'" not in app_js
+    and "api('/api/v1/mihomo/template/' + target" not in app_js
+    and 'case "mihomo.template.publish":' in browser_ws_source
+    and 'case "mihomo.template.apply":' in browser_ws_source
+    and 'case "mihomo.template.rollback":' in browser_ws_source
+    and 'case "mihomo.template.delete":' in browser_ws_source
+    and "a.handlePublishMihomoTemplate" in browser_ws_source
+    and "a.handleApplyMihomoTemplate" in browser_ws_source
+    and "a.handleRollbackNodeTemplate" in browser_ws_source
+    and "a.handleDeleteMihomoTemplateVersion" in browser_ws_source
+    and 'req.SetPathValue("version", strconv.Itoa(version))' in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+
+checks["Agent kernel release lookup and binding revocation use authenticated WebSocket RPC"] = (
+    "type: 'agent.mihomo.update-info'" in app_js
+    and "type: 'agent.binding.revoke'" in app_js
+    and "api('/api/v1/agents/kernel-update-info?" not in app_js
+    and "api('/api/v1/agents?code='" not in app_js
+    and 'case "agent.mihomo.update-info":' in browser_ws_source
+    and 'case "agent.binding.revoke":' in browser_ws_source
+    and "a.handleAgentMihomoUpdateInfo" in browser_ws_source
+    and "a.handleDeleteAgent" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
+    "type: 'nodes.config-sync.retry'" in app_js
+    and "api('/api/v1/nodes/config-sync'" not in app_js
+    and 'case "nodes.config-sync.retry":' in browser_ws_source
+    and "a.handleRetryNodeConfigSync" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
 
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():

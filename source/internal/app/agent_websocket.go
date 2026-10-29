@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -40,16 +41,23 @@ type browserWSTicket struct {
 }
 
 type browserEventClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn     *websocket.Conn
+	username string
+	mu       sync.Mutex
 }
 
 type browserControlMessage struct {
-	Type        string `json:"type"`
-	RequestID   string `json:"request_id"`
-	MachineCode string `json:"machine_code"`
-	Version     string `json:"version"`
-	SHA256      string `json:"sha256"`
+	Type            string `json:"type"`
+	RequestID       string `json:"request_id"`
+	MachineCode     string `json:"machine_code"`
+	ProxyID         string `json:"proxy_id"`
+	Version         string `json:"version"`
+	TemplateVersion int    `json:"template_version"`
+	SHA256          string `json:"sha256"`
+	Config          string `json:"config"`
+	ConfigYAML      string `json:"config_yaml"`
+	Note            string `json:"note"`
+	Confirm         bool   `json:"confirm"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -95,7 +103,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
-	client := &browserEventClient{conn: conn}
+	client := &browserEventClient{conn: conn, username: issued.Username}
 	a.browserWSMu.Lock()
 	if a.browserWSClients == nil {
 		a.browserWSClients = make(map[*browserEventClient]struct{})
@@ -117,15 +125,157 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
-		if message.Type != "agent.mihomo.update" {
+		// Revalidate the administrator session for every browser RPC, not only
+		// when the one-time WebSocket ticket is exchanged.
+		u, authErr := a.store.UserByUsername(client.username)
+		if authErr != nil || u == nil || !u.Enabled || u.Role != "admin" {
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "管理员会话已失效，请重新登录"})
+			return
+		}
+		switch message.Type {
+		case "monitor.overview.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleOverview, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/overview", nil))
+		case "monitor.traffic.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
+		case "agents.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "proxies.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
+		case "settings.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
+		case "mihomo.status.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMihomoStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/status", nil))
+		case "mihomo.template.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
+		case "mihomo.template.nodes.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetNodeTemplateStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template/nodes", nil))
+		case "system.logs.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
+		case "nodes.config-sync.retry":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
+		case "agent.binding.revoke":
+			code := strings.TrimSpace(message.MachineCode)
+			if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "机器码格式无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+url.QueryEscape(code), nil)
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgent, req)
+		case "mihomo.template.publish":
+			body, _ := json.Marshal(map[string]string{"note": message.Note})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/publish", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePublishMihomoTemplate, req)
+		case "mihomo.template.apply":
+			if message.TemplateVersion < 1 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "必须选择有效模板版本"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "version": message.TemplateVersion, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/apply", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleApplyMihomoTemplate, req)
+		case "mihomo.template.rollback":
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "proxy.delete":
+			idText := strings.TrimSpace(message.ProxyID)
+			id, err := strconv.ParseInt(idText, 10, 64)
+			if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxies/"+strconv.FormatInt(id, 10), nil)
+			req.SetPathValue("id", strconv.FormatInt(id, 10))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteProxy, req)
+		case "mihomo.template.delete":
+			versionText := strings.TrimSpace(message.Version)
+			version, err := strconv.Atoi(versionText)
+			if err != nil || version < 1 || strconv.Itoa(version) != versionText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "模板版本号无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/mihomo/template/"+strconv.Itoa(version), nil)
+			req.SetPathValue("version", strconv.Itoa(version))
+			rec := httptest.NewRecorder()
+			a.handleDeleteMihomoTemplateVersion(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				} else {
+					reply["error"] = "删除模板版本失败"
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "agent.mihomo.update-info":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
+			rec := httptest.NewRecorder()
+			a.handleAgentMihomoUpdateInfo(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "node.config.get":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+message.MachineCode+"/config", nil)
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleGetNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "node.config.save":
+			body, _ := json.Marshal(map[string]string{"config_yaml": message.ConfigYAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+message.MachineCode+"/config", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleSaveNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "agent.mihomo.update":
+			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
+		default:
 			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "不支持的实时操作类型"})
-			continue
 		}
-		if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
-			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
-			continue
-		}
-		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
 	}
 }
 
@@ -134,6 +284,30 @@ func (c *browserEventClient) writeJSON(v any) error {
 	defer c.mu.Unlock()
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return c.conn.WriteJSON(v)
+}
+
+// runBrowserHTTPHandler reuses an existing read handler for a narrowly whitelisted
+// WebSocket RPC. Authorization is checked by handleBrowserEventsWebSocket first.
+func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string, handler http.HandlerFunc, req *http.Request) {
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	var payload any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		payload = map[string]any{"error": "服务器返回了无效 JSON"}
+	}
+	reply := map[string]any{"type": "request.result", "request_id": requestID, "ok": rec.Code >= 200 && rec.Code < 300}
+	if rec.Code >= 200 && rec.Code < 300 {
+		reply["data"] = payload
+	} else if object, ok := payload.(map[string]any); ok {
+		if errText, ok := object["error"].(string); ok {
+			reply["error"] = errText
+		} else {
+			reply["error"] = "读取数据失败"
+		}
+	} else {
+		reply["error"] = "读取数据失败"
+	}
+	_ = client.writeJSON(reply)
 }
 
 func (a *App) publishBrowserEvent(event map[string]any) {

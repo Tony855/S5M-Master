@@ -47,6 +47,7 @@
         <textarea id="configYaml" spellcheck="false" rows="28" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#020617;color:#dbeafe;border:1px solid #475569;border-radius:6px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace"></textarea>
         <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="applyQuickSettings()">将上方 TUN/DNS 设置写入 YAML</button><button type="button" onclick="saveNodeConfig()">保存并下发</button><span id="editorMessage"></span></div>
     </div>
+
     <script>
         const TOKEN_KEY = 's5m_next_token';
         const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -96,10 +97,12 @@
                     return '<tr><td><span class="code">' + esc(code) + '</span></td>' +
                         '<td>' + (info && info.authorized ? '已授权' : '未授权') + '</td>' +
                         '<td><span class="status ' + (online && healthy ? 'online' : 'offline') + '">' + (online ? (healthy ? '在线 / 正常' : '在线 / 异常') : '离线') + '</span></td>' +
-                        '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
+                        '<td>' + esc(version) + '</td>' +
+                        '<td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
                         '<td>' + esc(formatTime(seen)) + (info.desired_config_sha256 ? '<div class="' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? 'online' : 'error') + '">' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? '配置已同步' : '配置待应用') + '</div>' : '') + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + (info.command_result ? '<div>内核更新：' + esc(info.command_result.status || '') + ' ' + esc(info.command_result.message || '') + '</div>' : '') + '</td>' +
-                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> <button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
+                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> ' +
+                        '<button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
                 tbody.querySelectorAll('button[data-edit]').forEach(button => button.addEventListener('click', () => openEditor(button.dataset.edit)));
@@ -130,7 +133,7 @@
             document.getElementById('editorMessage').textContent = '正在读取配置...';
             document.getElementById('configModal').style.display = 'block';
             try {
-                const data = await editorAPI('/api/v1/nodes/' + encodeURIComponent(code) + '/config');
+                const data = await sendAgentWSControl({ type: 'node.config.get', machine_code: code });
                 const yamlText = data.yaml || data.config_yaml || '';
                 if (!yamlText) throw new Error('没有保存的节点配置。请让 Agent 先成功连接主控端，再打开编辑器。');
                 document.getElementById('configYaml').value = yamlText;
@@ -200,7 +203,7 @@
             const message = document.getElementById('editorMessage');
             message.textContent = '正在校验并保存...';
             try {
-                const result = await editorAPI('/api/v1/nodes/' + encodeURIComponent(editingCode) + '/config', {method:'PUT', body:JSON.stringify({config_yaml:document.getElementById('configYaml').value})});
+                const result = await sendAgentWSControl({ type: 'node.config.save', machine_code: editingCode, config_yaml: document.getElementById('configYaml').value });
                 message.textContent = result.message || '已保存；Agent 将在下一次拉取时应用';
             } catch (e) { message.textContent = '保存失败：' + e.message; }
         }
@@ -208,11 +211,11 @@
 
         async function queueMihomoUpdate(code) {
             try {
-                const info = await editorAPI('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(code));
+                const info = await sendAgentWSControl({ type: 'agent.mihomo.update-info', machine_code: code }, 60000);
                 const current = info.current_version || '尚未上报';
                 const message = '目标 Agent：' + code + '\\n架构：' + info.arch + '\\n当前版本：' + current + '\\n官方最新稳定版：' + info.latest_version + '\\n发行文件：' + info.asset_name + '\\nSHA-256 已由主控从官方文件自动计算。\\n\\n确认排队一键更新？Agent 会再次校验文件并测试新内核。';
                 if (!window.confirm(message)) return;
-                const result = await editorAPI('/api/v1/agents/kernel-update', {method:'POST', body:JSON.stringify({machine_code:code, version:info.latest_version, sha256:info.sha256})});
+                const result = await sendAgentWSControl({ type: 'agent.mihomo.update', machine_code: code, version: info.latest_version, sha256: info.sha256 });
                 alert(result.message || '更新命令已排队');
             } catch (e) {
                 alert('无法准备更新：' + e.message);
@@ -222,7 +225,17 @@
         let agentsSocket = null;
         let agentsConnecting = false;
         let agentsRetryTimer = null;
-        let agentsRefreshTimer = null;
+        const agentWSRequests = new Map();
+        function sendAgentWSControl(payload, timeoutMs = 15000) {
+            return new Promise((resolve, reject) => {
+                const socket = agentsSocket;
+                if (!socket || socket.readyState !== WebSocket.OPEN) { reject(new Error('WebSocket 未连接')); return; }
+                const requestId = (window.crypto && typeof window.crypto.randomUUID === 'function') ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+                const timer = setTimeout(() => { agentWSRequests.delete(requestId); reject(new Error('WebSocket 操作超时')); }, timeoutMs);
+                agentWSRequests.set(requestId, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+                try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); } catch (error) { clearTimeout(timer); agentWSRequests.delete(requestId); reject(error); }
+            });
+        }
         function connectAgentEvents() {
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token || agentsSocket || agentsConnecting) return;
@@ -240,9 +253,15 @@
                 socket.onmessage = event => {
                     let message;
                     try { message = JSON.parse(event.data); } catch (_) { return; }
+                    if (message.type === 'request.result' && message.request_id) {
+                        const pending = agentWSRequests.get(message.request_id);
+                        if (pending) { agentWSRequests.delete(message.request_id); if (message.ok) pending.resolve(message); else pending.reject(new Error(message.error || 'WebSocket 操作失败')); }
+                        return;
+                    }
                     if (message.type === 'agent.binding.revoked' ||
                         message.type === 'agent.binding.updated' ||
-                        message.type === 'agent.status.updated') {
+                        message.type === 'agent.command.updated' ||
+                        message.type === 'agent.command.queued') {
                         loadAgents();
                     }
                 };
@@ -261,15 +280,11 @@
         }
         window.addEventListener('pagehide', () => {
             clearTimeout(agentsRetryTimer);
-            clearInterval(agentsRefreshTimer);
             if (agentsSocket) { try { agentsSocket.close(); } catch (_) {} agentsSocket = null; }
         });
         window.addEventListener('load', () => {
             loadAgents();
             connectAgentEvents();
-            agentsRefreshTimer = setInterval(() => {
-                if (!agentsSocket || agentsSocket.readyState !== WebSocket.OPEN) loadAgents();
-            }, 15000);
         });
     </script>
 </body>
