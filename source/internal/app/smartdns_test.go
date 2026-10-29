@@ -1,11 +1,14 @@
 package app
 
 import (
+	"fmt"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -130,7 +133,6 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 		t.Fatalf("unexpected SmartDNS config/status response: %#v", result)
 	}
 }
-
 
 func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigConsistent(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "smartdns-concurrent.db"))
