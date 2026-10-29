@@ -605,7 +605,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			a.agentWSMu.Unlock()
 			if err != nil {
-				fmt.Printf("agent_ws: request failed machine_code=%q type=%q id=%q: %v\n", machineCode, msg.Type, msg.ID, err)
 				operation := "处理 Agent WebSocket 请求"
 				if msg.Type == "config.request" {
 					operation = "读取节点配置"
@@ -613,6 +612,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 					operation = "读取待执行命令"
 				}
 				message := safeAgentWebSocketError(operation, err)
+				fmt.Printf("agent_ws: request failed machine_code=%q type=%q id=%q: %s\n", machineCode, msg.Type, msg.ID, message)
 				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": message})
 				continue
 			}
