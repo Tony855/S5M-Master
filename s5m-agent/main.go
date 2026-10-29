@@ -340,6 +340,38 @@ func writeManagedRouteCIDRs(values []string) error {
 	return os.Rename(tmpPath, managedRouteCIDRsPath())
 }
 
+// ensureV2NetDirectRule keeps the S5M controller domain family out of proxy-node routing.
+// TUN route-exclude-address is IP/CIDR-only; the configured controller hostname is
+// separately resolved to /32 and /128 exclusions below.
+func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
+\traw, ok := cfg["rules"].([]interface{})
+\tif !ok {
+\t\traw = []interface{}{}
+\t}
+\tconst rule = "DOMAIN-SUFFIX,v2net.cc,DIRECT"
+\tfor _, item := range raw {
+\t\tif value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
+\t\t\treturn false
+\t\t}
+\t}
+\tinsertAt := len(raw)
+\tfor i, item := range raw {
+\t\tif value, ok := item.(string); ok {
+\t\t\tparts := strings.Split(strings.TrimSpace(value), ",")
+\t\t\tif len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
+\t\t\t\tinsertAt = i
+\t\t\t\tbreak
+\t\t\t}
+\t\t}
+\t}
+\tnext := make([]interface{}, 0, len(raw)+1)
+\tnext = append(next, raw[:insertAt]...)
+\tnext = append(next, rule)
+\tnext = append(next, raw[insertAt:]...)
+\tcfg["rules"] = next
+\treturn true
+}
+
 func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([]string, bool, error) {
 	cidrs, err := resolvedCentralRouteCIDRs(centralURL)
 	if err != nil {
