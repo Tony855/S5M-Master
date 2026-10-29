@@ -265,7 +265,7 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 	// proxy endpoint IPs so TUN cannot recursively route its own upstream transport.
 	excluded := []string{
 		"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12",
-		"192.168.0.0/16",
+		"192.168.0.0/16", "198.18.0.0/16",
 	}
 	seen := make(map[string]bool, len(excluded))
 	for _, cidr := range excluded {
