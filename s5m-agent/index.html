@@ -97,10 +97,10 @@
       const btn = document.getElementById('btn');
       if (data.config_readable === false) {
         btn.innerText = data.has_token ? '重新绑定' : '一键绑定设备';
-        setStatus('error', '无法读取绑定配置，请检查 /data 挂载和目录权限');
+        setStatus('error', '设备绑定状态暂不可用，请稍后重试或联系管理员');
       } else if (data.config_valid === false) {
         btn.innerText = '重试绑定';
-        setStatus('error', '绑定配置文件格式异常，请检查 Agent 日志');
+        setStatus('error', '绑定信息异常，请联系管理员处理');
       } else if (!data.has_token) {
         btn.innerText = '一键绑定设备';
         setStatus('', data.config_exists ? '未检测到有效绑定 Token，请重新绑定' : '设备尚未绑定');
