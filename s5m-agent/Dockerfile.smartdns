@@ -73,7 +73,7 @@ LABEL org.opencontainers.image.title="S5M Agent with SmartDNS" \
       org.opencontainers.image.description="S5M Agent, Mihomo and local SmartDNS resolver in one image" \
       org.opencontainers.image.source="https://github.com/Tony855/S5M-Master" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
-RUN apk add --no-cache ca-certificates tzdata libgcc libstdc++ libssl3 libcrypto3 zlib \
+RUN apk add --no-cache ca-certificates tzdata bind-tools libgcc libstdc++ libssl3 libcrypto3 zlib \
     && addgroup -S s5m && adduser -S -D -H -G s5m s5m \
     && mkdir -p /data /app /etc/smartdns
 COPY --from=s6-overlay-fetch /out/ /
