@@ -31,7 +31,8 @@ tls_candidates=(/etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/ngi
 shopt -u nullglob
 for tls_file in "${tls_candidates[@]}"; do
   [[ -f "$tls_file" && -r "$tls_file" ]] || continue
-  grep -Eq 'listen[[:space:]]+([^;[:space:]]+[[:space:]]+)?443[[:space:]]+ssl|listen[[:space:]]+443[[:space:]]+ssl' "$tls_file" || continue
+  # Match both IPv4 and IPv6 TLS listeners, including "listen [::]:443 ssl".
+  grep -Eq '^[[:space:]]*listen[[:space:]]+(\\[::\\]:)?443[[:space:]]+ssl([[:space:]]|;|$)' "$tls_file" || continue
   grep -Eq 'proxy_pass[[:space:]]+http://127\.0\.0\.1:8080([/;[:space:]]|$)' "$tls_file" || continue
 
   cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$tls_file" | head -n1)"
