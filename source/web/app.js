@@ -49,6 +49,11 @@ createApp({
     const configYaml = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    const smartDNSConfig = ref('');
+    const smartDNSStatus = ref(null);
+    const loadingSmartDNS = ref(false);
+    const savingSmartDNS = ref(false);
+    const smartDNSQueued = ref(false);
     const templateYaml = ref('');
     const templateNote = ref('');
     const templateVersions = ref([]);
@@ -1115,6 +1120,44 @@ createApp({
       finally { applyingTemplate.value = false; }
     };
 
+    const loadSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      if (!code || loadingSmartDNS.value) return;
+      loadingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.get', machine_code: code });
+        if (result.ok === false) throw new Error(result.error || '读取 SmartDNS 状态失败');
+        smartDNSConfig.value = String(result.config || '');
+        smartDNSStatus.value = result;
+        smartDNSQueued.value = false;
+      } catch (e) {
+        showMsg(e.message || '读取 SmartDNS 状态失败', 'error');
+      } finally {
+        loadingSmartDNS.value = false;
+      }
+    };
+
+    const saveSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const config = String(smartDNSConfig.value || '');
+      if (!code) { showMsg('请先选择节点机器码', 'warning'); return; }
+      if (!config.trim()) { showMsg('SmartDNS 配置不能为空', 'warning'); return; }
+      if (savingSmartDNS.value) return;
+      savingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.configure', machine_code: code, config });
+        if (result.ok === false) throw new Error(result.error || 'SmartDNS 配置提交失败');
+        smartDNSQueued.value = true;
+        showMsg(result.message || 'SmartDNS 配置已排队，等待 Agent 执行并回报', 'success');
+        await loadSmartDNSConfig();
+        smartDNSQueued.value = true;
+      } catch (e) {
+        showMsg(e.message || 'SmartDNS 配置提交失败', 'error');
+      } finally {
+        savingSmartDNS.value = false;
+      }
+    };
+
     const loadNodeConfig = async () => {
       const code = String(selectedConfigNode.value || '').trim();
       configYaml.value = '';
@@ -1257,7 +1300,7 @@ createApp({
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
-      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      configYaml, selectedConfigNode, savingConfig, smartDNSConfig, smartDNSStatus, loadingSmartDNS, savingSmartDNS, smartDNSQueued, loadSmartDNSConfig, saveSmartDNSConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
       loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
