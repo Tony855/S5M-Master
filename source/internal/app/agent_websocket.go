@@ -315,7 +315,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			_ = client.writeJSON(map[string]any{
 				"type": "request.result", "request_id": message.RequestID, "ok": true,
 				"machine_code": code, "config": config,
-				"desired_config_sha256":  hashConfig(config),
+				"desired_config_sha256":  hashSmartDNSConfig(config),
 				"reported_config_sha256": status["smartdns_config_sha256"],
 				"available":              status["smartdns_available"] == true,
 				"running":                status["smartdns_running"] == true,
