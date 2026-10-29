@@ -1966,7 +1966,7 @@ func runAgentWebSocketSession(cfg Config) error {
 			commandStatus := "success"
 			if commandErr != nil {
 				commandStatus = "failed"
-				message = commandErr.Error()
+				message = safeMihomoValidationDiagnostic([]byte(commandErr.Error()))
 			}
 			if len(message) > 2048 {
 				message = message[:2048]
