@@ -1273,8 +1273,18 @@ func validateKernelUpdateCommand(cmd agentCommand) error {
 	return nil
 }
 
-func updateMihomoKernel(cmd agentCommand) (string, error) {
+func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
+	started := time.Now()
+	stage := "start"
+	defer func() {
+		if retErr != nil {
+			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%v\n", cmd.ID, stage, time.Since(started).Milliseconds(), retErr)
+		}
+	}()
+	fmt.Printf("mihomo_update: started command_id=%q target_version=%q arch=%q\n", cmd.ID, cmd.Version, runtime.GOARCH)
+	stage = "validate"
 	if err := validateKernelUpdateCommand(cmd); err != nil {
+		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%v\n", cmd.ID, err)
 		return "", err
 	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
@@ -1283,9 +1293,12 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	// ACK delivery can fail after a successful update. If the same command is
 	// delivered again, recognize the already-installed target version and avoid
 	// downloading/replacing/restarting the kernel a second time.
+	stage = "check-current-version"
+	fmt.Printf("mihomo_update: checking current version command_id=%q\n", cmd.ID)
 	if output, err := exec.Command(mihomoBinaryPath(), "-v").CombinedOutput(); err == nil {
 		versionPattern := regexp.MustCompile(`\bv` + regexp.QuoteMeta(strings.TrimPrefix(cmd.Version, "v")) + `\b`)
 		if versionPattern.Match(output) {
+			fmt.Printf("mihomo_update: skipped command_id=%q reason=already-installed duration_ms=%d\n", cmd.ID, time.Since(started).Milliseconds())
 			return "Mihomo 已是目标版本 " + cmd.Version + "，按幂等重试跳过重复安装", nil
 		}
 	}
@@ -1299,6 +1312,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		return "", fmt.Errorf("当前架构 %s 暂不支持自动更新", runtime.GOARCH)
 	}
 	url := "https://github.com/MetaCubeX/mihomo/releases/download/" + cmd.Version + "/" + asset
+	stage = "download"
+	fmt.Printf("mihomo_update: downloading command_id=%q asset=%q\n", cmd.ID, asset)
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -1312,6 +1327,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("官方 Mihomo 下载返回 HTTP %d", response.StatusCode)
 	}
+	fmt.Printf("mihomo_update: download complete command_id=%q http_status=%d\n", cmd.ID, response.StatusCode)
+	stage = "read-download"
 	compressed, err := io.ReadAll(io.LimitReader(response.Body, 200<<20))
 	if err != nil {
 		return "", err
@@ -1319,10 +1336,14 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if len(compressed) == 0 || len(compressed) >= 200<<20 {
 		return "", fmt.Errorf("下载文件为空或超过 200 MiB 限制")
 	}
+	stage = "verify-sha256"
 	sum := sha256.Sum256(compressed)
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), cmd.SHA256) {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=sha256 error=mismatch\n", cmd.ID)
 		return "", fmt.Errorf("Mihomo 下载文件 SHA-256 不匹配，已拒绝安装")
 	}
+	fmt.Printf("mihomo_update: checksum verified command_id=%q bytes=%d\n", cmd.ID, len(compressed))
+	stage = "decompress"
 	gz, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		return "", fmt.Errorf("Mihomo 压缩包损坏: %w", err)
@@ -1348,13 +1369,17 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if err := os.Chmod(newPath, 0755); err != nil {
 		return "", err
 	}
+	stage = "binary-self-test"
 	if _, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核自检失败（已隐藏底层路径详情）")
 	}
+	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%v\n", cmd.ID, err)
 		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
+	fmt.Printf("mihomo_update: config validated command_id=%q\n", cmd.ID)
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", err
@@ -1367,6 +1392,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", fmt.Errorf("当前配置没有 Mihomo API secret")
 	}
+	stage = "install-binary"
 	binaryPath := mihomoBinaryPath()
 	backupPath := binaryPath + ".previous"
 	_ = os.Remove(backupPath)
@@ -1377,6 +1403,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		_ = os.Rename(backupPath, binaryPath)
 		return "", fmt.Errorf("安装新 Mihomo 内核失败")
 	}
+	stage = "restart-health-check-rollback"
+	fmt.Printf("mihomo_update: binary installed command_id=%q stage=restart-and-health-check target_version=%q\n", cmd.ID, cmd.Version)
 	expectedVersion := strings.TrimPrefix(cmd.Version, "v")
 	upgradeErr := verifyKernelUpgrade(
 		func() error { return restartMihomo(secret) },
@@ -1384,11 +1412,15 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		func() error { return restoreMihomoKernel(binaryPath, backupPath, secret) },
 	)
 	if upgradeErr != nil {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%v\n", cmd.ID, time.Since(started).Milliseconds(), upgradeErr)
 		return "", upgradeErr
 	}
+	fmt.Printf("mihomo_update: health check passed command_id=%q version=%q\n", cmd.ID, cmd.Version)
+	stage = "remove-backup"
 	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("新内核已通过健康检查，但删除旧内核备份失败")
 	}
+	fmt.Printf("mihomo_update: completed command_id=%q version=%q duration_ms=%d\n", cmd.ID, cmd.Version, time.Since(started).Milliseconds())
 	return "Mihomo 内核已更新到 " + cmd.Version, nil
 }
 
