@@ -1391,3 +1391,41 @@ func TestEnsureV2NetDirectRuleAddsRulesWhenMissing(t *testing.T) {
 		t.Fatalf("unexpected rules: %#v", cfg["rules"])
 	}
 }
+
+func TestEnsureV2NetDirectRuleMovesRuleBeforeMatch(t *testing.T) {
+	cfg := map[string]interface{}{
+		"rules": []interface{}{
+			"MATCH,Proxy",
+			"DOMAIN-SUFFIX,v2net.cc,DIRECT",
+			"DOMAIN,example.com,DIRECT",
+		},
+	}
+	if !ensureV2NetDirectRule(cfg) {
+		t.Fatal("expected misplaced direct rule to be moved before MATCH")
+	}
+	rules := cfg["rules"].([]interface{})
+	if len(rules) != 3 || rules[0] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[1] != "MATCH,Proxy" || rules[2] != "DOMAIN,example.com,DIRECT" {
+		t.Fatalf("unexpected rule order after repair: %#v", rules)
+	}
+	if ensureV2NetDirectRule(cfg) {
+		t.Fatal("correctly placed direct rule should remain unchanged")
+	}
+}
+
+func TestEnsureV2NetDirectRuleDeduplicatesExistingRules(t *testing.T) {
+	cfg := map[string]interface{}{
+		"rules": []interface{}{
+			"DOMAIN-SUFFIX,v2net.cc,DIRECT",
+			"DOMAIN,example.com,DIRECT",
+			"DOMAIN-SUFFIX,v2net.cc,DIRECT",
+			"MATCH,Proxy",
+		},
+	}
+	if !ensureV2NetDirectRule(cfg) {
+		t.Fatal("expected duplicate direct rules to be normalized")
+	}
+	rules := cfg["rules"].([]interface{})
+	if len(rules) != 3 || rules[0] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
+		t.Fatalf("unexpected deduplicated rule order: %#v", rules)
+	}
+}
