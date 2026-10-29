@@ -365,7 +365,7 @@
           </div>
           <p class="import-note">如果之前出现“代理已保存，但节点配置同步失败”，可在修复导致失败的配置问题后点击此按钮。操作会重建所有已授权节点的代理规则，并保留节点 YAML 中其他自定义设置。</p>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
-            <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig">
+            <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig(); loadSmartDNSConfig()">
               <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
             </el-select>
             <el-button @click="loadAgentsData">刷新节点</el-button>
