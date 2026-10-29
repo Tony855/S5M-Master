@@ -49,6 +49,24 @@ jobs:
               assert marker in script, f"missing existing TLS reuse guard: {marker}"
           print("PASS: installer scans existing S5M TLS vhosts and validates certificate/domain before prompting")
           PY
+      - name: Test IPv4 and IPv6 HTTPS listener detection patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          listener_re='^[[:space:]]*listen[[:space:]]+(\\[::\\]:)?443[[:space:]]+ssl([[:space:]]|;|$)'
+          for line in 'listen 443 ssl;' '    listen [::]:443 ssl;' 'listen 443 ssl http2;'; do
+            printf '%s\n' "$line" | grep -Eq "$listener_re" || {
+              echo "FAIL: expected HTTPS listener to match: $line"
+              exit 1
+            }
+          done
+          for line in 'listen 80;' 'listen [::]:80;' 'listen 8443 ssl;'; do
+            if printf '%s\n' "$line" | grep -Eq "$listener_re"; then
+              echo "FAIL: non-443 listener matched: $line"
+              exit 1
+            fi
+          done
+          echo "PASS: IPv4/IPv6 port-443 SSL listeners detected; non-TLS listeners ignored"
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
