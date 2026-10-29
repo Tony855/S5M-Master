@@ -29,12 +29,18 @@ profile:
     store-fake-ip: true
 dns:
     enable: true
+    ipv6: false
     listen: 127.0.0.1:5353
     enhanced-mode: fake-ip
     fake-ip-range: 198.18.0.1/16
     fake-ip-filter:
         - '*.lan'
+        - '*.local'
+        - 'geosite:private'
         - '+.v2net.cc'
+    default-nameserver:
+        - 223.5.5.5
+        - 119.29.29.29
     proxy-server-nameserver:
         - 223.5.5.5
         - 119.29.29.29
@@ -52,6 +58,8 @@ tun:
     stack: system
     auto-route: true
     auto-detect-interface: true
+    dns-hijack:
+        - 'any:53'
 proxies:__PROXIES__
 rules:__RULES__`
 
@@ -130,15 +138,49 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fake-ip-filter"}, filter)
 		}
 	}
-	filterHasControllerDomain := false
-	for _, item := range filter.Content {
-		if item.Value == "+.v2net.cc" {
-			filterHasControllerDomain = true
-			break
+	// Disable AAAA answers and keep local/private/controller names out of fake-IP.
+	setScalar(dns, "ipv6", "false", "!!bool")
+	for _, pattern := range []string{"*.lan", "*.local", "geosite:private", "+.v2net.cc"} {
+		found := false
+		for _, item := range filter.Content {
+			if item.Value == pattern {
+				found = true
+				break
+			}
+		}
+		if !found {
+			filter.Content = append(filter.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: pattern})
 		}
 	}
-	if !filterHasControllerDomain {
-		filter.Content = append(filter.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "+.v2net.cc"})
+
+	// Resolve DoH endpoint hostnames through explicit bootstrap DNS servers.
+	defaultDNS := mappingValue(dns, "default-nameserver")
+	if defaultDNS == nil || defaultDNS.Kind != yaml.SequenceNode {
+		defaultDNS = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "default-nameserver" {
+				dns.Content[i+1] = defaultDNS
+				found = true
+				break
+			}
+		}
+		if !found {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "default-nameserver"}, defaultDNS)
+		}
+	}
+	for _, server := range []string{"223.5.5.5", "119.29.29.29"} {
+		found := false
+		for _, item := range defaultDNS.Content {
+			if item.Value == server {
+				found = true
+				break
+			}
+		}
+		if !found {
+			defaultDNS.Content = append(defaultDNS.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+		}
 	}
 
 	// Resolve proxy endpoint hostnames through explicit bootstrap DNS servers rather
@@ -259,6 +301,33 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tun"}, tun)
 	}
+	dnsHijack := mappingValue(tun, "dns-hijack")
+	if dnsHijack == nil || dnsHijack.Kind != yaml.SequenceNode {
+		dnsHijack = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(tun.Content); i += 2 {
+			if tun.Content[i].Value == "dns-hijack" {
+				tun.Content[i+1] = dnsHijack
+				found = true
+				break
+			}
+		}
+		if !found {
+			tun.Content = append(tun.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "dns-hijack"}, dnsHijack)
+		}
+	}
+	foundDNSHijack := false
+	for _, item := range dnsHijack.Content {
+		if item.Value == "any:53" {
+			foundDNSHijack = true
+			break
+		}
+	}
+	if !foundDNSHijack {
+		dnsHijack.Content = append(dnsHijack.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "any:53"})
+	}
+
 	routeExclude := mappingValue(tun, "route-exclude-address")
 	if routeExclude == nil || routeExclude.Kind != yaml.SequenceNode {
 		routeExclude = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
