@@ -65,6 +65,41 @@ func TestQueueAgentSmartDNSConfigRequiresDedicatedAuthorizedAgent(t *testing.T) 
 	}
 }
 
+func TestQueueAgentSmartDNSConfigRollsBackCommandWhenDesiredConfigWriteFails(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "smartdns-atomic.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	const code = "node_smartdns_03"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":           "global-token",
+		"agent_machine_" + code: "dedicated-token",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_smartdns_desired_config
+		BEFORE INSERT ON settings
+		WHEN NEW.key = 'agent_smartdns_config_node_smartdns_03'
+		BEGIN SELECT RAISE(ABORT, 'simulated desired config write failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+	a := &App{store: store}
+	if err := a.queueAgentSmartDNSConfig(code, defaultAgentSmartDNSConfig); err == nil || !strings.Contains(err.Error(), "期望配置") {
+		t.Fatalf("queue error = %v, want desired-config persistence failure", err)
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if _, exists := settings["agent_command_"+code]; exists {
+		t.Fatalf("pending command was left behind after transaction failure: %q", settings["agent_command_"+code])
+	}
+	if _, exists := settings["agent_smartdns_config_"+code]; exists {
+		t.Fatalf("desired config unexpectedly persisted despite trigger failure")
+	}
+}
+
 func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "smartdns-get.db"))
 	if err != nil {
