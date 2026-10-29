@@ -73,8 +73,8 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 	defer store.db.Close()
 	const code = "node_smartdns_02"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token": "global-token",
-		"agent_machine_" + code: "dedicated-token",
+		"agent_token":           "global-token",
+		"agent_machine_" + code:         "dedicated-token",
 		"agent_status_" + code:          `{"smartdns_available":true,"smartdns_running":true,"smartdns_version":"SmartDNS test","smartdns_config_sha256":"abc"}`,
 		"agent_smartdns_config_" + code: defaultAgentSmartDNSConfig,
 	}); err != nil {
