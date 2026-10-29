@@ -1429,3 +1429,15 @@ func TestEnsureV2NetDirectRuleDeduplicatesExistingRules(t *testing.T) {
 		t.Fatalf("unexpected deduplicated rule order: %#v", rules)
 	}
 }
+
+func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
+	payload := []byte("mixed-port: 7890\nsecret: test-secret\n\n")
+	want := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if got := controllerConfigHash(payload); got != want {
+		t.Fatalf("controllerConfigHash() = %q, want exact-byte hash %q", got, want)
+	}
+	trimmedHash := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(payload)))))
+	if controllerConfigHash(payload) == trimmedHash {
+		t.Fatal("trailing whitespace must remain part of the exact payload hash")
+	}
+}
