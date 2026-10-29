@@ -353,7 +353,7 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 			}
 		}
 		if !found {
-			routeExclude.Content = append(routeExclude.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cidr})
+			routeExclude.Content = append(routeExclude.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cidr, Style: yaml.DoubleQuotedStyle})
 		}
 	}
 
