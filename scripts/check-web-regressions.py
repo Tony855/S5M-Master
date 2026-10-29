@@ -376,6 +376,13 @@ checks["node config sync retry mutation uses explicit authenticated WebSocket RP
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+checks["Agent management list snapshot uses authenticated WebSocket RPC instead of HTTP"] = (
+    "sendAgentWSControl({ type: 'agents.list.get' })" in agent_list_html
+    and "fetch('/api/v1/agents'" not in agent_list_html
+    and "window.addEventListener('load', () => {\n            connectAgentEvents();" in agent_list_html
+    and "socket.onopen" in agent_list_html
+)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)

@@ -72,13 +72,8 @@
                 return;
             }
             try {
-                const res = await fetch('/api/v1/agents', { headers: { Authorization: 'Bearer ' + token } });
-                if (res.status === 401) throw new Error('登录已失效，请返回主控台重新登录');
-                if (!res.ok) {
-                    const body = await res.json().catch(() => ({}));
-                    throw new Error(body.error || ('HTTP ' + res.status));
-                }
-                const data = await res.json();
+                const result = await sendAgentWSControl({ type: 'agents.list.get' });
+                const data = result.data || result;
                 const entries = Object.entries(data || {});
                 if (!entries.length) {
                     tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无已授权机器码。</td></tr>';
@@ -324,6 +319,7 @@
                         return;
                     }
                     agentsConnecting = false;
+                    loadAgents();
                 };
                 socket.onmessage = event => {
                     if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY) || agentsSocket !== socket) return;
@@ -377,7 +373,6 @@
             }
         });
         window.addEventListener('load', () => {
-            loadAgents();
             connectAgentEvents();
         });
     </script>
