@@ -435,6 +435,15 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 		if err != nil {
 			return err
 		}
+	}
+	// Repair stale persisted node configs before hashing/sending; otherwise the Agent
+	// would keep receiving controller port 8080 despite Docker publishing 7890.
+	normalized, normalizeErr := normalizeAgentMixedPort(yml)
+	if normalizeErr != nil {
+		return normalizeErr
+	}
+	if normalized != yml {
+		yml = normalized
 		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
 			return err
 		}
