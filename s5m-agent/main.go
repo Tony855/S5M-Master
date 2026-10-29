@@ -1837,7 +1837,7 @@ func runAgentWebSocketSession(cfg Config) error {
 					lastConfigSyncError = ""
 					_ = os.Remove(mihomoConfigPath() + ".previous")
 					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
-				} 
+				}
 			} else {
 				lastConfigSyncError = ""
 			}
