@@ -378,6 +378,8 @@ checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes r
     and 'case "agent.smartdns.get":' in browser_ws_source
     and 'case "agent.smartdns.configure":' in browser_ws_source
     and "hashSmartDNSConfig(config)" in browser_ws_source
+    and '"command_result":         commandResult' in browser_ws_source
+    and "smartDNSStatus.command_result.status" in Path("source/web/index.html").read_text(encoding="utf-8")
 )
 
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
