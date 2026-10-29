@@ -1278,13 +1278,13 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 	stage := "start"
 	defer func() {
 		if retErr != nil {
-			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%v\n", cmd.ID, stage, time.Since(started).Milliseconds(), retErr)
+			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%q\n", cmd.ID, stage, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(retErr.Error())))
 		}
 	}()
 	fmt.Printf("mihomo_update: started command_id=%q target_version=%q arch=%q\n", cmd.ID, cmd.Version, runtime.GOARCH)
 	stage = "validate"
 	if err := validateKernelUpdateCommand(cmd); err != nil {
-		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%v\n", cmd.ID, err)
+		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", err
 	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
@@ -1376,7 +1376,7 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
-		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%v\n", cmd.ID, err)
+		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
 	fmt.Printf("mihomo_update: config validated command_id=%q\n", cmd.ID)
@@ -1412,7 +1412,7 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 		func() error { return restoreMihomoKernel(binaryPath, backupPath, secret) },
 	)
 	if upgradeErr != nil {
-		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%v\n", cmd.ID, time.Since(started).Milliseconds(), upgradeErr)
+		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%q\n", cmd.ID, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(upgradeErr.Error())))
 		return "", upgradeErr
 	}
 	fmt.Printf("mihomo_update: health check passed command_id=%q version=%q\n", cmd.ID, cmd.Version)
