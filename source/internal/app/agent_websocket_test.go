@@ -1294,3 +1294,30 @@ func TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate(t *testing.T) {
 		t.Fatalf("agent WebSocket heartbeat TTL = %s; want at least 5 minutes for kernel updates", agentWSHeartbeatTTL)
 	}
 }
+
+func TestAckAgentWSCommandRedactsSensitiveResultBeforePersisting(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	pending := `{"id":"cmd-redact","type":"update_mihomo"}`
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: pending}); err != nil {
+		t.Fatalf("queue pending command: %v", err)
+	}
+	message := "token=super-secret failed at /tmp/private/config.yaml"
+	if err := app.ackAgentWSCommand(code, "cmd-redact", "failed", message); err != nil {
+		t.Fatalf("ack command: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read command result: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode command result: %v", err)
+	}
+	got, _ := result["message"].(string)
+	if strings.Contains(got, "super-secret") || strings.Contains(got, "/tmp/private/config.yaml") {
+		t.Fatalf("sensitive command result was persisted unredacted: %q", got)
+	}
+	if !strings.Contains(got, "[已隐藏]") || !strings.Contains(got, "[路径已隐藏]") {
+		t.Fatalf("command result lost redaction markers: %q", got)
+	}
+}
