@@ -341,7 +341,8 @@ jobs:
           grep -Fq "'any:53'" "$generator"
           grep -Fq 'Existing /data/config.yaml is intentionally preserved' "$config"
           grep -Fq "sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" source/web/app.js
-          ! grep -Fq "api('/api/v1/nodes/' + encodeURIComponent(code) + '/config" source/web/app.js
+          ! grep -Fq "api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=" source/web/app.js
+          grep -Fq "type: 'node.config.save'" source/web/app.js
           echo "PASS: Agent DNS/TUN defaults match controller normalization; TUN stays disabled; node config reads use WebSocket."
       - name: Check UI data-integrity regressions
         run: python3 scripts/check-web-regressions.py
