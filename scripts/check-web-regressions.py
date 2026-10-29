@@ -368,7 +368,7 @@ checks["browser WebSocket close rejects pending RPCs immediately and marks write
     "const rejectPendingBrowserWSRequests = (message) => {" in app_js
     and "rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试')" in app_js
     and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
-    and "if (browserEventsSocket === socket) {" in app_js
+    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
     and "pending.reject(new Error(message))" in app_js
 )
 
