@@ -19,75 +19,32 @@ import (
 
 const baseTemplate = `mode: rule
 mixed-port: 8080
+allow-lan: true
 log-level: info
+ipv6: false
 external-controller: 127.0.0.1:8088
 secret: "__S5M_MIHOMO_SECRET__"
-allow-lan: true
-find-process-mode: "off"
-tcp-concurrent: true
-ipv6: false
-unified-delay: true
-tcp-fast-open: true
-
-sniffer:
-    enable: true
-    sniff:
-        HTTP:
-            ports: [80]
-            override-destination: true
-        TLS:
-            ports: [443]
-        QUIC:
-            ports: [443]
-            override-destination: true
-tun:
-    enable: true
-    tcp-concurrent: true
-    bind-address: '*'
-    stack: mixed
-    dns-hijack:
-        - 'any:53'
-        - 'tcp://any:53'
-    auto-detect-interface: true
-    auto-route: true
-    strict-route: true
+profile:
+    store-selected: true
+    store-fake-ip: true
 dns:
     enable: true
-    # LAN clients may use this listener; firewall must restrict TCP/UDP 5353 to trusted LANs.
-    listen: 0.0.0.0:5353
+    listen: 127.0.0.1:5353
     enhanced-mode: fake-ip
-    cache-algorithm: arc
     fake-ip-range: 198.18.0.1/16
     fake-ip-filter:
         - '*.lan'
-        - '*.local'
-        - '*.msftconnecttest.com'
-        - '*.msftncsi.com'
-    # Bootstrap DNS is plain DNS; restrict its egress if a strict no-cleartext-DNS policy is required.
-    default-nameserver:
-        - 223.5.5.5
-        - 119.29.29.29
-    # DNS 请求遵循 Mihomo 路由规则；DoH 服务器规则会把查询送入节点代理。
-    respect-rules: true
-    # 仅用于解析代理服务器自身的域名，避免代理启动与 DNS 代理之间形成循环。
-    proxy-server-nameserver:
-        - 223.5.5.5
-        - 119.29.29.29
+        - '+.v2net.cc'
     nameserver:
-        - https://dns.alidns.com/dns-query
-        - https://doh.pub/dns-query
-    fallback:
-        - https://dns.cloudflare.com/dns-query
-        - https://dns.google/dns-query
-    fallback-filter:
-        geoip: true
-        geoip-code: CN
-        ipcidr:
-            - 240.0.0.0/4
-
+        - 223.5.5.5
+        - 119.29.29.29
+tun:
+    enable: false
+    stack: system
+    auto-route: true
+    auto-detect-interface: true
 proxies:__PROXIES__
 rules:__RULES__
-`
 
 type proxyOut struct {
 	Name   string         `yaml:"name"`
