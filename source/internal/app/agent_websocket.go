@@ -255,15 +255,19 @@ func (c *browserEventClient) writeJSON(v any) error {
 func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string, handler http.HandlerFunc, req *http.Request) {
 	rec := httptest.NewRecorder()
 	handler(rec, req)
-	var payload map[string]any
+	var payload any
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		payload = map[string]any{"error": "服务器返回了无效 JSON"}
 	}
 	reply := map[string]any{"type": "request.result", "request_id": requestID, "ok": rec.Code >= 200 && rec.Code < 300}
 	if rec.Code >= 200 && rec.Code < 300 {
 		reply["data"] = payload
-	} else if errText, ok := payload["error"].(string); ok {
-		reply["error"] = errText
+	} else if object, ok := payload.(map[string]any); ok {
+		if errText, ok := object["error"].(string); ok {
+			reply["error"] = errText
+		} else {
+			reply["error"] = "读取数据失败"
+		}
 	} else {
 		reply["error"] = "读取数据失败"
 	}
