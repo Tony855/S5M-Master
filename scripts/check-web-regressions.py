@@ -297,6 +297,19 @@ checks["Mihomo template publish/apply/rollback mutations use explicit authentica
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+
+checks["Agent kernel release lookup and binding revocation use authenticated WebSocket RPC"] = (
+    "type: 'agent.mihomo.update-info'" in app_js
+    and "type: 'agent.binding.revoke'" in app_js
+    and "api('/api/v1/agents/kernel-update-info?" not in app_js
+    and "api('/api/v1/agents?code='" not in app_js
+    and 'case "agent.mihomo.update-info":' in browser_ws_source
+    and 'case "agent.binding.revoke":' in browser_ws_source
+    and "a.handleAgentMihomoUpdateInfo" in browser_ws_source
+    and "a.handleDeleteAgent" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
     and "api('/api/v1/nodes/config-sync'" not in app_js

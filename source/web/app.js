@@ -890,9 +890,8 @@ createApp({
       kernelUpdateVersion.value = '';
       kernelUpdateSHA256.value = '';
       try {
-        const res = await api('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(machineCode) + '&t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        const result = await sendBrowserWSControl({ type: 'agent.mihomo.update-info', machine_code: machineCode });
+        const data = result.data || result;
         kernelUpdateInfo.value = data;
         kernelUpdateVersion.value = String(data.latest_version || '');
         kernelUpdateSHA256.value = String(data.sha256 || '').toLowerCase();
@@ -949,8 +948,10 @@ createApp({
     const deleteAgent = async (code) => {
       if (!confirm('确定删除机器码 "' + code + '" 的 Token？')) return;
       try {
-        const res = await api('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' });
-        if (res.ok) { if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; } await loadAgentsData(); showMsg('已撤销绑定；旧 Token 已失效', 'success'); } else showMsg(await parseErr(res), 'error');
+        await sendBrowserWSControl({ type: 'agent.binding.revoke', machine_code: code });
+        if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; }
+        await loadAgentsData();
+        showMsg('已撤销绑定；旧 Token 已失效', 'success');
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
