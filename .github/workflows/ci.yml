@@ -37,17 +37,17 @@ jobs:
           cert_issue = script.index('certbot --nginx --non-interactive')
           assert detection < prompt < cert_issue, "TLS detection must happen before prompting and certificate issuance"
           for marker in (
-              "/etc/nginx/sites-enabled/*",
-              "/etc/nginx/sites-available/*",
-              "/etc/nginx/conf.d/*.conf",
-              "proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:8080",
+              "nginx -T 2>/dev/null | python3 -c",
+              "never combine a certificate from one vhost",
+              "proxy_pass",
+              "ssl_certificate_key",
               "openssl x509 -in \"$cert_path\" -noout -checkhost",
               "openssl x509 -in \"$cert_path\" -noout -checkend 0",
               "HTTPS_ALREADY_CONFIGURED=1",
               "不重新询问域名或签发证书",
           ):
               assert marker in script, f"missing existing TLS reuse guard: {marker}"
-          print("PASS: installer scans existing S5M TLS vhosts and validates certificate/domain before prompting")
+          print("PASS: installer parses expanded Nginx server blocks and validates S5M TLS certificate/domain before prompting")
           PY
       - name: Test IPv4 and IPv6 HTTPS listener detection patterns
         shell: bash
