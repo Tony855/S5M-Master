@@ -752,7 +752,6 @@ func mihomoSecretCandidates(configPath string) ([]string, error) {
 }
 
 func reloadMihomo() error {
-	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	secrets, err := mihomoSecretCandidates(configPath)
 	if err != nil {
