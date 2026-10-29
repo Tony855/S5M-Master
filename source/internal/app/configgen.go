@@ -41,6 +41,12 @@ dns:
     nameserver:
         - 223.5.5.5
         - 119.29.29.29
+    fallback:
+        - https://dns.cloudflare.com/dns-query
+        - https://dns.google/dns-query
+    fallback-filter:
+        geoip: true
+        geoip-code: CN
 tun:
     enable: false
     stack: system
@@ -164,6 +170,53 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 		if !found {
 			proxyDNS.Content = append(proxyDNS.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
 		}
+	}
+
+	// Use independent international DoH resolvers as fallback. Preserve any
+	// configured fallback endpoints and append defaults only when missing.
+	fallback := mappingValue(dns, "fallback")
+	if fallback == nil || fallback.Kind != yaml.SequenceNode {
+		fallback = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "fallback" {
+				dns.Content[i+1] = fallback
+				found = true
+				break
+			}
+		}
+		if !found {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fallback"}, fallback)
+		}
+	}
+	for _, server := range []string{"https://dns.cloudflare.com/dns-query", "https://dns.google/dns-query"} {
+		found := false
+		for _, item := range fallback.Content {
+			if item.Value == server {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fallback.Content = append(fallback.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+		}
+	}
+	fallbackFilter := mappingValue(dns, "fallback-filter")
+	if fallbackFilter == nil || fallbackFilter.Kind != yaml.MappingNode {
+		fallbackFilter = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		dns.Content = append(dns.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fallback-filter"}, fallbackFilter)
+	}
+	if mappingValue(fallbackFilter, "geoip") == nil {
+		fallbackFilter.Content = append(fallbackFilter.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "geoip"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+	}
+	if mappingValue(fallbackFilter, "geoip-code") == nil {
+		fallbackFilter.Content = append(fallbackFilter.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "geoip-code"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "CN"})
 	}
 
 	// Exclude private/local ranges from TUN route capture and also exclude literal
