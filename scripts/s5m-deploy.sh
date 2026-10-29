@@ -8,6 +8,7 @@ IMAGE_LOCAL="s5m-agent:local"
 CONTAINER="s5m-agent"
 DATA_DIR="/opt/s5m-agent/data"
 PORT_WEB=80
+PORT_PROXY=7890
 
 log()  { echo -e "\033[32m[+]\033[0m $*"; }
 warn() { echo -e "\033[33m[!]\033[0m $*"; }
@@ -119,7 +120,7 @@ docker run -d \
   --cap-add=NET_ADMIN \
   --device=/dev/net/tun:/dev/net/tun \
   -p "${PORT_WEB}:80" \
-  -p 7890:7890 \
+  -p "${PORT_PROXY}:7890" \
   -v "$DATA_DIR":/data \
   "$IMAGE_LOCAL" || die "容器启动失败"
 
