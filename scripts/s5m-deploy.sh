@@ -14,6 +14,53 @@ log()  { echo -e "\033[32m[+]\033[0m $*"; }
 warn() { echo -e "\033[33m[!]\033[0m $*"; }
 die()  { echo -e "\033[31m[x]\033[0m $*"; exit 1; }
 
+# HTTP checks support curl, wget, or Python so minimal Ubuntu/Debian images work.
+http_get() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --max-time 5 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO- --timeout=5 "$url"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$url" <<'PYHTTP'
+import sys
+from urllib.request import urlopen
+try:
+    with urlopen(sys.argv[1], timeout=5) as response:
+        sys.stdout.buffer.write(response.read())
+except Exception as exc:
+    print(f"HTTP request failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+PYHTTP
+  else
+    warn "无法执行 HTTP 检查：curl、wget、python3 均不可用"
+    return 127
+  fi
+}
+
+http_head() {
+  local url="$1"
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSI --max-time 5 "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --spider -S --timeout=5 "$url" 2>&1
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$url" <<'PYHTTP'
+import sys
+from urllib.request import Request, urlopen
+try:
+    with urlopen(Request(sys.argv[1], method="HEAD"), timeout=5) as response:
+        print(f"HTTP/{response.version} {response.status} {response.reason}")
+except Exception as exc:
+    print(f"HTTP HEAD failed: {exc}", file=sys.stderr)
+    sys.exit(1)
+PYHTTP
+  else
+    warn "无法执行 HTTP 检查：curl、wget、python3 均不可用"
+    return 127
+  fi
+}
+
 # ---------- 自动探测镜像文件路径 ----------
 find_image_tar() {
   local dirs=("$PWD" "$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" /root /tmp)
@@ -93,10 +140,10 @@ log "容器日志（末 20 行）："
 docker logs --tail 20 "$CONTAINER" 2>&1 || true
 echo
 log "machine-id："
-curl -fsS "http://127.0.0.1:${PORT_WEB}/api/machine-id" || warn "API 暂无响应，稍等几秒再试"
+http_get "http://127.0.0.1:${PORT_WEB}/api/machine-id" || warn "API 暂无响应或缺少 HTTP 客户端；请检查容器日志和端口"
 echo
 log "Web 探活："
-curl -sI --max-time 5 "http://127.0.0.1:${PORT_WEB}" | head -n1 || warn "80 端口未响应"
+http_head "http://127.0.0.1:${PORT_WEB}" | head -n1 || warn "80 端口未响应或缺少 HTTP 客户端"
 echo
 log "完成。浏览器访问： http://<服务器公网IP>"
 warn "请确认安全组/防火墙按需放行 ${PORT_WEB} 和 ${PORT_PROXY}"
