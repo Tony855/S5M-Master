@@ -134,7 +134,7 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 	if result["desired_config_sha256"] != hashSmartDNSConfig(defaultAgentSmartDNSConfig) {
 		t.Fatalf("desired_config_sha256 = %v, want %s", result["desired_config_sha256"], hashSmartDNSConfig(defaultAgentSmartDNSConfig))
 	}
-	if hashSmartDNSConfig("server 223.5.5.5\\n") != hashSmartDNSConfig("server 223.5.5.5") {
+	if hashSmartDNSConfig("server 223.5.5.5\n") != hashSmartDNSConfig("server 223.5.5.5") {
 		t.Fatal("SmartDNS desired hash must ignore trailing whitespace, matching Agent runtime hashing")
 	}
 	if result["reported_config_sha256"] != "abc" {
