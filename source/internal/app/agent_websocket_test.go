@@ -1321,3 +1321,16 @@ func TestAckAgentWSCommandRedactsSensitiveResultBeforePersisting(t *testing.T) {
 		t.Fatalf("command result lost redaction markers: %q", got)
 	}
 }
+
+func TestSanitizeAgentWebSocketTextRedactsJSONCredentialsAndBearerTokens(t *testing.T) {
+	input := `{"token":"json-secret","api_key":"key-secret"} Authorization: Bearer bearer-secret`
+	got := sanitizeAgentWebSocketText(input)
+	for _, secret := range []string{"json-secret", "key-secret", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sensitive value %q remained in sanitized text: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 3 {
+		t.Fatalf("expected JSON credentials and bearer token to be redacted: %q", got)
+	}
+}

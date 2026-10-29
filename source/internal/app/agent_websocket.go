@@ -516,7 +516,10 @@ func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) err
 
 func sanitizeAgentWebSocketText(value string) string {
 	detail := strings.TrimSpace(value)
-	detail = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(detail, "$1$2[已隐藏]")
+	// Handle both plain key=value diagnostics and JSON-like quoted fields.
+	detail = regexp.MustCompile(`(?i)(["']?(?:secret|token|password|api[_-]?key)["']?\s*[:=]\s*["']?)[^"'[:space:],;}{]+`).ReplaceAllString(detail, "$1[已隐藏]")
+	// Authorization headers commonly carry credentials without a token key.
+	detail = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]+`).ReplaceAllString(detail, "$1[已隐藏]")
 	detail = regexp.MustCompile(`([A-Za-z]:)?[/\\\\][^[:space:]\\"']+`).ReplaceAllString(detail, "[路径已隐藏]")
 	detail = strings.Join(strings.Fields(detail), " ")
 	if len(detail) > 600 {
