@@ -1266,6 +1266,29 @@ func TestQueueAgentMihomoUpdateRejectsInvalidInputAndUnknownAgent(t *testing.T) 
 // TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate guards against the server
 // closing an Agent session while a bounded Mihomo download/restart/health check is
 // still running and the Agent cannot send another heartbeat until it finishes.
+func TestSafeAgentWebSocketErrorRedactsSensitiveDetails(t *testing.T) {
+	err := fmt.Errorf("open /opt/s5m-agent/data/config.yaml failed: token=abc123 secret: xyz789: YAML syntax error")
+	got := safeAgentWebSocketError("读取节点配置", err)
+	if !strings.Contains(got, "读取节点配置失败") || !strings.Contains(got, "YAML syntax error") {
+		t.Fatalf("diagnostic lost useful error details: %q", got)
+	}
+	for _, secret := range []string{"abc123", "xyz789", "/opt/s5m-agent"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("diagnostic leaked sensitive value %q: %q", secret, got)
+		}
+	}
+}
+
+func TestSafeAgentWebSocketErrorHandlesEmptyErrorAndBoundsLength(t *testing.T) {
+	if got := safeAgentWebSocketError("读取节点配置", nil); got != "读取节点配置失败: 未知错误" {
+		t.Fatalf("empty error diagnostic = %q", got)
+	}
+	got := safeAgentWebSocketError("读取节点配置", fmt.Errorf("%s", strings.Repeat("x", 1000)))
+	if len(got) > 650 {
+		t.Fatalf("diagnostic exceeds safe bound: %d bytes", len(got))
+	}
+}
+
 func TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate(t *testing.T) {
 	if agentWSHeartbeatTTL < 5*time.Minute {
 		t.Fatalf("agent WebSocket heartbeat TTL = %s; want at least 5 minutes for kernel updates", agentWSHeartbeatTTL)

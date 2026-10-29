@@ -514,6 +514,20 @@ func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) err
 	return nil
 }
 
+func safeAgentWebSocketError(operation string, err error) string {
+	detail := "未知错误"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		detail = strings.TrimSpace(err.Error())
+	}
+	detail = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(detail, "$1$2[已隐藏]")
+	detail = regexp.MustCompile(`([A-Za-z]:)?[/\\\\][^[:space:]\\"']+`).ReplaceAllString(detail, "[路径已隐藏]")
+	detail = strings.Join(strings.Fields(detail), " ")
+	if len(detail) > 600 {
+		detail = detail[:600] + "…"
+	}
+	return operation + "失败: " + detail
+}
+
 func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	machineCode, err := a.agentMachineFromRequest(r)
 	if err != nil {
@@ -592,12 +606,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			a.agentWSMu.Unlock()
 			if err != nil {
 				fmt.Printf("agent_ws: request failed machine_code=%q type=%q id=%q: %v\n", machineCode, msg.Type, msg.ID, err)
-				message := err.Error()
+				operation := "处理 Agent WebSocket 请求"
 				if msg.Type == "config.request" {
-					message = "读取节点配置失败"
+					operation = "读取节点配置"
 				} else if msg.Type == "command.request" {
-					message = "读取待执行命令失败"
+					operation = "读取待执行命令"
 				}
+				message := safeAgentWebSocketError(operation, err)
 				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": message})
 				continue
 			}
