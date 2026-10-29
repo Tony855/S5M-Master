@@ -2399,6 +2399,22 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Repair stale persisted Agent YAML before returning it to the management UI.
+	// Keep the controller/global template untouched and update only this machine's config.
+	normalized, normalizeErr := normalizeAgentMixedPort(cfg.YAML)
+	if normalizeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "节点配置端口校正失败: "+normalizeErr.Error())
+		return
+	}
+	if normalized != cfg.YAML {
+		if saveErr := a.store.SaveNodeConfig(code, normalized); saveErr != nil {
+			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
+			return
+		}
+		// Keep any existing template/independent binding metadata intact; only refresh its config hash.
+		_, _ = a.store.db.Exec("UPDATE node_template_bindings SET config_sha256 = ?, updated_at = ? WHERE machine_code = ?", hashConfig(normalized), time.Now().UTC().Format(time.RFC3339), code)
+		cfg.YAML = normalized
+	}
 	writeJSON(w, 200, cfg)
 }
 
