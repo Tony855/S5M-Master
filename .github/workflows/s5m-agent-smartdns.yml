@@ -56,6 +56,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: s5m-agent/go.mod
+          cache: true
+          cache-dependency-path: s5m-agent/go.sum
+
+      - name: Run Agent unit tests
+        working-directory: s5m-agent
+        run: go test ./...
+
       - name: Install DNS test client
         run: |
           sudo apt-get update
