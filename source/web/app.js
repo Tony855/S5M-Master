@@ -262,7 +262,11 @@ createApp({
             if (pending) {
               browserWSRequests.delete(envelope.request_id);
               if (envelope.ok) pending.resolve(envelope);
-              else pending.reject(new Error(envelope.error || '实时操作失败'));
+              else {
+                const error = new Error(envelope.error || '实时操作失败');
+                if (Array.isArray(envelope.bound_nodes)) error.bound_nodes = envelope.bound_nodes;
+                pending.reject(error);
+              }
             }
             return;
           }
@@ -1039,12 +1043,10 @@ createApp({
       if (deletingTemplateVersion.value) return;
       deletingTemplateVersion.value = target;
       try {
-        const res = await api('/api/v1/mihomo/template/' + target, { method: 'DELETE' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const error = new Error(data.error || data.message || '删除模板版本失败');
-          error.bound_nodes = data.bound_nodes;
-          throw error;
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.delete', version: String(target) });
+        const data = result.data || result;
+        if (data.bound_nodes) {
+          // Keep any server-provided bound-node details visible if deletion is rejected.
         }
         if (Number(selectedTemplateVersion.value) === target) selectedTemplateVersion.value = null;
         showMsg(data.message || ('模板历史版本 v' + target + ' 已删除'), 'success');

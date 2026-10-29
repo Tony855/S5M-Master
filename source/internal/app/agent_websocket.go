@@ -174,6 +174,31 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "mihomo.template.delete":
+			versionText := strings.TrimSpace(message.Version)
+			version, err := strconv.Atoi(versionText)
+			if err != nil || version < 1 || strconv.Itoa(version) != versionText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "模板版本号无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/mihomo/template/"+strconv.Itoa(version), nil)
+			req.SetPathValue("version", strconv.Itoa(version))
+			rec := httptest.NewRecorder()
+			a.handleDeleteMihomoTemplateVersion(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				} else {
+					reply["error"] = "删除模板版本失败"
+				}
+			}
+			_ = client.writeJSON(reply)
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()
