@@ -488,6 +488,32 @@ func (a *App) queueAgentMihomoUpdate(machineCode, version, sha256sum string) err
 	return nil
 }
 
+// writeAgentWSJSON applies a bounded write deadline to every server-to-Agent
+// frame. Without this, a slow or half-open peer can stall command/config handling
+// indefinitely and make the control channel appear unresponsive.
+func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) error {
+	messageType := "unknown"
+	switch message := payload.(type) {
+	case map[string]any:
+		if value, ok := message["type"].(string); ok {
+			messageType = value
+		}
+	case map[string]string:
+		if value, ok := message["type"]; ok {
+			messageType = value
+		}
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %v\\n", machineCode, messageType, err)
+		return err
+	}
+	if err := conn.WriteJSON(payload); err != nil {
+		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %v\\n", machineCode, messageType, err)
+		return err
+	}
+	return nil
+}
+
 func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	machineCode, err := a.agentMachineFromRequest(r)
 	if err != nil {
@@ -521,7 +547,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 	})
 
-	if err := conn.WriteJSON(map[string]any{
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 		"type":                   "welcome",
 		"protocol":               1,
 		"heartbeat_interval_sec": 30,
@@ -540,13 +566,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			a.agentWSMu.Lock()
 			if a.agentWSGeneration[machineCode] != generation {
 				a.agentWSMu.Unlock()
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
 				return
 			}
 			authorizedCode, authErr := a.agentMachineFromRequest(r)
 			if authErr != nil || authorizedCode != machineCode {
 				a.agentWSMu.Unlock()
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
 				return
 			}
 			switch msg.Type {
@@ -565,22 +591,22 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 				} else if msg.Type == "command.request" {
 					message = "读取待执行命令失败"
 				}
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": message})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": message})
 				continue
 			}
 			if msg.Type == "command.ack" {
-				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+				if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
 					return
 				}
 			}
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
-			_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
 			continue
 		}
 		if err := validateAgentWSStatus(msg.Status); err != nil {
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": err.Error(),
@@ -597,7 +623,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.agentWSMu.Lock()
 		if a.agentWSGeneration[machineCode] != generation {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "Agent WebSocket 连接已被更新连接取代",
@@ -611,7 +637,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		authorizedCode, authErr := a.agentMachineFromRequest(r)
 		if authErr != nil || authorizedCode != machineCode {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "Agent 未授权或授权已失效",
@@ -623,7 +649,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "已忽略较旧的 Agent 心跳",
@@ -635,7 +661,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			"agent_status_" + machineCode:   string(payload),
 		}); err != nil {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "保存 Agent 心跳失败",
@@ -646,7 +672,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.agentWSMu.Unlock()
 		a.publishBrowserEvent(map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "last_seen": receivedAt.Unix(), "status": msg.Status})
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
-		if err := conn.WriteJSON(map[string]any{
+		if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 			"type": "heartbeat.ack",
 			"id":   msg.ID,
 			"ok":   true,
@@ -690,13 +716,13 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 		return err
 	}
 	if clientHash == hash {
-		if err := conn.WriteJSON(map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash}); err != nil {
+		if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash}); err != nil {
 			return fmt.Errorf("发送配置未变更确认失败: %w", err)
 		}
 		fmt.Printf("agent_ws: config unchanged machine_code=%q request_id=%q sha256=%s\n", machineCode, requestID, hash)
 		return nil
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml}); err != nil {
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml}); err != nil {
 		return fmt.Errorf("发送配置失败: %w", err)
 	}
 	fmt.Printf("agent_ws: config delivered machine_code=%q request_id=%q bytes=%d sha256=%s\n", machineCode, requestID, len(yml), hash)
@@ -711,13 +737,13 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	}
 	raw := strings.TrimSpace(settings["agent_command_"+machineCode])
 	if raw == "" {
-		return conn.WriteJSON(map[string]any{"type": "command.none", "id": requestID})
+		return writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.none", "id": requestID})
 	}
 	var command map[string]any
 	if err := json.Unmarshal([]byte(raw), &command); err != nil {
 		return fmt.Errorf("解析待执行命令失败: %w", err)
 	}
-	if err := conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command}); err != nil {
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.deliver", "id": requestID, "command": command}); err != nil {
 		return fmt.Errorf("发送待执行命令失败: %w", err)
 	}
 	fmt.Printf("agent_ws: command delivered machine_code=%q request_id=%q command_id=%v command_type=%v\n", machineCode, requestID, command["id"], command["type"])
