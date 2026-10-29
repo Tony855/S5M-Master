@@ -1157,6 +1157,45 @@ func TestParseProxyLinePreservesProtocolOptions(t *testing.T) {
 	}
 }
 
+func TestGetNodeConfigRepairsStaleAgentPort(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	staleYAML := "mixed-port: 8080\nsecret: keep-this-secret\ntun:\n  enable: false\ndns:\n  enable: true\n"
+	if err := app.store.SaveNodeConfig(code, staleYAML); err != nil {
+		t.Fatalf("save stale node config: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+code+"/config", nil)
+	req.SetPathValue("code", code)
+	rec := httptest.NewRecorder()
+	app.handleGetNodeConfig(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var response struct {
+		YAML string `json:"config_yaml"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode node config response: %v", err)
+	}
+	if err := validateAgentPublishedProxyPort(response.YAML); err != nil {
+		t.Fatalf("response contains unpublished proxy port: %v; YAML=%s", err, response.YAML)
+	}
+	if !strings.Contains(response.YAML, "secret: keep-this-secret") ||
+		!strings.Contains(response.YAML, "enable: false") ||
+		!strings.Contains(response.YAML, "enable: true") {
+		t.Fatalf("normalization did not preserve node-specific settings: %s", response.YAML)
+	}
+
+	stored, err := app.store.GetNodeConfig(code)
+	if err != nil {
+		t.Fatalf("read persisted node config: %v", err)
+	}
+	if stored == nil || stored.YAML != response.YAML {
+		t.Fatalf("normalized config was not persisted: stored=%#v response=%q", stored, response.YAML)
+	}
+}
+
 func TestSaveNodeConfigRejectsUnpublishedProxyPort(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-port.db"))
 	if err != nil {
