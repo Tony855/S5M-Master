@@ -39,7 +39,7 @@
     <button class="btn-copy" onclick="copyMachineId()">复制</button>
   </div>
   <label>服务器地址</label>
-  <input type="url" id="url" placeholder="https://controller.example.com" value="https://" autocomplete="url" inputmode="url">
+  <input type="url" id="url" placeholder="https://bind.v2net.cc" value="https://bind.v2net.cc" autocomplete="url" inputmode="url">
   <label>注册密钥</label>
   <input type="password" id="secret" placeholder="请输入 Token 绑定设备">
   <button id="btn" onclick="save()">一键绑定设备</button>
@@ -73,7 +73,7 @@
       const res = await fetchWithTimeout('/api/config');
       const data = await res.json();
       if (data.central_url) document.getElementById('url').value = data.central_url;
-      else document.getElementById('url').value = 'https://';
+      else document.getElementById('url').value = 'https://bind.v2net.cc';
       // Use one authoritative status read. Do not overwrite its result with the
       // potentially stale /api/config response fetched earlier during page load.
       await refreshBindingStatus();
