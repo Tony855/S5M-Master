@@ -105,8 +105,8 @@ proxies:
 			t.Errorf("route-exclude-address missing %q: %#v", want, addresses)
 		}
 	}
-	if !strings.Contains(got, "# stale HTTP listener") || !strings.Contains(got, "# stale SOCKS listener") {
-		t.Fatalf("expected YAML to parse and rewrite fields without string-based comment damage; output: %s", got)
+	if !strings.Contains(got, "# stale mixed listener") {
+		t.Fatalf("normalization unexpectedly dropped the retained mixed-port comment: %s", got)
 	}
 }
 
