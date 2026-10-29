@@ -58,3 +58,5 @@ tun:
   stack: system
   auto-route: true
   auto-detect-interface: true
+  dns-hijack:
+    - "any:53"
