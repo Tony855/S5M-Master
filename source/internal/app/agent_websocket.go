@@ -47,16 +47,16 @@ type browserEventClient struct {
 }
 
 type browserControlMessage struct {
-	Type        string `json:"type"`
-	RequestID   string `json:"request_id"`
-	MachineCode string `json:"machine_code"`
+	Type            string `json:"type"`
+	RequestID       string `json:"request_id"`
+	MachineCode     string `json:"machine_code"`
 	Version         string `json:"version"`
 	TemplateVersion int    `json:"template_version"`
 	SHA256          string `json:"sha256"`
-	Config      string `json:"config"`
-	ConfigYAML  string `json:"config_yaml"`
-	Note        string `json:"note"`
-	Confirm     bool   `json:"confirm"`
+	Config          string `json:"config"`
+	ConfigYAML      string `json:"config_yaml"`
+	Note            string `json:"note"`
+	Confirm         bool   `json:"confirm"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
