@@ -612,8 +612,9 @@ func TestBuildConfigRoutesConfiguredDoHThroughProxy(t *testing.T) {
 		t.Fatalf("buildConfigFromProxies() error = %v", err)
 	}
 	for _, want := range []string{
-		"respect-rules: true",
-		"proxy-server-nameserver:",
+		"listen: 127.0.0.1:5353",
+		"fake-ip-range: 198.18.0.1/16",
+		"DOMAIN-SUFFIX,v2net.cc,DIRECT",
 		"DOMAIN-SUFFIX,dns.alidns.com,proxy-a",
 		"DOMAIN-SUFFIX,doh.pub,proxy-a",
 		"DOMAIN-SUFFIX,dns.cloudflare.com,proxy-a",
@@ -644,22 +645,20 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 		t.Fatalf("buildConfigFromProxies() error = %v", err)
 	}
 	for _, want := range []string{
-		"enable: true",
-		"strict-route: true",
-		"any:53",
-		"tcp://any:53",
+		"enable: false",
+		"stack: system",
+		"auto-route: true",
+		"auto-detect-interface: true",
 		"enhanced-mode: fake-ip",
-		"cache-algorithm: arc",
-		"listen: 0.0.0.0:5353",
-		"fallback:",
-		"https://dns.cloudflare.com/dns-query",
+		"listen: 127.0.0.1:5353",
+		"fake-ip-filter:",
+		"'+.v2net.cc'",
+		"223.5.5.5",
+		"119.29.29.29",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("generated TUN/DNS config missing %q:\n%s", want, got)
 		}
-	}
-	if !strings.Contains(got, "Bootstrap DNS is plain DNS") {
-		t.Errorf("generated config should document bootstrap DNS limitation:\n%s", got)
 	}
 }
 
