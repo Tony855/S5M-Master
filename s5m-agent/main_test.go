@@ -1425,7 +1425,7 @@ func TestEnsureV2NetDirectRuleDeduplicatesExistingRules(t *testing.T) {
 		t.Fatal("expected duplicate direct rules to be normalized")
 	}
 	rules := cfg["rules"].([]interface{})
-	if len(rules) != 3 || rules[0] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
+	if len(rules) != 3 || rules[0] != "DOMAIN,example.com,DIRECT" || rules[1] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
 		t.Fatalf("unexpected deduplicated rule order: %#v", rules)
 	}
 }
