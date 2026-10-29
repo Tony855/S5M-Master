@@ -5,6 +5,8 @@ on:
     branches: [s5m-agent-smartdns]
     paths:
       - "s5m-agent/Dockerfile.smartdns"
+      - "s5m-agent/Dockerfile"
+      - "s5m-agent/Dockerfile.routeros"
       - "s5m-agent/smartdns/**"
       - "s5m-agent/main.go"
       - "s5m-agent/smartdns_runtime.go"
