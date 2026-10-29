@@ -31,34 +31,7 @@ func hashSmartDNSConfig(config string) string {
 	return hashConfig(strings.TrimSpace(config))
 }
 
-var smartDNSMachineCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}package app
-
-import (
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"regexp"
-	"strings"
-	"time"
-)
-
-const defaultAgentSmartDNSConfig = `# SmartDNS is private to this container unless the operator explicitly publishes 6053.
-bind 127.0.0.1:6053
-bind-tcp 127.0.0.1:6053
-
-# Upstream DNS servers; use literal IPs to avoid bootstrap loops.
-server 223.5.5.5
-server 119.29.29.29
-
-cache-size 16384
-prefetch-domain yes
-serve-expired yes
-log-level info
-log-console yes
-log-syslog no
-`
-
-)
+var smartDNSMachineCodePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 var smartDNSConfigControlChars = regexp.MustCompile("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]")
 var smartDNSAllowedDirectives = map[string]bool{
 	"bind": true, "bind-tcp": true,
