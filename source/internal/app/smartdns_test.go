@@ -131,6 +131,12 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 	if result["config"] != defaultAgentSmartDNSConfig || result["running"] != true || result["version"] != "SmartDNS test" {
 		t.Fatalf("unexpected SmartDNS config/status response: %#v", result)
 	}
+	if result["desired_config_sha256"] != hashConfig(defaultAgentSmartDNSConfig) {
+		t.Fatalf("desired_config_sha256 = %v, want %s", result["desired_config_sha256"], hashConfig(defaultAgentSmartDNSConfig))
+	}
+	if result["reported_config_sha256"] != "abc" {
+		t.Fatalf("reported_config_sha256 = %v, want the Agent-reported value", result["reported_config_sha256"])
+	}
 }
 
 func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigConsistent(t *testing.T) {
