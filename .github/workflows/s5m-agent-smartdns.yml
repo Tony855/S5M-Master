@@ -89,8 +89,6 @@ jobs:
           docker run -d --name "$container" --restart no \
             -p 127.0.0.1::80/tcp \
             -p 127.0.0.1::7890/tcp \
-            -p 127.0.0.1::6053/udp \
-            -p 127.0.0.1::6053/tcp \
             -v "$data_dir:/data" \
             s5m-agent-smartdns:test >/dev/null
 
@@ -108,16 +106,17 @@ jobs:
 
           agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
           proxy_port="$(docker port "$container" 7890/tcp | awk -F: 'NR==1 {print $NF}')"
-          dns_udp_port="$(docker port "$container" 6053/udp | awk -F: 'NR==1 {print $NF}')"
-          dns_tcp_port="$(docker port "$container" 6053/tcp | awk -F: 'NR==1 {print $NF}')"
-          [[ -n "$agent_port" && -n "$proxy_port" && -n "$dns_udp_port" && -n "$dns_tcp_port" ]]
+          [[ -n "$agent_port" && -n "$proxy_port" ]]
 
           curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/config" >/dev/null
           nc -z -w 2 127.0.0.1 "$proxy_port"
 
-          # A public DNS lookup verifies the actual SmartDNS data path, not just a running process.
-          dig +time=4 +tries=1 @127.0.0.1 -p "$dns_udp_port" example.com A | grep -q 'ANSWER SECTION'
-          dig +tcp +time=4 +tries=1 @127.0.0.1 -p "$dns_tcp_port" example.com A | grep -q 'ANSWER SECTION'
+          # Test the loopback-only resolver from a helper sharing the Agent network namespace.
+          docker run --rm --network "container:$container" alpine:3.24 sh -ec '
+            apk add --no-cache bind-tools >/dev/null
+            dig +time=4 +tries=1 @127.0.0.1 -p 6053 example.com A | grep -q "ANSWER SECTION"
+            dig +tcp +time=4 +tries=1 @127.0.0.1 -p 6053 example.com A | grep -q "ANSWER SECTION"
+          '
 
           # The private Mihomo controller API must remain unpublished.
           if docker port "$container" 8088/tcp 2>/dev/null | grep -q .; then
