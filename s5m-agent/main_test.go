@@ -1340,3 +1340,33 @@ func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testin
 		}
 	}
 }
+
+func TestEnsureV2NetDirectRulePrecedesMatchAndIsIdempotent(t *testing.T) {
+\tcfg := map[string]interface{}{
+\t\t"rules": []interface{}{
+\t\t\t"DOMAIN,example.com,Proxy",
+\t\t\t"MATCH,Proxy",
+\t\t},
+\t}
+\tif !ensureV2NetDirectRule(cfg) {
+\t\tt.Fatal("expected v2net.cc direct rule to be inserted")
+\t}
+\trules := cfg["rules"].([]interface{})
+\tif len(rules) != 3 || rules[1] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
+\t\tt.Fatalf("unexpected rule order: %#v", rules)
+\t}
+\tif ensureV2NetDirectRule(cfg) {
+\t\tt.Fatal("existing v2net.cc direct rule should not be inserted twice")
+\t}
+}
+
+func TestEnsureV2NetDirectRuleAddsRulesWhenMissing(t *testing.T) {
+\tcfg := map[string]interface{}{}
+\tif !ensureV2NetDirectRule(cfg) {
+\t\tt.Fatal("expected direct rule to be added when rules block is missing")
+\t}
+\trules, ok := cfg["rules"].([]interface{})
+\tif !ok || len(rules) != 1 || rules[0] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" {
+\t\tt.Fatalf("unexpected rules: %#v", cfg["rules"])
+\t}
+}
