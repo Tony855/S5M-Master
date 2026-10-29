@@ -67,6 +67,22 @@ jobs:
             fi
           done
           echo "PASS: IPv4/IPv6 port-443 SSL listeners detected; non-TLS listeners ignored"
+
+      - name: Guard installer against false Nginx port-80 conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - ../scripts/install.sh <<'PY'
+          from pathlib import Path
+          import sys
+          script = Path(sys.argv[1]).read_text(encoding="utf-8")
+          assert 'EXISTING_ADDR="$(sed -n \'s/^S5M_ADDR=//p\' "$ENV_FILE" | tail -n1)"' in script
+          assert 'PORT_TO_USE=8080' in script
+          assert 'not the public Nginx listener' in script
+          assert '不将其误判为 S5M 后端冲突' in script
+          assert 'grep -oP \'pid=\\K[0-9]+\'' in script
+          print("PASS: installer derives backend port from S5M_ADDR and does not mistake public Nginx :80 for S5M backend")
+          PY
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
