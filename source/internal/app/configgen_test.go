@@ -9,6 +9,28 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestNormalizeAgentMixedPort(t *testing.T) {
+	for name, input := range map[string]string{
+		"controller port": "mixed-port: 8080\nmode: rule\n",
+		"custom port": "mixed-port: 7899\nmode: rule\n",
+		"missing port": "mode: rule\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := normalizeAgentMixedPort(input)
+			if err != nil {
+				t.Fatalf("normalizeAgentMixedPort() error = %v", err)
+			}
+			var config map[string]any
+			if err := yaml.Unmarshal([]byte(got), &config); err != nil {
+				t.Fatalf("normalized YAML invalid: %v\n%s", err, got)
+			}
+			if port, ok := config["mixed-port"].(int); !ok || port != 7890 {
+				t.Fatalf("mixed-port = %#v, want 7890\n%s", config["mixed-port"], got)
+			}
+		})
+	}
+}
+
 func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "config-ports.db"))
 	if err != nil {
@@ -181,7 +203,7 @@ rules:
 			t.Fatalf("node config missing after attempt %d", attempt)
 		}
 		for _, want := range []string{
-			"mixed-port: 7899",
+			"mixed-port: 7890",
 			"secret: keep-this-secret",
 			"enable: false",
 			"listen: 127.0.0.1:5353",
@@ -212,7 +234,7 @@ func TestSyncAuthorizedNodeConfigsSkipsUnauthorizedNodeConfigs(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
-	const authorizedExisting = "mixed-port: 7999\nsecret: preserve-authorized-secret\n"
+	const authorizedExisting = "mixed-port: 7899\nsecret: preserve-authorized-secret\n"
 	const unauthorizedExisting = "mixed-port: 7888\nsecret: preserve-revoked-secret\nproxies: []\nrules: []\n"
 	if err := store.SaveNodeConfig("authorized", authorizedExisting); err != nil {
 		t.Fatalf("seed authorized config: %v", err)
@@ -776,7 +798,7 @@ func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
 		t.Fatalf("saved per-node YAML should contain expanded proxy fields, not merge aliases:\n%s", got.YAML)
 	}
 	for _, want := range []string{
-		"mixed-port: 7899",
+		"mixed-port: 7890",
 		"secret: keep-this-secret",
 		"same-vless-443",
 		"same-vless-8443",
