@@ -106,7 +106,7 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 	command := map[string]string{
 		"id":     fmt.Sprintf("%d", time.Now().UnixNano()),
 		"type":   "configure_smartdns",
-		"config":                 config,
+		"config": config,
 	}
 	payload, err := json.Marshal(command)
 	if err != nil {
@@ -154,14 +154,15 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"machine_code":           code,
-		"config": config,
+		"config":                 config,
 		"desired_config_sha256":  hashConfig(config),
 		"reported_config_sha256": status["smartdns_config_sha256"],
-		"available": status["smartdns_available"] == true,
-		"running": status["smartdns_running"] == true,
-		"version": status["smartdns_version"],
-		"last_error": status["smartdns_last_error"],
-		"last_seen": settings["agent_lastseen_"+code],
+		"available":              status["smartdns_available"] == true,
+		"running":                status["smartdns_running"] == true,
+		"dns_healthy":            status["smartdns_dns_healthy"] == true,
+		"version":                status["smartdns_version"],
+		"last_error":             status["smartdns_last_error"],
+		"last_seen":              settings["agent_lastseen_"+code],
 	})
 }
 
