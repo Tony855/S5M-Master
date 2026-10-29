@@ -257,12 +257,10 @@
             const message = document.getElementById('smartdnsMessage');
             message.textContent = '正在校验并排队...';
             try {
-                const result = await editorAPI('/api/v1/agents/smartdns/config', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        machine_code: smartdnsEditingCode,
-                        config: document.getElementById('smartdnsConfig').value
-                    })
+                const result = await sendAgentWSControl({
+                    type: 'agent.smartdns.configure',
+                    machine_code: smartdnsEditingCode,
+                    config: document.getElementById('smartdnsConfig').value
                 });
                 message.textContent = result.message || '配置命令已排队';
             } catch (e) {
@@ -286,6 +284,17 @@
         let agentsSocket = null;
         let agentsConnecting = false;
         let agentsRetryTimer = null;
+        const agentWSRequests = new Map();
+        function sendAgentWSControl(payload) {
+            return new Promise((resolve, reject) => {
+                const socket = agentsSocket;
+                if (!socket || socket.readyState !== WebSocket.OPEN) { reject(new Error('WebSocket 未连接')); return; }
+                const requestId = (window.crypto && typeof window.crypto.randomUUID === 'function') ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+                const timer = setTimeout(() => { agentWSRequests.delete(requestId); reject(new Error('WebSocket 操作超时')); }, 15000);
+                agentWSRequests.set(requestId, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+                try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); } catch (error) { clearTimeout(timer); agentWSRequests.delete(requestId); reject(error); }
+            });
+        }
         function connectAgentEvents() {
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token || agentsSocket || agentsConnecting) return;
@@ -303,6 +312,11 @@
                 socket.onmessage = event => {
                     let message;
                     try { message = JSON.parse(event.data); } catch (_) { return; }
+                    if (message.type === 'request.result' && message.request_id) {
+                        const pending = agentWSRequests.get(message.request_id);
+                        if (pending) { agentWSRequests.delete(message.request_id); if (message.ok) pending.resolve(message); else pending.reject(new Error(message.error || 'WebSocket 操作失败')); }
+                        return;
+                    }
                     if (message.type === 'agent.binding.revoked' ||
                         message.type === 'agent.binding.updated' ||
                         message.type === 'agent.command.updated' ||
