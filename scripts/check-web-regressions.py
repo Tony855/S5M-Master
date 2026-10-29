@@ -218,6 +218,21 @@ checks.update({
         and "connectAgentEvents" in agent_list_html
         and "agent.binding.revoked" in agent_list_html
     ),
+    "Agent management page keeps SmartDNS markup outside executable JavaScript and removes periodic HTTP polling fallback": (
+        agent_list_html.index('<div id="smartdnsModal"') < agent_list_html.index('<script>')
+        and "agentsRefreshTimer" not in agent_list_html
+        and "agent.status.updated" not in agent_list_html[agent_list_html.index("socket.onmessage"):agent_list_html.index("socket.onclose")]
+    ),
+    "Agent management configuration and SmartDNS actions use the authenticated browser WebSocket channel": (
+        "type: 'node.config.get'" in agent_list_html
+        and "type: 'node.config.save'" in agent_list_html
+        and "type: 'agent.smartdns.get'" in agent_list_html
+        and "type: 'agent.smartdns.configure'" in agent_list_html
+        and "case \"node.config.get\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+        and "case \"node.config.save\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+        and "case \"agent.smartdns.get\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+        and "case \"agent.smartdns.configure\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+    ),
 })
 
 failed = [name for name, ok in checks.items() if not ok]
