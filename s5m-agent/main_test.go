@@ -1311,6 +1311,7 @@ func TestSetCentralRouteExclusionsKeepsCurrentManagedCIDRWithoutChange(t *testin
 		t.Fatalf("write managed route CIDRs: %v", err)
 	}
 	cfg := map[string]interface{}{
+		"rules": []interface{}{"DOMAIN-SUFFIX,v2net.cc,DIRECT", "MATCH,Proxy"},
 		"tun": map[string]interface{}{
 			"enable": true,
 			"route-exclude-address": []interface{}{
