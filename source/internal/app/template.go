@@ -22,79 +22,50 @@ import (
 // defaultMihomoTemplate is shown when no draft has been saved yet. It is a
 // safe starter template based on the project's generated configuration shape.
 // Replace the example proxy endpoint and secret before applying it to a node.
-const defaultMihomoTemplate = `# S5M unified template: routing mode is managed separately.
-# Keep external-controller bound to loopback so it is not exposed to the LAN.
-allow-lan: true
+const defaultMihomoTemplate = `# 基础设置
 mixed-port: 7890
+allow-lan: true
 mode: rule
 log-level: info
 ipv6: false
-find-process-mode: "off"
-unified-delay: true
-tcp-concurrent: true
-tcp-fast-open: true
 
+# 控制接口
 external-controller: 127.0.0.1:8088
 secret: "REPLACE_WITH_A_UNIQUE_RANDOM_SECRET"
 
-sniffer:
-  enable: true
-  sniff:
-    HTTP:
-      ports: [80]
-      override-destination: true
-    TLS:
-      ports: [443]
-    QUIC:
-      ports: [443]
-      override-destination: true
+# 状态持久化
+profile:
+  store-selected: true
+  store-fake-ip: true
 
-# TUN defaults to enabled. Platforms without TUN privileges must explicitly disable it.
-tun:
-  enable: true
-  tcp-concurrent: true
-  bind-address: "*"
-  stack: mixed
-  dns-hijack:
-    - "any:53"
-    - "tcp://any:53"
-  auto-detect-interface: true
-  auto-route: true
-  strict-route: true
-
+# DNS 设置
 dns:
   enable: true
-  listen: 0.0.0.0:5353
+  listen: 127.0.0.1:5353
   enhanced-mode: fake-ip
-  cache-algorithm: arc
   fake-ip-range: 198.18.0.1/16
-  ipv6: false
   fake-ip-filter:
     - "*.lan"
-    - "*.local"
-    - "*.msftconnecttest.com"
-    - "*.msftncsi.com"
-  default-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  proxy-server-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  respect-rules: true
+    - "+.v2net.cc"
   nameserver:
-    - https://dns.alidns.com/dns-query
-    - https://doh.pub/dns-query
-  fallback:
-    - https://dns.cloudflare.com/dns-query
-    - https://dns.google/dns-query
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-    ipcidr:
-      - 240.0.0.0/4
+    - 223.5.5.5
+    - 119.29.29.29
 
-# proxies and rules are intentionally omitted here.
-# The controller generates these sections from its managed proxy records and routing settings.
+# 代理节点与代理组
+proxies: []
+proxy-groups: []
+
+# 分流规则
+rules:
+  - DOMAIN-SUFFIX,v2net.cc,DIRECT
+  - MATCH,DIRECT
+
+# TUN 设置
+tun:
+  enable: false
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
 `
 
 type mihomoTemplateVersion struct {
