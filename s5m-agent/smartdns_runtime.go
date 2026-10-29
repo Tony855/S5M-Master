@@ -191,9 +191,13 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	livePath := smartDNSConfigPath
 	backupPath := livePath + ".previous"
 	oldData, oldErr := os.ReadFile(livePath)
-	if oldErr == nil {
+	hadOldConfig := oldErr == nil
+	if oldErr != nil && !os.IsNotExist(oldErr) {
+		return "", fmt.Errorf("读取旧 SmartDNS 配置失败: %w", oldErr)
+	}
+	if hadOldConfig {
 		if err := os.WriteFile(backupPath, oldData, 0600); err != nil {
-			return "", fmt.Errorf("备份旧 SmartDNS 配置失败")
+			return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", err)
 		}
 	}
 	liveTmp, err := os.CreateTemp(filepath.Dir(livePath), ".smartdns-live-*.conf")
@@ -223,8 +227,8 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
-		restoreErr := restoreSmartDNSConfig(livePath, oldData, oldErr == nil)
-		if restoreErr == nil && oldErr == nil {
+		restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
+		if restoreErr == nil && hadOldConfig {
 			_ = exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
 		}
 		if restoreErr != nil {
