@@ -60,7 +60,7 @@ tun:
     auto-detect-interface: true
     dns-hijack:
         - 'any:53'
-		- 'tcp://any:53'
+        - 'tcp://any:53'
 proxies:__PROXIES__
 rules:__RULES__`
 
