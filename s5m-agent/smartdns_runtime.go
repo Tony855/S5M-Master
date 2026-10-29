@@ -43,6 +43,7 @@ func validateSmartDNSConfig(data []byte) error {
 	}
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	usable := 0
+	bindUDP, bindTCP := false, false
 	for lineNo, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
@@ -69,6 +70,9 @@ func validateSmartDNSConfig(data []byte) error {
 	}
 	if usable == 0 {
 		return fmt.Errorf("SmartDNS 配置没有有效指令")
+	}
+	if !bindUDP || !bindTCP {
+		return fmt.Errorf("必须同时配置 bind 127.0.0.1:6053 和 bind-tcp 127.0.0.1:6053")
 	}
 	return nil
 }
