@@ -404,9 +404,8 @@ createApp({
       if (pwdForm.old === pwdForm.new) return showMsg('新密码不能与当前密码相同', 'warning');
       pwdSaving.value = true;
       try {
-        const res = await api('/api/v1/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old: pwdForm.old, new: pwdForm.new }) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        const result = await sendBrowserWSControl({ type: 'auth.password.change', old: pwdForm.old, new: pwdForm.new });
+        const data = result.data || result;
         showMsg(data.message || '管理员密码已更新', 'success');
         pwdDialog.value = false;
         resetPwdForm();
@@ -897,11 +896,9 @@ createApp({
       if (!newMachineCode.value) return showMsg('请输入机器码', 'warning');
       generating.value = true;
       try {
-        const res = await api('/api/v1/agents/generate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: newMachineCode.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.token) {
+        const result = await sendBrowserWSControl({ type: 'agent.binding.generate', machine_code: newMachineCode.value });
+        const data = result.data || result;
+        if (data.token) {
           generatedToken.value = data.token; newMachineCode.value = ''; loadAgentsData();
         } else { showMsg(data.error || data.message || '生成失败', 'error'); }
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }

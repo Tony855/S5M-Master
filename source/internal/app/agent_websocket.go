@@ -56,6 +56,8 @@ type browserControlMessage struct {
 	SHA256          string `json:"sha256"`
 	Config          string `json:"config"`
 	ConfigYAML      string `json:"config_yaml"`
+	PasswordOld     string `json:"old"`
+	PasswordNew     string `json:"new"`
 	Note            string `json:"note"`
 	Confirm         bool   `json:"confirm"`
 }
@@ -141,6 +143,12 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
 		case "proxies.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
+		case "auth.password.change":
+			body, _ := json.Marshal(map[string]string{"old": message.PasswordOld, "new": message.PasswordNew})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePassword, req)
 		case "settings.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
 		case "mihomo.status.get":
@@ -153,6 +161,12 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
+		case "agent.binding.generate":
+			body, _ := json.Marshal(map[string]string{"machine_code": message.MachineCode})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGenerateAgentToken, req)
 		case "agent.binding.revoke":
 			code := strings.TrimSpace(message.MachineCode)
 			if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) {
