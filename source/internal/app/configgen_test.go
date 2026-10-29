@@ -814,7 +814,7 @@ func TestSyncAuthorizedNodeConfigsExpandsSharedProxyAnchors(t *testing.T) {
 	}
 }
 
-func TestOpenStoreDefaultsTUNEnabled(t *testing.T) {
+func TestOpenStoreDefaultsTUNDisabled(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "tun-default.db"))
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
@@ -825,7 +825,7 @@ func TestOpenStoreDefaultsTUNEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSetting(tun_enable): %v", err)
 	}
-	if got != "true" {
-		t.Fatalf("tun_enable default = %q, want true", got)
+	if got != "false" {
+		t.Fatalf("tun_enable default = %q, want false", got)
 	}
 }
