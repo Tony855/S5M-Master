@@ -41,8 +41,9 @@ type browserWSTicket struct {
 }
 
 type browserEventClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn     *websocket.Conn
+	username string
+	mu       sync.Mutex
 }
 
 type browserControlMessage struct {
@@ -98,7 +99,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
-	client := &browserEventClient{conn: conn}
+	client := &browserEventClient{conn: conn, username: issued.Username}
 	a.browserWSMu.Lock()
 	if a.browserWSClients == nil {
 		a.browserWSClients = make(map[*browserEventClient]struct{})
@@ -120,7 +121,18 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		if err := conn.ReadJSON(&message); err != nil {
 			return
 		}
+		// Revalidate the administrator session for every browser RPC, not only
+		// when the one-time WebSocket ticket is exchanged.
+		u, authErr := a.store.UserByUsername(client.username)
+		if authErr != nil || u == nil || !u.Enabled || u.Role != "admin" {
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "管理员会话已失效，请重新登录"})
+			return
+		}
 		switch message.Type {
+		case "monitor.overview.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleOverview, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/overview", nil))
+		case "monitor.traffic.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()
@@ -232,6 +244,27 @@ func (c *browserEventClient) writeJSON(v any) error {
 	defer c.mu.Unlock()
 	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	return c.conn.WriteJSON(v)
+}
+
+// runBrowserHTTPHandler reuses an existing read handler for a narrowly whitelisted
+// WebSocket RPC. Authorization is checked by handleBrowserEventsWebSocket first.
+func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string, handler http.HandlerFunc, req *http.Request) {
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		payload = map[string]any{"error": "服务器返回了无效 JSON"}
+	}
+	reply := map[string]any{"type": "request.result", "request_id": requestID, "ok": rec.Code >= 200 && rec.Code < 300}
+	for key, value := range payload {
+		reply[key] = value
+	}
+	if rec.Code < 200 || rec.Code >= 300 {
+		if errText, ok := payload["error"].(string); ok {
+			reply["error"] = errText
+		}
+	}
+	_ = client.writeJSON(reply)
 }
 
 func (a *App) publishBrowserEvent(event map[string]any) {
