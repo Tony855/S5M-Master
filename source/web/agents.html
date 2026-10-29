@@ -151,7 +151,7 @@
             document.getElementById('editorMessage').textContent = '正在读取配置...';
             document.getElementById('configModal').style.display = 'block';
             try {
-                const data = await editorAPI('/api/v1/nodes/' + encodeURIComponent(code) + '/config');
+                const data = await sendAgentWSControl({ type: 'node.config.get', machine_code: code });
                 const yamlText = data.yaml || data.config_yaml || '';
                 if (!yamlText) throw new Error('没有保存的节点配置。请让 Agent 先成功连接主控端，再打开编辑器。');
                 document.getElementById('configYaml').value = yamlText;
@@ -221,7 +221,7 @@
             const message = document.getElementById('editorMessage');
             message.textContent = '正在校验并保存...';
             try {
-                const result = await editorAPI('/api/v1/nodes/' + encodeURIComponent(editingCode) + '/config', {method:'PUT', body:JSON.stringify({config_yaml:document.getElementById('configYaml').value})});
+                const result = await sendAgentWSControl({ type: 'node.config.save', machine_code: editingCode, config_yaml: document.getElementById('configYaml').value });
                 message.textContent = result.message || '已保存；Agent 将在下一次拉取时应用';
             } catch (e) { message.textContent = '保存失败：' + e.message; }
         }
