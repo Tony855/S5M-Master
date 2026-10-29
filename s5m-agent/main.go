@@ -344,32 +344,32 @@ func writeManagedRouteCIDRs(values []string) error {
 // TUN route-exclude-address is IP/CIDR-only; the configured controller hostname is
 // separately resolved to /32 and /128 exclusions below.
 func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
-\traw, ok := cfg["rules"].([]interface{})
-\tif !ok {
-\t\traw = []interface{}{}
-\t}
-\tconst rule = "DOMAIN-SUFFIX,v2net.cc,DIRECT"
-\tfor _, item := range raw {
-\t\tif value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
-\t\t\treturn false
-\t\t}
-\t}
-\tinsertAt := len(raw)
-\tfor i, item := range raw {
-\t\tif value, ok := item.(string); ok {
-\t\t\tparts := strings.Split(strings.TrimSpace(value), ",")
-\t\t\tif len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
-\t\t\t\tinsertAt = i
-\t\t\t\tbreak
-\t\t\t}
-\t\t}
-\t}
-\tnext := make([]interface{}, 0, len(raw)+1)
-\tnext = append(next, raw[:insertAt]...)
-\tnext = append(next, rule)
-\tnext = append(next, raw[insertAt:]...)
-\tcfg["rules"] = next
-\treturn true
+	raw, ok := cfg["rules"].([]interface{})
+	if !ok {
+		raw = []interface{}{}
+	}
+	const rule = "DOMAIN-SUFFIX,v2net.cc,DIRECT"
+	for _, item := range raw {
+		if value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
+			return false
+		}
+	}
+	insertAt := len(raw)
+	for i, item := range raw {
+		if value, ok := item.(string); ok {
+			parts := strings.Split(strings.TrimSpace(value), ",")
+			if len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
+				insertAt = i
+				break
+			}
+		}
+	}
+	next := make([]interface{}, 0, len(raw)+1)
+	next = append(next, raw[:insertAt]...)
+	next = append(next, rule)
+	next = append(next, raw[insertAt:]...)
+	cfg["rules"] = next
+	return true
 }
 
 func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([]string, bool, error) {
@@ -377,6 +377,7 @@ func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([
 	if err != nil {
 		return nil, false, err
 	}
+	domainRuleChanged := ensureV2NetDirectRule(cfg)
 	tun, ok := cfg["tun"].(map[string]interface{})
 	if !ok {
 		return nil, false, fmt.Errorf("Mihomo 配置缺少 tun 块")
@@ -385,7 +386,7 @@ func setCentralRouteExclusions(cfg map[string]interface{}, centralURL string) ([
 	values, _ := tun["route-exclude-address"].([]interface{})
 	seen := map[string]bool{}
 	next := make([]interface{}, 0, len(values)+len(cidrs))
-	changed := false
+	changed := domainRuleChanged
 	for _, value := range values {
 		text, ok := value.(string)
 		if !ok {
