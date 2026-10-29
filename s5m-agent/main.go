@@ -1278,13 +1278,13 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 	stage := "start"
 	defer func() {
 		if retErr != nil {
-			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%v\n", cmd.ID, stage, time.Since(started).Milliseconds(), retErr)
+			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%q\n", cmd.ID, stage, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(retErr.Error())))
 		}
 	}()
 	fmt.Printf("mihomo_update: started command_id=%q target_version=%q arch=%q\n", cmd.ID, cmd.Version, runtime.GOARCH)
 	stage = "validate"
 	if err := validateKernelUpdateCommand(cmd); err != nil {
-		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%v\n", cmd.ID, err)
+		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", err
 	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
@@ -1376,7 +1376,7 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
-		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%v\n", cmd.ID, err)
+		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
 	fmt.Printf("mihomo_update: config validated command_id=%q\n", cmd.ID)
@@ -1412,7 +1412,7 @@ func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
 		func() error { return restoreMihomoKernel(binaryPath, backupPath, secret) },
 	)
 	if upgradeErr != nil {
-		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%v\n", cmd.ID, time.Since(started).Milliseconds(), upgradeErr)
+		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%q\n", cmd.ID, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(upgradeErr.Error())))
 		return "", upgradeErr
 	}
 	fmt.Printf("mihomo_update: health check passed command_id=%q version=%q\n", cmd.ID, cmd.Version)
@@ -1901,13 +1901,13 @@ func runAgentWebSocketSession(cfg Config) error {
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
 				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
-				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
+				fmt.Printf("WebSocket 配置校验/写入失败: %s\n", safeMihomoValidationDiagnostic([]byte(applyErr.Error())))
 				break
 			}
 			if changed {
 				if reloadErr := reloadMihomo(); reloadErr != nil {
 					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
-					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
+					fmt.Printf("Mihomo 配置重载失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(reloadErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
 					}
@@ -1990,7 +1990,7 @@ func runAgentWebSocketSession(cfg Config) error {
 				return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
 			}
 			if commandErr != nil {
-				fmt.Printf("Agent 命令 %s 执行失败: %v\n", cmd.ID, commandErr)
+				fmt.Printf("Agent 命令 %s 执行失败: %s\n", cmd.ID, message)
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 命令响应类型: %s", commandEnvelope.Type)
