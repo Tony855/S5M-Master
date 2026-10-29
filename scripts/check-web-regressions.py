@@ -284,6 +284,9 @@ checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP f
 checks["Mihomo template publish/apply/rollback/delete mutations use explicit authenticated WebSocket RPC"] = (
     "type: 'mihomo.template.publish'" in app_js
     and "type: 'mihomo.template.apply'" in app_js
+    and 'TemplateVersion int    `json:"template_version"`' in browser_ws_source
+    and '"version": message.TemplateVersion' in browser_ws_source
+    and "template_version: version" in app_js
     and "type: 'mihomo.template.rollback'" in app_js
     and "type: 'mihomo.template.delete'" in app_js
     and "api('/api/v1/mihomo/template/publish'" not in app_js

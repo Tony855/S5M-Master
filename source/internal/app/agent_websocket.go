@@ -50,8 +50,9 @@ type browserControlMessage struct {
 	Type        string `json:"type"`
 	RequestID   string `json:"request_id"`
 	MachineCode string `json:"machine_code"`
-	Version     string `json:"version"`
-	SHA256      string `json:"sha256"`
+	Version         string `json:"version"`
+	TemplateVersion int    `json:"template_version"`
+	SHA256          string `json:"sha256"`
 	Config      string `json:"config"`
 	ConfigYAML  string `json:"config_yaml"`
 	Note        string `json:"note"`
@@ -165,7 +166,11 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePublishMihomoTemplate, req)
 		case "mihomo.template.apply":
-			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "version": message.Version, "confirm": message.Confirm})
+			if message.TemplateVersion < 1 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "必须选择有效模板版本"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "version": message.TemplateVersion, "confirm": message.Confirm})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/apply", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleApplyMihomoTemplate, req)

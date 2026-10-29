@@ -1087,7 +1087,7 @@ createApp({
       if (applyingTemplate.value) return;
       applyingTemplate.value = true;
       try {
-        const result = await sendBrowserWSControl({ type: 'mihomo.template.apply', machine_code: code, version, confirm: true });
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.apply', machine_code: code, template_version: version, confirm: true });
         const data = result.data || result;
         showMsg(data.message || '模板已应用到节点', 'success');
         await loadTemplateNodeStatus();
