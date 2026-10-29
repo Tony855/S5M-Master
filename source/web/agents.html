@@ -270,7 +270,7 @@
 
         async function queueMihomoUpdate(code) {
             try {
-                const info = await sendAgentWSControl({ type: 'agent.mihomo.update-info', machine_code: code });
+                const info = await sendAgentWSControl({ type: 'agent.mihomo.update-info', machine_code: code }, 60000);
                 const current = info.current_version || '尚未上报';
                 const message = '目标 Agent：' + code + '\\n架构：' + info.arch + '\\n当前版本：' + current + '\\n官方最新稳定版：' + info.latest_version + '\\n发行文件：' + info.asset_name + '\\nSHA-256 已由主控从官方文件自动计算。\\n\\n确认排队一键更新？Agent 会再次校验文件并测试新内核。';
                 if (!window.confirm(message)) return;
@@ -285,12 +285,12 @@
         let agentsConnecting = false;
         let agentsRetryTimer = null;
         const agentWSRequests = new Map();
-        function sendAgentWSControl(payload) {
+        function sendAgentWSControl(payload, timeoutMs = 15000) {
             return new Promise((resolve, reject) => {
                 const socket = agentsSocket;
                 if (!socket || socket.readyState !== WebSocket.OPEN) { reject(new Error('WebSocket 未连接')); return; }
                 const requestId = (window.crypto && typeof window.crypto.randomUUID === 'function') ? window.crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
-                const timer = setTimeout(() => { agentWSRequests.delete(requestId); reject(new Error('WebSocket 操作超时')); }, 15000);
+                const timer = setTimeout(() => { agentWSRequests.delete(requestId); reject(new Error('WebSocket 操作超时')); }, timeoutMs);
                 agentWSRequests.set(requestId, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
                 try { socket.send(JSON.stringify({ ...payload, request_id: requestId })); } catch (error) { clearTimeout(timer); agentWSRequests.delete(requestId); reject(error); }
             });
