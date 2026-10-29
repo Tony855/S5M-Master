@@ -10,8 +10,8 @@ import (
 )
 
 const defaultAgentSmartDNSConfig = `# Managed by S5M. The config is persisted at /data/smartdns.conf.
-bind 0.0.0.0:6053
-bind-tcp 0.0.0.0:6053
+bind 127.0.0.1:6053
+bind-tcp 127.0.0.1:6053
 server 223.5.5.5
 server 119.29.29.29
 cache-size 16384
@@ -43,6 +43,7 @@ func validateControllerSmartDNSConfig(config string) error {
 		return fmt.Errorf("SmartDNS 配置包含非法控制字符")
 	}
 	usable := 0
+	bindUDP, bindTCP := false, false
 	for i, raw := range strings.Split(strings.ReplaceAll(config, "\r\n", "\n"), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
@@ -55,13 +56,19 @@ func validateControllerSmartDNSConfig(config string) error {
 		if strings.ContainsAny(line, "`$") || strings.Contains(strings.ToLower(line), "include") {
 			return fmt.Errorf("第 %d 行包含不允许的特殊内容", i+1)
 		}
-		if (fields[0] == "bind" || fields[0] == "bind-tcp") && len(fields) != 2 {
-			return fmt.Errorf("第 %d 行监听指令只允许一个地址", i+1)
+		if (fields[0] == "bind" || fields[0] == "bind-tcp") {
+			if len(fields) != 2 || fields[1] != "127.0.0.1:6053" {
+				return fmt.Errorf("第 %d 行监听地址必须保持在容器回环地址 127.0.0.1:6053", i+1)
+			}
+			if fields[0] == "bind" { bindUDP = true } else { bindTCP = true }
 		}
 		usable++
 	}
 	if usable == 0 {
 		return fmt.Errorf("SmartDNS 配置没有有效指令")
+	}
+	if !bindUDP || !bindTCP {
+		return fmt.Errorf("必须同时配置 bind 127.0.0.1:6053 和 bind-tcp 127.0.0.1:6053")
 	}
 	return nil
 }
