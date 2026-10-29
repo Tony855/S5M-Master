@@ -128,8 +128,14 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			var payload map[string]any
 			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
 			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
-			for key, value := range payload { reply[key] = value }
-			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
 			_ = client.writeJSON(reply)
 		case "node.config.get":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+message.MachineCode+"/config", nil)
@@ -139,8 +145,14 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			var payload map[string]any
 			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
 			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
-			for key, value := range payload { reply[key] = value }
-			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
 			_ = client.writeJSON(reply)
 		case "node.config.save":
 			body, _ := json.Marshal(map[string]string{"config_yaml": message.ConfigYAML})
@@ -152,8 +164,14 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			var payload map[string]any
 			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
 			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
-			for key, value := range payload { reply[key] = value }
-			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
 			_ = client.writeJSON(reply)
 		case "agent.mihomo.update":
 			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
