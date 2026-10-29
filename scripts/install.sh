@@ -26,33 +26,57 @@ fi
 
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
 
-shopt -s nullglob
-tls_candidates=(/etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf)
-shopt -u nullglob
-for tls_file in "${tls_candidates[@]}"; do
-  [[ -f "$tls_file" && -r "$tls_file" ]] || continue
-  # Match both IPv4 and IPv6 TLS listeners, including "listen [::]:443 ssl".
-  grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]]+ssl([[:space:]]|;|$)' "$tls_file" || continue
-  grep -Eq 'proxy_pass[[:space:]]+http://127\.0\.0\.1:8080([/;[:space:]]|$)' "$tls_file" || continue
-
-  cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$tls_file" | head -n1)"
-  key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$tls_file" | head -n1)"
-  [[ -n "$cert_path" && -n "$key_path" && -s "$cert_path" && -s "$key_path" ]] || continue
-
-  while IFS= read -r detected_domain; do
-    [[ -n "$detected_domain" && "$detected_domain" != "_" && "$detected_domain" != *'*'* ]] || continue
+# Parse Nginx's expanded configuration so directives brought in via include are visible.
+# Keep each server block isolated; never combine a certificate from one vhost with
+# a proxy_pass or server_name from another vhost in the same file.
+if command -v nginx >/dev/null 2>&1; then
+  while IFS=$'\t' read -r detected_domain cert_path key_path source_file; do
+    [[ -n "$detected_domain" && -n "$cert_path" && -n "$key_path" ]] || continue
+    [[ "$detected_domain" != "_" && "$detected_domain" != *'*'* ]] || continue
     [[ -z "$REQUESTED_DOMAIN" || "$REQUESTED_DOMAIN" == "$detected_domain" ]] || continue
+    [[ -s "$cert_path" && -s "$key_path" ]] || continue
     command -v openssl >/dev/null 2>&1 || continue
     openssl x509 -in "$cert_path" -noout -checkhost "$detected_domain" >/dev/null 2>&1 || continue
     openssl x509 -in "$cert_path" -noout -checkend 0 >/dev/null 2>&1 || continue
-    if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+    if nginx -t >/dev/null 2>&1; then
       S5M_DOMAIN="$detected_domain"
       HTTPS_ALREADY_CONFIGURED=1
-      echo "🔐 检测到现有 S5M HTTPS 配置：$S5M_DOMAIN（$tls_file），复用现有证书，不重新询问域名或签发证书。"
-      break 2
+      echo "🔐 检测到现有 S5M HTTPS 配置：$S5M_DOMAIN（$source_file），复用现有证书，不重新询问域名或签发证书。"
+      break
     fi
-  done < <(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/ && $i !~ /^#/ && $i !~ /\*/) print $i} }' "$tls_file")
-done
+  done < <(nginx -T 2>/dev/null | python3 -c '
+import re, sys
+text = sys.stdin.read()
+# Remove comments before scanning blocks; preserve line boundaries.
+text = re.sub(r"(?m)^\\s*#.*$", "", text)
+for match in re.finditer(r"\\bserver\\s*\\{", text):
+    start = match.end()
+    depth, quote, escaped = 1, None, False
+    i = start
+    while i < len(text) and depth:
+        ch = text[i]
+        if quote:
+            if escaped: escaped = False
+            elif ch == "\\\\": escaped = True
+            elif ch == quote: quote = None
+        elif ch in "\\\"\\\x27":
+            quote = ch
+        elif ch == "{": depth += 1
+        elif ch == "}": depth -= 1
+        i += 1
+    block = text[start:i-1]
+    listen = re.search(r"(?m)^\\s*listen\\s+(?:\\[::\\]:)?443\\s+[^;]*\\bssl\\b[^;]*;", block)
+    proxy = re.search(r"(?m)^\\s*proxy_pass\\s+http://127\\.0\\.0\\.1:8080(?:[/;\\s]|$)", block)
+    cert = re.search(r"(?m)^\\s*ssl_certificate\\s+([^;]+);", block)
+    key = re.search(r"(?m)^\\s*ssl_certificate_key\\s+([^;]+);", block)
+    names = re.search(r"(?m)^\\s*server_name\\s+([^;]+);", block)
+    if not (listen and proxy and cert and key and names): continue
+    cert_path, key_path = cert.group(1).strip(), key.group(1).strip()
+    for domain in names.group(1).split():
+        if domain != "_" and "*" not in domain and not domain.startswith("$"):
+            print("\\t".join((domain, cert_path, key_path, "nginx -T server block")))
+') 
+fi
 
 # Only prompt when no valid S5M HTTPS virtual host/certificate was found.
 if [[ -z "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 && -t 0 ]]; then
@@ -93,12 +117,15 @@ apt-get install -y -qq "${apt_packages[@]}" > /dev/null
 # Check the S5M backend port, not the public Nginx listener.
 # S5M_ADDR may be ":8080", "127.0.0.1:8080", or another host:port value.
 PORT_TO_USE=""
-if [[ -r "$ENV_FILE" ]]; then
+if [[ -n "$S5M_DOMAIN" ]]; then
+  # HTTPS mode always places S5M behind Nginx on loopback:8080.
+  PORT_TO_USE=8080
+elif [[ -r "$ENV_FILE" ]]; then
   EXISTING_ADDR="$(sed -n 's/^S5M_ADDR=//p' "$ENV_FILE" | tail -n1)"
   if [[ "$EXISTING_ADDR" =~ :([0-9]+)$ ]]; then PORT_TO_USE="${BASH_REMATCH[1]}"; fi
 fi
 if [[ -z "$PORT_TO_USE" ]]; then
-  if [[ -n "$S5M_DOMAIN" ]] || { command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx 2>/dev/null; }; then
+  if command -v nginx >/dev/null 2>&1 && systemctl is-active --quiet nginx 2>/dev/null; then
     PORT_TO_USE=8080
   else
     PORT_TO_USE=80
