@@ -216,6 +216,13 @@ func configHashSource() ([]byte, error) {
 	return os.ReadFile(mihomoConfigPath())
 }
 
+// controllerConfigHash follows the WebSocket contract: hash exact payload bytes.
+// Do not trim whitespace or re-serialize YAML before hashing.
+func controllerConfigHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
 func writeControllerConfig(data []byte) error {
 	path := controllerConfigPath()
 	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
@@ -850,8 +857,7 @@ func collectMihomoStatus() map[string]any {
 	if hashErr != nil {
 		hashData = data
 	}
-	sum := sha256.Sum256([]byte(strings.TrimSpace(string(hashData))))
-	status["config_sha256"] = fmt.Sprintf("%x", sum[:])
+	status["config_sha256"] = controllerConfigHash(hashData)
 	var cfg map[string]interface{}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		status["last_error"] = "解析配置失败: " + err.Error()
@@ -1815,8 +1821,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		// 2. Fetch config on the same socket. A hash prevents needless YAML transfers.
 		localHash := ""
 		if localData, readErr := configHashSource(); readErr == nil && len(localData) > 0 {
-			sum := sha256.Sum256([]byte(strings.TrimSpace(string(localData))))
-			localHash = hex.EncodeToString(sum[:])
+			localHash = controllerConfigHash(localData)
 		}
 		configRequestID := fmt.Sprintf("cfg-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]string{
@@ -1844,9 +1849,11 @@ func runAgentWebSocketSession(cfg Config) error {
 			if strings.TrimSpace(configResponse.YAML) == "" {
 				return fmt.Errorf("主控端返回空配置")
 			}
-			configSum := sha256.Sum256([]byte(strings.TrimSpace(configResponse.YAML)))
-			if !strings.EqualFold(hex.EncodeToString(configSum[:]), strings.TrimSpace(configResponse.SHA256)) {
-				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用")
+			configHash := controllerConfigHash([]byte(configResponse.YAML))
+			if !strings.EqualFold(configHash, strings.TrimSpace(configResponse.SHA256)) {
+				// Keep strict verification, and expose hashes/size rather than the YAML
+				// body so operators can diagnose stale Agent builds or payload mutation.
+				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用（收到=%s，计算=%s，字节数=%d）", strings.TrimSpace(configResponse.SHA256), configHash, len(configResponse.YAML))
 			}
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
