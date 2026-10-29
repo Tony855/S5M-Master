@@ -193,6 +193,7 @@ checks.update({
     "browser WebSocket correlates request results and enforces a bounded request timeout": "browserWSRequests.set(requestId" in app_js and "request.result" in app_js and "15000" in app_js and "clearTimeout" in app_js,
     "Agent status and command lifecycle are delivered as browser WebSocket events": '"type": "agent.status.updated"' in browser_ws_source and '"type": "agent.command.queued"' in browser_ws_source and '"type": "agent.command.updated"' in browser_ws_source and "publishBrowserEvent" in browser_ws_source,
     "dashboard overview and traffic are not driven by a periodic HTTP polling timer": "setInterval(() => loadOverview" not in app_js and "setInterval(loadOverview" not in app_js and "setInterval(() => loadTraffic" not in app_js and "setInterval(loadTraffic" not in app_js,
+    "live traffic values update directly from Agent WebSocket telemetry without an HTTP polling fallback": "Live telemetry is authoritative while WebSocket is connected." in app_js and "Number(status.upload_speed)" in app_js and "Number(status.download_speed)" in app_js and "Number(status.connections)" in app_js,
     "Agent WebSocket control keeps auth-revocation, session ACK, and long-command TTL regressions covered": "TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation" in browser_ws_tests and "TestAgentWebSocketDeliversAndAcknowledgesPendingCommand" in browser_ws_tests and "TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate" in browser_ws_tests,
 })
 
