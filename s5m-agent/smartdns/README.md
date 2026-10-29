@@ -1,12 +1,14 @@
 # S5M Agent + SmartDNS combined image
 
-This is an **optional image variant** that runs the existing S5M Agent, Mihomo and SmartDNS in one container under s6-overlay supervision.
+This is an **optional, standalone image variant** that runs the existing S5M Agent, Mihomo and SmartDNS in one container under s6-overlay supervision. Its development branch is `s5m-agent-smartdns`; it is intentionally not merged into `main` or `dev`.
 
-- Image after successful merge to `dev`: `ghcr.io/tony855/s5m-agent-smartdns:dev`
+- Image published from the isolated `s5m-agent-smartdns` branch: `ghcr.io/tony855/s5m-agent-smartdns:dev`
 - Architectures: `linux/amd64` and `linux/arm64`
 - SmartDNS source: official `pymumu/smartdns`, pinned by the `Release48.4` tag; GPL-3.0-or-later license is included in the image.
 - SmartDNS listens on container port `6053` (UDP and TCP). The combined Compose example does **not** publish this port to the host.
 - Mihomo's fresh-install default config sends ordinary DNS queries to `127.0.0.1:6053`; bootstrap and proxy-server hostname lookups use literal-IP DNS servers to avoid a DNS loop.
+- The S5M controller's Agent management page reports SmartDNS availability, process status, DNS query probe health, version, config hash and error details. The **SmartDNS 配置** action edits and queues a config command over the existing authenticated Agent WebSocket; the Agent validates the candidate, persists it in `/data/smartdns.conf`, restarts only SmartDNS, and ACKs the result.
+- SmartDNS is restricted to `127.0.0.1:6053` over UDP and TCP. The controller rejects configs that change these listeners or include arbitrary `include`/`exec` directives.
 - The standard `s5m-agent` and RouterOS images are not replaced by this variant.
 
 ## Try it after the image is published
