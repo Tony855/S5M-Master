@@ -106,7 +106,7 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 	command := map[string]string{
 		"id":     fmt.Sprintf("%d", time.Now().UnixNano()),
 		"type":   "configure_smartdns",
-		"config": config,
+		"config":                 config,
 	}
 	payload, err := json.Marshal(command)
 	if err != nil {
@@ -153,9 +153,9 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 		_ = json.Unmarshal([]byte(raw), &status)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"machine_code": code,
+		"machine_code":           code,
 		"config": config,
-		"desired_config_sha256": hashConfig(config),
+		"desired_config_sha256":  hashConfig(config),
 		"reported_config_sha256": status["smartdns_config_sha256"],
 		"available": status["smartdns_available"] == true,
 		"running": status["smartdns_running"] == true,
@@ -187,7 +187,7 @@ func (a *App) handleQueueAgentSmartDNSConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"ok": true,
+		"ok":      true,
 		"message": "SmartDNS 配置命令已排队；Agent 会通过 WebSocket 执行并回报结果",
 	})
 }
