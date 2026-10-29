@@ -58,6 +58,7 @@ jobs:
           gzip -dc "$archive" > /tmp/mihomo
           chmod +x /tmp/mihomo
           /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
+          /tmp/mihomo -t -f ../s5m-agent/default-config.yaml
 
   agent:
     name: Agent tests, vet and build
@@ -254,6 +255,27 @@ jobs:
             [[ -f "$file" ]] || continue
             node --check "$file"
           done
+      - name: Verify Agent first-boot DNS/TUN defaults match controller normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=s5m-agent/default-config.yaml
+          generator=source/internal/app/configgen.go
+          grep -Fq 'mixed-port: 7890' "$config"
+          grep -Fq 'external-controller: 127.0.0.1:8088' "$config"
+          grep -Fq '  ipv6: false' "$config"
+          grep -Fq '    - "*.local"' "$config"
+          grep -Fq '    - "geosite:private"' "$config"
+          grep -Fq '  default-nameserver:' "$config"
+          grep -Fq '    - "any:53"' "$config"
+          grep -A2 '^tun:' "$config" | grep -Fq '  enable: false'
+          grep -Fq "default-nameserver:" "$generator"
+          grep -Fq "'*.local'" "$generator"
+          grep -Fq "'geosite:private'" "$generator"
+          grep -Fq "dns-hijack:" "$generator"
+          grep -Fq "'any:53'" "$generator"
+          grep -Fq 'Existing /data/config.yaml is intentionally preserved' "$config"
+          echo "PASS: Agent first-boot DNS/TUN defaults match controller normalization; TUN remains disabled."
       - name: Check UI data-integrity regressions
         run: python3 scripts/check-web-regressions.py
       - name: Verify required web files
