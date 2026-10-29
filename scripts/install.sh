@@ -10,34 +10,52 @@ if [[ -f "$ROOT/source/main.go" ]]; then SRC="$ROOT/source"; elif [[ -f "$ROOT/m
 ENV_FILE="/etc/s5m-server.env"
 OLD_ENV_FILE="/etc/s5m-server/server.env"
 DB_DIR="/var/lib/s5m-server"
-# HTTPS is checked before prompting: preserve a working certificate and virtual host.
+# Resolve an existing S5M TLS virtual host BEFORE prompting or deciding to issue a certificate.
+# Search enabled/available Nginx sites and conf.d, not just our preferred filename: Certbot
+# may have created the TLS block in another file. Only reuse a vhost that proxies to S5M.
 S5M_DOMAIN="${S5M_DOMAIN:-}"
 S5M_EMAIL="${S5M_EMAIL:-}"
+REQUESTED_DOMAIN="$S5M_DOMAIN"
 HTTPS_ALREADY_CONFIGURED=0
 NGINX_SITE="/etc/nginx/sites-available/s5m-server"
 NGINX_ENABLED="/etc/nginx/sites-enabled/s5m-server"
-if [[ -n "${1:-}" && -z "$S5M_DOMAIN" ]]; then S5M_DOMAIN="$1"; fi
+if [[ -n "${1:-}" && -z "$REQUESTED_DOMAIN" ]]; then
+  REQUESTED_DOMAIN="$1"
+  S5M_DOMAIN="$REQUESTED_DOMAIN"
+fi
 
 [[ $EUID -eq 0 ]] || { echo "请使用 sudo bash scripts/install.sh" >&2; exit 1; }
 
-# Reuse a working TLS virtual host and certificate without rewriting or reissuing them.
-if [[ -f "$NGINX_SITE" ]] &&
-   grep -Eq 'listen[[:space:]]+443[[:space:]]+ssl' "$NGINX_SITE"; then
-  detected_domain="$(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) if ($i !~ /;/) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/) {print $i; exit}} }' "$NGINX_SITE")"
-  cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
-  key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$NGINX_SITE" | head -n1)"
-  if [[ -n "$detected_domain" && -s "$cert_path" && -s "$key_path" ]] &&
-     command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1 &&
-     { [[ -z "$S5M_DOMAIN" ]] || [[ "$S5M_DOMAIN" == "$detected_domain" ]]; }; then
-    S5M_DOMAIN="$detected_domain"
-    HTTPS_ALREADY_CONFIGURED=1
-    echo "🔐 检测到现有 HTTPS 配置和证书：$S5M_DOMAIN，跳过重复配置。"
-  fi
-fi
+shopt -s nullglob
+tls_candidates=(/etc/nginx/sites-enabled/* /etc/nginx/sites-available/* /etc/nginx/conf.d/*.conf)
+shopt -u nullglob
+for tls_file in "${tls_candidates[@]}"; do
+  [[ -f "$tls_file" && -r "$tls_file" ]] || continue
+  grep -Eq 'listen[[:space:]]+([^;[:space:]]+[[:space:]]+)?443[[:space:]]+ssl|listen[[:space:]]+443[[:space:]]+ssl' "$tls_file" || continue
+  grep -Eq 'proxy_pass[[:space:]]+http://127\.0\.0\.1:8080([/;[:space:]]|$)' "$tls_file" || continue
 
-# Ask interactively only when HTTPS is not already configured. Blank domain keeps HTTP-only mode.
+  cert_path="$(sed -nE 's/^[[:space:]]*ssl_certificate[[:space:]]+([^;]+);.*/\1/p' "$tls_file" | head -n1)"
+  key_path="$(sed -nE 's/^[[:space:]]*ssl_certificate_key[[:space:]]+([^;]+);.*/\1/p' "$tls_file" | head -n1)"
+  [[ -n "$cert_path" && -n "$key_path" && -s "$cert_path" && -s "$key_path" ]] || continue
+
+  while IFS= read -r detected_domain; do
+    [[ -n "$detected_domain" && "$detected_domain" != "_" && "$detected_domain" != *'*'* ]] || continue
+    [[ -z "$REQUESTED_DOMAIN" || "$REQUESTED_DOMAIN" == "$detected_domain" ]] || continue
+    command -v openssl >/dev/null 2>&1 || continue
+    openssl x509 -in "$cert_path" -noout -checkhost "$detected_domain" >/dev/null 2>&1 || continue
+    openssl x509 -in "$cert_path" -noout -checkend 0 >/dev/null 2>&1 || continue
+    if command -v nginx >/dev/null 2>&1 && nginx -t >/dev/null 2>&1; then
+      S5M_DOMAIN="$detected_domain"
+      HTTPS_ALREADY_CONFIGURED=1
+      echo "🔐 检测到现有 S5M HTTPS 配置：$S5M_DOMAIN（$tls_file），复用现有证书，不重新询问域名或签发证书。"
+      break 2
+    fi
+  done < <(awk '/^[[:space:]]*server_name[[:space:]]/ { for (i=2;i<=NF;i++) {gsub(/;/,"",$i); if ($i != "_" && $i !~ /^\$/ && $i !~ /^#/ && $i !~ /\*/) print $i} }' "$tls_file")
+done
+
+# Only prompt when no valid S5M HTTPS virtual host/certificate was found.
 if [[ -z "$S5M_DOMAIN" && "$HTTPS_ALREADY_CONFIGURED" -eq 0 && -t 0 ]]; then
-  echo "尚未检测到可用的 S5M HTTPS 配置。"
+  echo "尚未检测到可复用的 S5M HTTPS 配置。"
   read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: " S5M_DOMAIN
   if [[ -n "$S5M_DOMAIN" ]]; then
     read -r -p "Let's Encrypt 邮箱 [v2wallid@gmail.com]: " S5M_EMAIL
