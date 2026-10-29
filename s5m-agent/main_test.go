@@ -2,9 +2,9 @@ package main
 
 import (
 	"crypto/sha256"
-	"fmt"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
