@@ -16,6 +16,27 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+func TestControllerWebSocketResponseErrorPreservesDetails(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		message   string
+		want      string
+	}{
+		{name: "config error", operation: "配置请求", message: "读取节点配置失败", want: "主控端配置请求失败: 读取节点配置失败"},
+		{name: "command error", operation: "命令请求", message: "读取待执行命令失败", want: "主控端命令请求失败: 读取待执行命令失败"},
+		{name: "empty message", operation: "配置请求", message: "  ", want: "主控端配置请求失败: 主控端未提供错误详情"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := controllerWebSocketResponseError(tt.operation, tt.message)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("controllerWebSocketResponseError() = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
 	payload := []byte("mixed-port: 7890\nsecret: test-secret\n\n")
 	want := fmt.Sprintf("%x", sha256.Sum256(payload))
