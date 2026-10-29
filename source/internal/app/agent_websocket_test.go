@@ -1337,7 +1337,7 @@ func TestSanitizeAgentWebSocketTextRedactsJSONCredentialsAndBearerTokens(t *test
 
 
 func TestSanitizeAgentWebSocketTextRedactsQuotedCredentialsWithSpacesAndEscapes(t *testing.T) {
-	input := `{"token":"secret with spaces","password":"value with \\"quote\\"","api_key": "key with spaces"} token='plain value with spaces' Authorization: Bearer bearer-secret`
+	input := `{"token":"secret with spaces","password":"value with \"quote\"","api_key": "key with spaces"} token='plain value with spaces' Authorization: Bearer bearer-secret`
 	got := sanitizeAgentWebSocketText(input)
 	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "plain value with spaces", "bearer-secret"} {
 		if strings.Contains(got, secret) {
