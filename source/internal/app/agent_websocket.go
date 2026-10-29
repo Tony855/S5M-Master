@@ -133,6 +133,10 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleOverview, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/overview", nil))
 		case "monitor.traffic.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
+		case "agents.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "proxies.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()
@@ -256,13 +260,12 @@ func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string
 		payload = map[string]any{"error": "服务器返回了无效 JSON"}
 	}
 	reply := map[string]any{"type": "request.result", "request_id": requestID, "ok": rec.Code >= 200 && rec.Code < 300}
-	for key, value := range payload {
-		reply[key] = value
-	}
-	if rec.Code < 200 || rec.Code >= 300 {
-		if errText, ok := payload["error"].(string); ok {
-			reply["error"] = errText
-		}
+	if rec.Code >= 200 && rec.Code < 300 {
+		reply["data"] = payload
+	} else if errText, ok := payload["error"].(string); ok {
+		reply["error"] = errText
+	} else {
+		reply["error"] = "读取数据失败"
 	}
 	_ = client.writeJSON(reply)
 }
