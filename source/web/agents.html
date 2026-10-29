@@ -112,7 +112,8 @@
                         '<td>' + esc(version) + '</td>' +
                         '<td><span class="status ' + smartdnsClass + '">' + esc(smartdnsStatus) + '</span>' +
                         (status.smartdns_version ? '<div>' + esc(status.smartdns_version) + '</div>' : '') +
-                        (status.smartdns_last_error ? '<div class="error">' + esc(status.smartdns_last_error) + '</div>' : '') + '</td>' +
+                        (status.smartdns_last_error ? '<div class="error">' + esc(status.smartdns_last_error) + '</div>' : '') +
+                        (info.desired_smartdns_config_sha256 ? '<div class="' + (String(status.smartdns_config_sha256 || '') === String(info.desired_smartdns_config_sha256) ? 'online' : 'error') + '">' + (String(status.smartdns_config_sha256 || '') === String(info.desired_smartdns_config_sha256) ? '配置已同步' : '配置待应用') + '</div>' : '') + '</td>' +
                         '<td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
                         '<td>' + esc(formatTime(seen)) + (info.desired_config_sha256 ? '<div class="' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? 'online' : 'error') + '">' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? '配置已同步' : '配置待应用') + '</div>' : '') + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + (info.command_result ? '<div>内核更新：' + esc(info.command_result.status || '') + ' ' + esc(info.command_result.message || '') + '</div>' : '') + '</td>' +
@@ -238,6 +239,7 @@
                 const state = data.available ? (data.running ? '运行中' : '异常') : '未上报/未安装';
                 document.getElementById('smartdnsStatus').textContent =
                     '运行状态：' + state + '；版本：' + (data.version || '未知') +
+                    '；配置同步：' + (data.desired_config_sha256 && data.desired_config_sha256 === data.reported_config_sha256 ? '已同步' : '待应用/未上报') +
                     '；当前上报配置 SHA-256：' + (data.reported_config_sha256 || '尚未上报') +
                     (data.last_error ? '；错误：' + data.last_error : '');
                 document.getElementById('smartdnsMessage').textContent = '配置已加载';
