@@ -1901,13 +1901,13 @@ func runAgentWebSocketSession(cfg Config) error {
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
 				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
-				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
+				fmt.Printf("WebSocket 配置校验/写入失败: %s\n", safeMihomoValidationDiagnostic([]byte(applyErr.Error())))
 				break
 			}
 			if changed {
 				if reloadErr := reloadMihomo(); reloadErr != nil {
 					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
-					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
+					fmt.Printf("Mihomo 配置重载失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(reloadErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
 					}
@@ -1990,7 +1990,7 @@ func runAgentWebSocketSession(cfg Config) error {
 				return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
 			}
 			if commandErr != nil {
-				fmt.Printf("Agent 命令 %s 执行失败: %v\n", cmd.ID, commandErr)
+				fmt.Printf("Agent 命令 %s 执行失败: %s\n", cmd.ID, message)
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 命令响应类型: %s", commandEnvelope.Type)
