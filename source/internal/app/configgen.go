@@ -91,11 +91,9 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if strings.TrimSpace(machineCode) != "" {
 		yml = strings.Replace(yml, "mixed-port: 8080", "mixed-port: 7890", 1)
 	}
-	// The controller's TUN switch controls generated defaults. A saved per-node
-	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
-	// Missing setting means the default (enabled). Only an explicit false disables TUN.
-	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "false") {
-		yml = strings.Replace(yml, "tun:\n    enable: true", "tun:\n    enable: false", 1)
+	// TUN is opt-in for generated configs. Existing saved per-node YAML remains authoritative.
+	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "true") {
+		yml = strings.Replace(yml, "tun:\n    enable: false", "tun:\n    enable: true", 1)
 	}
 	return yml, nil
 }
@@ -407,7 +405,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{}
+	rules := []string{"DOMAIN-SUFFIX,v2net.cc,DIRECT"}
 	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
 	if controllerHost != "" {
 		if ip := net.ParseIP(controllerHost); ip != nil {
