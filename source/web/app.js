@@ -1216,9 +1216,9 @@ const safeCopy = async (text) => {
       if (retryingNodeConfigSync.value) return;
       retryingNodeConfigSync.value = true;
       try {
-        const res = await api('/api/v1/nodes/config-sync', { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) throw new Error(data.error || data.message || '节点配置同步失败');
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
         showMsg(data.message || '节点配置已重新生成', 'success');
       } catch (e) {
         showMsg(e.message || '节点配置同步失败', 'error');
