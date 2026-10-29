@@ -2412,7 +2412,6 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Keep any existing template/independent binding metadata intact; only refresh its config hash.
-		_, _ = a.store.db.Exec("UPDATE node_template_bindings SET config_sha256 = ?, updated_at = ? WHERE machine_code = ?", hashConfig(normalized), time.Now().UTC().Format(time.RFC3339), code)
 		cfg.YAML = normalized
 	}
 	writeJSON(w, 200, cfg)
