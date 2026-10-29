@@ -123,16 +123,49 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	// WebSocket is the primary live control channel. HTTP remains the
 	// authentication/ticket, initial snapshot, health, and recovery path.
 	conn.SetReadLimit(16 << 10)
-	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil { fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err); return }
+	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+		fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err)
+		return
+	}
 	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(90 * time.Second)) })
 	pingDone := make(chan struct{})
 	defer close(pingDone)
-	go func() { ticker := time.NewTicker(25*time.Second); defer ticker.Stop(); for { select { case <-pingDone: return; case <-ticker.C: client.mu.Lock(); _ = client.conn.SetWriteDeadline(time.Now().Add(5*time.Second)); err := client.conn.WriteControl(websocket.PingMessage, []byte("s5m"), time.Now().Add(5*time.Second)); client.mu.Unlock(); if err != nil { fmt.Printf("browser_ws: ping failed user=%q: %v\n", client.username, err); _ = client.conn.Close(); return } } } }()
+	go func() {
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingDone:
+				return
+			case <-ticker.C:
+				client.mu.Lock()
+				_ = client.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				err := client.conn.WriteControl(websocket.PingMessage, []byte("s5m"), time.Now().Add(5*time.Second))
+				client.mu.Unlock()
+				if err != nil {
+					fmt.Printf("browser_ws: ping failed user=%q: %v\n", client.username, err)
+					_ = client.conn.Close()
+					return
+				}
+			}
+		}
+	}()
 	for {
 		var message browserControlMessage
-		if err := conn.ReadJSON(&message); err != nil { if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) { fmt.Printf("browser_ws: read failed user=%q: %v\n", client.username, err) }; return }
-		if err := conn.SetReadDeadline(time.Now().Add(90*time.Second)); err != nil { fmt.Printf("browser_ws: refresh deadline user=%q: %v\n", client.username, err); return }
-		if strings.TrimSpace(message.RequestID) == "" { _ = client.writeJSON(map[string]any{"type":"request.result","request_id":"","ok":false,"error":"缺少 request_id，无法关联操作结果"}); continue }
+		if err := conn.ReadJSON(&message); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				fmt.Printf("browser_ws: read failed user=%q: %v\n", client.username, err)
+			}
+			return
+		}
+		if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+			fmt.Printf("browser_ws: refresh deadline user=%q: %v\n", client.username, err)
+			return
+		}
+		if strings.TrimSpace(message.RequestID) == "" {
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": "", "ok": false, "error": "缺少 request_id，无法关联操作结果"})
+			continue
+		}
 		// Revalidate the administrator session for every browser RPC, not only
 		// when the one-time WebSocket ticket is exchanged.
 		u, authErr := a.store.UserByUsername(client.username)
@@ -302,7 +335,9 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 func (c *browserEventClient) writeJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if err := c.conn.SetWriteDeadline(time.Now().Add(5*time.Second)); err != nil { return fmt.Errorf("设置 WebSocket 写入超时失败: %w", err) }
+	if err := c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("设置 WebSocket 写入超时失败: %w", err)
+	}
 	return c.conn.WriteJSON(v)
 }
 
@@ -312,7 +347,9 @@ func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	handler(rec, req)
-	if rec.Code < 200 || rec.Code >= 300 { fmt.Printf("browser_ws: rpc failed user=%q request_id=%q status=%d duration_ms=%d path=%q\n", client.username, requestID, rec.Code, time.Since(started).Milliseconds(), req.URL.Path) }
+	if rec.Code < 200 || rec.Code >= 300 {
+		fmt.Printf("browser_ws: rpc failed user=%q request_id=%q status=%d duration_ms=%d path=%q\n", client.username, requestID, rec.Code, time.Since(started).Milliseconds(), req.URL.Path)
+	}
 	var payload any
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		payload = map[string]any{"error": "服务器返回了无效 JSON"}
@@ -329,7 +366,9 @@ func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string
 	} else {
 		reply["error"] = "读取数据失败"
 	}
-	if err := client.writeJSON(reply); err != nil { fmt.Printf("browser_ws: rpc response write failed user=%q request_id=%q path=%q: %v\n", client.username, requestID, req.URL.Path, err) }
+	if err := client.writeJSON(reply); err != nil {
+		fmt.Printf("browser_ws: rpc response write failed user=%q request_id=%q path=%q: %v\n", client.username, requestID, req.URL.Path, err)
+	}
 }
 
 func (a *App) publishBrowserEvent(event map[string]any) {
