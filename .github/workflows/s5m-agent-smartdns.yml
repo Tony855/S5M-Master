@@ -2,7 +2,7 @@ name: S5M Agent + SmartDNS image
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [s5m-agent-smartdns]
     paths:
       - "s5m-agent/Dockerfile.smartdns"
       - "s5m-agent/smartdns/**"
@@ -170,7 +170,7 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
+            type=raw,value=dev
             type=sha,prefix=sha-
       - name: Build and push AMD64 + ARM64
         uses: docker/build-push-action@v6
