@@ -81,6 +81,6 @@ ENV S6_KEEP_ENV=1 \
     MIHOMO_HOME=/data \
     MIHOMO_API=127.0.0.1:8088
 VOLUME ["/data"]
-EXPOSE 80 7890 8088
+EXPOSE 80 7890
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/healthcheck.sh"]
 ENTRYPOINT ["/init"]

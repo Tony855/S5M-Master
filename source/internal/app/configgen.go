@@ -19,75 +19,41 @@ import (
 
 const baseTemplate = `mode: rule
 mixed-port: 8080
+allow-lan: true
 log-level: info
+ipv6: false
 external-controller: 127.0.0.1:8088
 secret: "__S5M_MIHOMO_SECRET__"
-allow-lan: true
-find-process-mode: "off"
-tcp-concurrent: true
-ipv6: false
-unified-delay: true
-tcp-fast-open: true
-
-sniffer:
-    enable: true
-    sniff:
-        HTTP:
-            ports: [80]
-            override-destination: true
-        TLS:
-            ports: [443]
-        QUIC:
-            ports: [443]
-            override-destination: true
-tun:
-    enable: true
-    tcp-concurrent: true
-    bind-address: '*'
-    stack: mixed
-    dns-hijack:
-        - 'any:53'
-        - 'tcp://any:53'
-    auto-detect-interface: true
-    auto-route: true
-    strict-route: true
+profile:
+    store-selected: true
+    store-fake-ip: true
 dns:
     enable: true
-    # LAN clients may use this listener; firewall must restrict TCP/UDP 5353 to trusted LANs.
-    listen: 0.0.0.0:5353
+    listen: 127.0.0.1:5353
     enhanced-mode: fake-ip
-    cache-algorithm: arc
     fake-ip-range: 198.18.0.1/16
     fake-ip-filter:
         - '*.lan'
-        - '*.local'
-        - '*.msftconnecttest.com'
-        - '*.msftncsi.com'
-    # Bootstrap DNS is plain DNS; restrict its egress if a strict no-cleartext-DNS policy is required.
-    default-nameserver:
-        - 223.5.5.5
-        - 119.29.29.29
-    # DNS 请求遵循 Mihomo 路由规则；DoH 服务器规则会把查询送入节点代理。
-    respect-rules: true
-    # 仅用于解析代理服务器自身的域名，避免代理启动与 DNS 代理之间形成循环。
+        - '+.v2net.cc'
     proxy-server-nameserver:
         - 223.5.5.5
         - 119.29.29.29
     nameserver:
-        - https://dns.alidns.com/dns-query
-        - https://doh.pub/dns-query
+        - 223.5.5.5
+        - 119.29.29.29
     fallback:
         - https://dns.cloudflare.com/dns-query
         - https://dns.google/dns-query
     fallback-filter:
         geoip: true
         geoip-code: CN
-        ipcidr:
-            - 240.0.0.0/4
-
+tun:
+    enable: false
+    stack: system
+    auto-route: true
+    auto-detect-interface: true
 proxies:__PROXIES__
-rules:__RULES__
-`
+rules:__RULES__`
 
 type proxyOut struct {
 	Name   string         `yaml:"name"`
@@ -95,6 +61,243 @@ type proxyOut struct {
 	Server string         `yaml:"server"`
 	Port   int            `yaml:"port"`
 	Extra  map[string]any `yaml:",inline"`
+}
+
+// normalizeAgentMixedPort enforces the Agent's published proxy port and TUN safety settings.
+// Controller/global configs intentionally retain their own 8080 listener.
+func normalizeAgentMixedPort(yml string) (string, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
+		return "", fmt.Errorf("解析 Agent Mihomo 配置失败: %w", err)
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return "", fmt.Errorf("Agent Mihomo 配置必须是 YAML 对象")
+	}
+	root := doc.Content[0]
+	setScalar := func(mapping *yaml.Node, key, value, tag string) {
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				mapping.Content[i+1].Kind = yaml.ScalarNode
+				mapping.Content[i+1].Tag = tag
+				mapping.Content[i+1].Value = value
+				mapping.Content[i+1].Content = nil
+				return
+			}
+		}
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value},
+		)
+	}
+	mappingValue := func(mapping *yaml.Node, key string) *yaml.Node {
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				return mapping.Content[i+1]
+			}
+		}
+		return nil
+	}
+	deleteKeys := map[string]bool{"port": true, "socks-port": true}
+	filtered := make([]*yaml.Node, 0, len(root.Content))
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if !deleteKeys[root.Content[i].Value] {
+			filtered = append(filtered, root.Content[i], root.Content[i+1])
+		}
+	}
+	root.Content = filtered
+	setScalar(root, "mixed-port", "7890", "!!int")
+	setScalar(root, "external-controller", "127.0.0.1:8088", "!!str")
+
+	// Keep the controller's own hostname out of fake-IP answers to avoid breaking
+	// Agent registration/heartbeats when strict-route TUN is enabled.
+	dns := mappingValue(root, "dns")
+	if dns == nil || dns.Kind != yaml.MappingNode {
+		dns = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		setNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "dns"}
+		root.Content = append(root.Content, setNode, dns)
+	}
+	filter := mappingValue(dns, "fake-ip-filter")
+	if filter == nil || filter.Kind != yaml.SequenceNode {
+		filter = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "fake-ip-filter" {
+				dns.Content[i+1] = filter
+				break
+			}
+		}
+		if mappingValue(dns, "fake-ip-filter") == nil {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fake-ip-filter"}, filter)
+		}
+	}
+	filterHasControllerDomain := false
+	for _, item := range filter.Content {
+		if item.Value == "+.v2net.cc" {
+			filterHasControllerDomain = true
+			break
+		}
+	}
+	if !filterHasControllerDomain {
+		filter.Content = append(filter.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "+.v2net.cc"})
+	}
+
+	// Resolve proxy endpoint hostnames through explicit bootstrap DNS servers rather
+	// than fake-IP answers. Preserve existing entries and append missing defaults.
+	proxyDNS := mappingValue(dns, "proxy-server-nameserver")
+	if proxyDNS == nil || proxyDNS.Kind != yaml.SequenceNode {
+		proxyDNS = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "proxy-server-nameserver" {
+				dns.Content[i+1] = proxyDNS
+				found = true
+				break
+			}
+		}
+		if !found {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "proxy-server-nameserver"}, proxyDNS)
+		}
+	}
+	for _, server := range []string{"223.5.5.5", "119.29.29.29"} {
+		found := false
+		for _, item := range proxyDNS.Content {
+			if item.Value == server {
+				found = true
+				break
+			}
+		}
+		if !found {
+			proxyDNS.Content = append(proxyDNS.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+		}
+	}
+
+	// Use independent international DoH resolvers as fallback. Preserve any
+	// configured fallback endpoints and append defaults only when missing.
+	fallback := mappingValue(dns, "fallback")
+	if fallback == nil || fallback.Kind != yaml.SequenceNode {
+		fallback = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "fallback" {
+				dns.Content[i+1] = fallback
+				found = true
+				break
+			}
+		}
+		if !found {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fallback"}, fallback)
+		}
+	}
+	for _, server := range []string{"https://dns.cloudflare.com/dns-query", "https://dns.google/dns-query"} {
+		found := false
+		for _, item := range fallback.Content {
+			if item.Value == server {
+				found = true
+				break
+			}
+		}
+		if !found {
+			fallback.Content = append(fallback.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: server})
+		}
+	}
+	fallbackFilter := mappingValue(dns, "fallback-filter")
+	if fallbackFilter == nil || fallbackFilter.Kind != yaml.MappingNode {
+		fallbackFilter = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		dns.Content = append(dns.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fallback-filter"}, fallbackFilter)
+	}
+	if mappingValue(fallbackFilter, "geoip") == nil {
+		fallbackFilter.Content = append(fallbackFilter.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "geoip"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+	}
+	if mappingValue(fallbackFilter, "geoip-code") == nil {
+		fallbackFilter.Content = append(fallbackFilter.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "geoip-code"},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "CN"})
+	}
+
+	// Exclude private/local ranges from TUN route capture and also exclude literal
+	// proxy endpoint IPs so TUN cannot recursively route its own upstream transport.
+	excluded := []string{
+		"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12",
+		"192.168.0.0/16", "198.18.0.0/16",
+	}
+	seen := make(map[string]bool, len(excluded))
+	for _, cidr := range excluded {
+		seen[cidr] = true
+	}
+	if proxies := mappingValue(root, "proxies"); proxies != nil && proxies.Kind == yaml.SequenceNode {
+		for _, proxy := range proxies.Content {
+			if proxy.Kind != yaml.MappingNode {
+				continue
+			}
+			server := mappingValue(proxy, "server")
+			if server == nil || server.Kind != yaml.ScalarNode {
+				continue
+			}
+			ip := net.ParseIP(strings.Trim(server.Value, "[]"))
+			if ip == nil {
+				continue
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			cidr := fmt.Sprintf("%s/%d", ip.String(), bits)
+			if !seen[cidr] {
+				excluded = append(excluded, cidr)
+				seen[cidr] = true
+			}
+		}
+	}
+	tun := mappingValue(root, "tun")
+	if tun == nil || tun.Kind != yaml.MappingNode {
+		tun = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tun"}, tun)
+	}
+	routeExclude := mappingValue(tun, "route-exclude-address")
+	if routeExclude == nil || routeExclude.Kind != yaml.SequenceNode {
+		routeExclude = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(tun.Content); i += 2 {
+			if tun.Content[i].Value == "route-exclude-address" {
+				tun.Content[i+1] = routeExclude
+				found = true
+				break
+			}
+		}
+		if !found {
+			tun.Content = append(tun.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "route-exclude-address"}, routeExclude)
+		}
+	}
+	for _, cidr := range excluded {
+		found := false
+		for _, item := range routeExclude.Content {
+			if item.Value == cidr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			routeExclude.Content = append(routeExclude.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cidr})
+		}
+	}
+
+	var out strings.Builder
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return "", fmt.Errorf("序列化 Agent Mihomo 配置失败: %w", err)
+	}
+	if err := enc.Close(); err != nil {
+		return "", fmt.Errorf("关闭 Agent YAML 编码器失败: %w", err)
+	}
+	return out.String(), nil
 }
 
 func indent(s, prefix string) string {
@@ -128,11 +331,16 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// The controller's TUN switch controls generated defaults. A saved per-node
-	// YAML remains authoritative and is preserved by syncAuthorizedNodeConfigs.
-	// Missing setting means the default (enabled). Only an explicit false disables TUN.
-	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "false") {
-		yml = strings.Replace(yml, "tun:\n    enable: true", "tun:\n    enable: false", 1)
+	// Controller configs use 8080; Agent configs must always match Docker's 7890:7890 mapping.
+	if strings.TrimSpace(machineCode) != "" {
+		yml, err = normalizeAgentMixedPort(yml)
+		if err != nil {
+			return "", err
+		}
+	}
+	// TUN is opt-in for generated configs. Existing saved per-node YAML remains authoritative.
+	if strings.EqualFold(strings.TrimSpace(settings["tun_enable"]), "true") {
+		yml = strings.Replace(yml, "tun:\n    enable: false", "tun:\n    enable: true", 1)
 	}
 	return yml, nil
 }
@@ -219,6 +427,10 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 				return fmt.Errorf("序列化机器 %s 的独立配置失败: %w", machineCode, marshalErr)
 			}
 			generated = string(marshaled)
+		}
+		generated, err = normalizeAgentMixedPort(generated)
+		if err != nil {
+			return fmt.Errorf("机器 %s 的代理端口校正失败: %w", machineCode, err)
 		}
 		var doc map[string]any
 		if err := yaml.Unmarshal([]byte(generated), &doc); err != nil {
@@ -444,7 +656,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{}
+	rules := []string{"DOMAIN-SUFFIX,v2net.cc,DIRECT"}
 	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
 	if controllerHost != "" {
 		if ip := net.ParseIP(controllerHost); ip != nil {

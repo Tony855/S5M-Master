@@ -341,21 +341,37 @@ func writeManagedRouteCIDRs(values []string) error {
 }
 
 // ensureV2NetDirectRule keeps the S5M controller domain family out of proxy-node routing.
-// TUN route-exclude-address is IP/CIDR-only; the configured controller hostname is
-// separately resolved to /32 and /128 exclusions below.
+// TUN route-exclude-address is IP/CIDR-only; controller host IPs are separately excluded below.
 func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
 	raw, ok := cfg["rules"].([]interface{})
 	if !ok {
 		raw = []interface{}{}
 	}
 	const rule = "DOMAIN-SUFFIX,v2net.cc,DIRECT"
-	for _, item := range raw {
+
+	firstRuleAt := -1
+	ruleCount := 0
+	for i, item := range raw {
 		if value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
-			return false
+			if firstRuleAt == -1 {
+				firstRuleAt = i
+			}
+			ruleCount++
 		}
 	}
-	insertAt := len(raw)
-	for i, item := range raw {
+
+	// Remove existing copies first so a stale rule after MATCH cannot silently
+	// leave controller traffic routed through the proxy.
+	next := make([]interface{}, 0, len(raw)+1)
+	for _, item := range raw {
+		if value, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(value), rule) {
+			continue
+		}
+		next = append(next, item)
+	}
+
+	insertAt := len(next)
+	for i, item := range next {
 		if value, ok := item.(string); ok {
 			parts := strings.Split(strings.TrimSpace(value), ",")
 			if len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
@@ -364,10 +380,24 @@ func ensureV2NetDirectRule(cfg map[string]interface{}) bool {
 			}
 		}
 	}
-	next := make([]interface{}, 0, len(raw)+1)
-	next = append(next, raw[:insertAt]...)
-	next = append(next, rule)
-	next = append(next, raw[insertAt:]...)
+	if ruleCount == 1 && firstRuleAt >= 0 {
+		matchBeforeRule := false
+		for i := 0; i < firstRuleAt && i < len(raw); i++ {
+			if value, ok := raw[i].(string); ok {
+				parts := strings.Split(strings.TrimSpace(value), ",")
+				if len(parts) > 0 && strings.EqualFold(strings.TrimSpace(parts[0]), "MATCH") {
+					matchBeforeRule = true
+					break
+				}
+			}
+		}
+		if !matchBeforeRule {
+			return false
+		}
+	}
+	next = append(next, nil)
+	copy(next[insertAt+1:], next[insertAt:])
+	next[insertAt] = rule
 	cfg["rules"] = next
 	return true
 }
@@ -594,13 +624,15 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 	}
 	if string(oldNorm) == string(newNorm) {
 		if strings.TrimSpace(centralURL) != "" {
-			if err := writeControllerConfig(agentYml); err != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
-			}
 			if len(managedCentralCIDRs) > 0 {
 				if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
 					return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
 				}
+			}
+			// Commit the source hash last so a metadata write failure cannot
+			// make the controller believe an unapplied config is already active.
+			if err := writeControllerConfig(agentYml); err != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
 			}
 		}
 		return false, nil
@@ -643,13 +675,21 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if strings.TrimSpace(centralURL) != "" {
-		if err := writeControllerConfig(agentYml); err != nil {
-			return false, fmt.Errorf("运行配置已写入，但保存主控原始配置哈希源失败: %w", err)
-		}
 		if len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
-				return false, fmt.Errorf("运行配置已写入，但保存动态主控地址记录失败: %w", err)
+				if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+					return false, fmt.Errorf("保存动态主控地址记录失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
+				}
+				return false, fmt.Errorf("保存动态主控地址记录失败，已恢复旧运行配置: %w", err)
 			}
+		}
+		// Write the hash source last. If this fails, the next config request
+		// still compares against the previously applied controller YAML.
+		if err := writeControllerConfig(agentYml); err != nil {
+			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
+			}
+			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
 		}
 	}
 	return true, nil
@@ -1678,6 +1718,21 @@ func reconnectDelayWithJitter(current time.Duration) time.Duration {
 // runAgentWebSocketSession owns one persistent connection for all Agent control-plane
 // traffic. Every request/response is correlated by ID, and the existing safe config
 // apply/rollback and idempotent kernel-upgrade paths are reused.
+// applyAgentControlError exposes the most recent config-apply failure in the next
+// heartbeat, while preserving any independent Mihomo health diagnostic.
+func applyAgentControlError(status map[string]any, controlErr string) {
+	controlErr = strings.TrimSpace(controlErr)
+	if controlErr == "" {
+		return
+	}
+	controlErr = safeMihomoValidationDiagnostic([]byte(controlErr))
+	if existing, ok := status["last_error"].(string); ok && strings.TrimSpace(existing) != "" {
+		status["last_error"] = controlErr + "; Mihomo: " + existing
+		return
+	}
+	status["last_error"] = controlErr
+}
+
 func runAgentWebSocketSession(cfg Config) error {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
@@ -1727,6 +1782,7 @@ func runAgentWebSocketSession(cfg Config) error {
 	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
 		heartbeatInterval = 30 * time.Second
 	}
+	var lastConfigSyncError string
 
 	for {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
@@ -1736,6 +1792,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
+		applyAgentControlError(status, lastConfigSyncError)
 		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]any{
 			"type": "heartbeat", "id": heartbeatID, "status": status,
@@ -1782,6 +1839,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		switch configResponse.Type {
 		case "config.unchanged":
+			lastConfigSyncError = ""
 		case "config.sync":
 			if strings.TrimSpace(configResponse.YAML) == "" {
 				return fmt.Errorf("主控端返回空配置")
@@ -1792,11 +1850,13 @@ func runAgentWebSocketSession(cfg Config) error {
 			}
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
+				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
 				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
 				break
 			}
 			if changed {
 				if reloadErr := reloadMihomo(); reloadErr != nil {
+					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
 					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
@@ -1805,9 +1865,12 @@ func runAgentWebSocketSession(cfg Config) error {
 						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
 					}
 				} else {
+					lastConfigSyncError = ""
 					_ = os.Remove(mihomoConfigPath() + ".previous")
 					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
 				}
+			} else {
+				lastConfigSyncError = ""
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type)

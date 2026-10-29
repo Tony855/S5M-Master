@@ -34,10 +34,11 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		t.Fatalf("default Mihomo template should be valid YAML: %v", err)
 	}
 	for _, want := range []string{
-		"mixed-port: 8080",
+		"mixed-port: 7890",
 		"external-controller: 127.0.0.1:8088",
-		"listen: 0.0.0.0:5353",
-		"enable: true",
+		"listen: 127.0.0.1:5353",
+		"DOMAIN-SUFFIX,v2net.cc,DIRECT",
+		"enable: false",
 	} {
 		if !strings.Contains(defaultMihomoTemplate, want) {
 			t.Errorf("default template missing %q", want)
@@ -48,14 +49,9 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 		t.Fatal("starter template must not expose a user's proxy endpoint or API secret")
 	}
 
-	// Check only unindented, top-level section declarations. A substring check
-	// for "rules:" incorrectly matches the valid DNS option "respect-rules:".
-	for _, line := range strings.Split(defaultMihomoTemplate, "\n") {
-		switch strings.TrimSpace(line) {
-		case "proxies:", "proxy-groups:", "rules:":
-			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
-				t.Fatalf("default template must not define controller-managed top-level section %q", strings.TrimSpace(line))
-			}
+	for _, want := range []string{"proxies: []", "proxy-groups: []", "rules:", "tun:", "auto-route: true"} {
+		if !strings.Contains(defaultMihomoTemplate, want) {
+			t.Errorf("default template missing baseline section %q", want)
 		}
 	}
 	for _, unwanted := range []string{"YOUR_PROXY_SERVER", "221111cdn"} {
@@ -72,5 +68,27 @@ func TestHashConfigIsStable(t *testing.T) {
 	}
 	if hashConfig(yaml) == hashConfig(yaml+"# changed\n") {
 		t.Fatal("different YAML unexpectedly produced the same hash")
+	}
+}
+
+func TestValidateAgentPublishedProxyPort(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		wantErr bool
+	}{
+		{name: "published port", yaml: "mixed-port: 7890\nmode: rule\n"},
+		{name: "controller port", yaml: "mixed-port: 8080\nmode: rule\n", wantErr: true},
+		{name: "custom unexposed port", yaml: "mixed-port: 7899\nmode: rule\n", wantErr: true},
+		{name: "missing mixed port", yaml: "socks-port: 7890\nmode: rule\n", wantErr: true},
+		{name: "string port", yaml: "mixed-port: \"7890\"\nmode: rule\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAgentPublishedProxyPort(tt.yaml)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateAgentPublishedProxyPort() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }

@@ -1764,8 +1764,17 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
 			return
 		}
+	}
+	// Keep legacy config delivery aligned with the Agent container's 7890:7890 mapping.
+	normalized, normalizeErr := normalizeAgentMixedPort(yml)
+	if normalizeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "校正节点代理端口失败")
+		return
+	}
+	if normalized != yml {
+		yml = normalized
 		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存节点配置失败")
+			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
 		}
 	}
@@ -2390,6 +2399,21 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Repair stale persisted Agent YAML before returning it to the management UI.
+	// Keep the controller/global template untouched and update only this machine's config.
+	normalized, normalizeErr := normalizeAgentMixedPort(cfg.YAML)
+	if normalizeErr != nil {
+		writeErr(w, http.StatusInternalServerError, "节点配置端口校正失败: "+normalizeErr.Error())
+		return
+	}
+	if normalized != cfg.YAML {
+		if saveErr := a.store.SaveNodeConfig(code, normalized); saveErr != nil {
+			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
+			return
+		}
+		// Keep any existing template/independent binding metadata intact; only refresh its config hash.
+		cfg.YAML = normalized
+	}
 	writeJSON(w, 200, cfg)
 }
 
@@ -2440,6 +2464,10 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := cfg["dns"]; !ok {
 		writeErr(w, 400, "完整配置缺少 dns 配置块")
+		return
+	}
+	if err := validateAgentPublishedProxyPort(in.YAML); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if err := a.store.SaveNodeConfig(code, in.YAML); err != nil {

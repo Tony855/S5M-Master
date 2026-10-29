@@ -14,6 +14,12 @@ rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.in
 ui = html + "\n" + app_js
 
 checks = {
+    "Linux Agent deployment explicitly isolates TUN routes in Docker bridge network to protect host SSH": (
+        '--network bridge' in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8").split("docker run -d", 1)[1].split('|| die "容器启动失败"', 1)[0]
+        and '--network host' not in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8").split("docker run -d", 1)[1].split('|| die "容器启动失败"', 1)[0]
+        and "Keep Mihomo TUN routes inside the Agent container's network namespace" in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+        and 'if [ "$network_mode" != "bridge" ]; then' in Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+    ),
     "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in template_source and "不能删除当前发布版本" in template_source and "FROM node_template_bindings WHERE source='template' AND template_version=?" in template_source and '"DELETE /api/v1/mihomo/template/{version}"' in router,
     "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
 
@@ -57,8 +63,9 @@ checks = {
     "client subscription link is displayed after the per-node YAML editor at the bottom of the config page": html.index("客户端订阅链接") > html.index("保存当前节点配置") and html.index("客户端订阅链接") > html.index("节点独立配置 (YAML)"),
     "administrator account control is compact and hides role label from the main status bar": 'class="admin-menu-trigger"' in html and 'class="admin-user-text"' not in html and 'class="admin-avatar"' in html and 'class="admin-chevron"' in html and '管理员菜单' in html,
     "subscription URL trims blank settings and always initializes a usable absolute fallback": "const fallback = new URL('/api/v1/subscribe', window.location.href).toString();" in app_js and "String(s.subscribe_url || s.sub_url || '').trim()" in app_js and "subUrl.value = configured || fallback;" in app_js,
-    "Mihomo template page provides a safe starter without fake proxy/rule sections": "defaultMihomoTemplate" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "draft = defaultMihomoTemplate" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "REPLACE_WITH_A_UNIQUE_RANDOM_SECRET" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "YOUR_PROXY_SERVER" not in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "221111cdn" not in Path("source/internal/app/template.go").read_text(encoding="utf-8"),
-    "generated Mihomo DNS follows routing rules and uses a bootstrap resolver to avoid DNS/proxy loops": "respect-rules: true" in configgen and "proxy-server-nameserver:" in configgen and "DOMAIN-SUFFIX,%s,%s" in configgen and "dns.alidns.com" in configgen and "doh.pub" in configgen,
+    "Agent binding button requires a non-empty token and hides backend diagnostics from end users": '<button id="btn" onclick="save()" disabled>' in Path("s5m-agent/index.html").read_text(encoding="utf-8") and 'oninput="updateBindButton()"' in Path("s5m-agent/index.html").read_text(encoding="utf-8") and "bindingInProgress || !secret" in Path("s5m-agent/index.html").read_text(encoding="utf-8") and "主控地址或授权密钥无效" not in Path("s5m-agent/index.html").read_text(encoding="utf-8") and "S5M_ALLOW_INSECURE_HTTP" not in Path("s5m-agent/index.html").read_text(encoding="utf-8") and "/data 挂载" not in Path("s5m-agent/index.html").read_text(encoding="utf-8") and "请检查 Agent 日志" not in Path("s5m-agent/index.html").read_text(encoding="utf-8"),
+    "Mihomo template page provides a safe starter with empty proxy sections and baseline rules": "defaultMihomoTemplate" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "draft = defaultMihomoTemplate" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "REPLACE_WITH_A_UNIQUE_RANDOM_SECRET" in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "YOUR_PROXY_SERVER" not in Path("source/internal/app/template.go").read_text(encoding="utf-8") and "221111cdn" not in Path("source/internal/app/template.go").read_text(encoding="utf-8"),
+    "generated Mihomo defaults use loopback DNS, Fake-IP filters, and controller direct routing": "listen: 127.0.0.1:5353" in configgen and "'+.v2net.cc'" in configgen and "DOMAIN-SUFFIX,v2net.cc,DIRECT" in configgen and "tun:\n    enable: false" in configgen,
     "configuration UI focuses on per-node YAML and removes unused global draft panel": "selectedConfigNode" in ui and "节点独立配置 (YAML)" in html and "全局配置与版本发布" not in html and "globalConfigYaml" not in app_js,
     "global config draft endpoint bounds request size and validates YAML before persistence": "decodeLimited(r, 2<<20, \"2 MiB\", &in)" in handlers and "全局 YAML 语法错误" in handlers and "全局 YAML 必须是非空对象" in handlers,
     "global config save response does not falsely claim Agent rollout": "尚未发布" in handlers and "不会自动更新节点独立 YAML" in handlers and "Agent 将在 30 秒内拉取更新" not in handlers,
@@ -196,7 +203,8 @@ agent_registration_main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
 agent_list_html = Path("source/web/agents.html").read_text(encoding="utf-8")
 checks.update({
     "Agent registration defaults to HTTPS and distinguishes saved credentials from a live connection": (
-        'value="https://"' in agent_registration_html
+        'value="https://bind.v2net.cc"' in agent_registration_html
+        and "else document.getElementById('url').value = 'https://bind.v2net.cc';" in agent_registration_html
         and "url = 'https://' + url" in agent_registration_html
         and "refreshBindingStatus" in agent_registration_html
         and "location.reload()" not in agent_registration_html

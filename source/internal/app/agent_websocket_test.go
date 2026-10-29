@@ -897,10 +897,14 @@ func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
 	if err := conn.ReadJSON(&first); err != nil {
 		t.Fatalf("read initial config response: %v", err)
 	}
-	sum := sha256.Sum256([]byte(configYAML))
+	expectedYAML, err := normalizeAgentMixedPort(configYAML)
+	if err != nil {
+		t.Fatalf("normalize expected Agent config: %v", err)
+	}
+	sum := sha256.Sum256([]byte(expectedYAML))
 	expectedHash := hex.EncodeToString(sum[:])
 	if first["type"] != "config.sync" || first["id"] != requestID ||
-		first["sha256"] != expectedHash || first["yaml"] != configYAML {
+		first["sha256"] != expectedHash || first["yaml"] != expectedYAML {
 		t.Fatalf("unexpected initial config response: %#v", first)
 	}
 
@@ -1170,7 +1174,11 @@ func TestAgentWebSocketSupportsMultipleRuntimeOperationsOnOneSession(t *testing.
 	if err := conn.ReadJSON(&configResponse); err != nil {
 		t.Fatalf("read config response: %v", err)
 	}
-	if configResponse["type"] != "config.sync" || configResponse["id"] != "cfg-session-1" || configResponse["yaml"] != configYAML {
+	expectedYAML, err := normalizeAgentMixedPort(configYAML)
+	if err != nil {
+		t.Fatalf("normalize expected Agent config: %v", err)
+	}
+	if configResponse["type"] != "config.sync" || configResponse["id"] != "cfg-session-1" || configResponse["yaml"] != expectedYAML {
 		t.Fatalf("unexpected config response: %#v", configResponse)
 	}
 

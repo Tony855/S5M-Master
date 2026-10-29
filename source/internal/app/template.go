@@ -22,79 +22,50 @@ import (
 // defaultMihomoTemplate is shown when no draft has been saved yet. It is a
 // safe starter template based on the project's generated configuration shape.
 // Replace the example proxy endpoint and secret before applying it to a node.
-const defaultMihomoTemplate = `# S5M unified template: routing mode is managed separately.
-# Keep external-controller bound to loopback so it is not exposed to the LAN.
+const defaultMihomoTemplate = `# 基础设置
+mixed-port: 7890
 allow-lan: true
-mixed-port: 8080
 mode: rule
 log-level: info
 ipv6: false
-find-process-mode: "off"
-unified-delay: true
-tcp-concurrent: true
-tcp-fast-open: true
 
+# 控制接口
 external-controller: 127.0.0.1:8088
 secret: "REPLACE_WITH_A_UNIQUE_RANDOM_SECRET"
 
-sniffer:
-  enable: true
-  sniff:
-    HTTP:
-      ports: [80]
-      override-destination: true
-    TLS:
-      ports: [443]
-    QUIC:
-      ports: [443]
-      override-destination: true
+# 状态持久化
+profile:
+  store-selected: true
+  store-fake-ip: true
 
-# TUN defaults to enabled. Platforms without TUN privileges must explicitly disable it.
-tun:
-  enable: true
-  tcp-concurrent: true
-  bind-address: "*"
-  stack: mixed
-  dns-hijack:
-    - "any:53"
-    - "tcp://any:53"
-  auto-detect-interface: true
-  auto-route: true
-  strict-route: true
-
+# DNS 设置
 dns:
   enable: true
-  listen: 0.0.0.0:5353
+  listen: 127.0.0.1:5353
   enhanced-mode: fake-ip
-  cache-algorithm: arc
   fake-ip-range: 198.18.0.1/16
-  ipv6: false
   fake-ip-filter:
     - "*.lan"
-    - "*.local"
-    - "*.msftconnecttest.com"
-    - "*.msftncsi.com"
-  default-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  proxy-server-nameserver:
-    - 223.5.5.5
-    - 119.29.29.29
-  respect-rules: true
+    - "+.v2net.cc"
   nameserver:
-    - https://dns.alidns.com/dns-query
-    - https://doh.pub/dns-query
-  fallback:
-    - https://dns.cloudflare.com/dns-query
-    - https://dns.google/dns-query
-  fallback-filter:
-    geoip: true
-    geoip-code: CN
-    ipcidr:
-      - 240.0.0.0/4
+    - 223.5.5.5
+    - 119.29.29.29
 
-# proxies and rules are intentionally omitted here.
-# The controller generates these sections from its managed proxy records and routing settings.
+# 代理节点与代理组
+proxies: []
+proxy-groups: []
+
+# 分流规则
+rules:
+  - DOMAIN-SUFFIX,v2net.cc,DIRECT
+  - MATCH,DIRECT
+
+# TUN 设置
+tun:
+  enable: false
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
 `
 
 type mihomoTemplateVersion struct {
@@ -158,6 +129,25 @@ func validateMihomoTemplate(yml string) error {
 		if _, ok := dns.(map[string]any); !ok {
 			return fmt.Errorf("dns 必须是 YAML 配置块")
 		}
+	}
+	return nil
+}
+
+// validateAgentPublishedProxyPort enforces the fixed Docker host-port contract.
+// Agent deployment publishes host port 7890 to container port 7890; a different
+// mixed-port would leave the configured proxy unreachable through the published port.
+func validateAgentPublishedProxyPort(yml string) error {
+	var cfg map[string]any
+	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
+		return fmt.Errorf("YAML 语法错误: %w", err)
+	}
+	value, ok := cfg["mixed-port"]
+	if !ok {
+		return fmt.Errorf("Agent 配置必须设置 mixed-port: 7890，当前部署只发布代理端口 7890")
+	}
+	port, ok := value.(int)
+	if !ok || port != 7890 {
+		return fmt.Errorf("Agent 代理端口必须为 mixed-port: 7890，才能匹配 Docker 端口映射")
 	}
 	return nil
 }
@@ -506,6 +496,10 @@ func (a *App) handleApplyMihomoTemplate(w http.ResponseWriter, r *http.Request) 
 	}
 	if _, ok := cfg["dns"]; !ok {
 		writeErr(w, 400, "应用到节点的完整配置必须包含 dns 配置块")
+		return
+	}
+	if err := validateAgentPublishedProxyPort(template); err != nil {
+		writeErr(w, http.StatusBadRequest, "模板不能应用: "+err.Error())
 		return
 	}
 	tx, err := a.store.db.Begin()

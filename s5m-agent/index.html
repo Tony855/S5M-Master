@@ -14,7 +14,7 @@
     input { width: 100%; padding: 12px 16px; margin-bottom: 20px; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #fff; font-size: 14px; }
     input:focus { outline: none; border-color: #4361ee; }
     button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: linear-gradient(135deg, #4361ee, #4cc9f0); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
-    button:disabled { opacity: 0.5; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
     #msg { text-align: center; margin-top: 16px; font-size: 13px; padding: 10px; border-radius: 6px; display: none; }
     .msg-success { background: rgba(16,185,129,0.1); color: #34d399; }
     .msg-error { background: rgba(239,68,68,0.1); color: #f87171; }
@@ -41,8 +41,8 @@
   <label>服务器地址</label>
   <input type="url" id="url" placeholder="https://bind.v2net.cc" value="https://bind.v2net.cc" autocomplete="url" inputmode="url">
   <label>注册密钥</label>
-  <input type="password" id="secret" placeholder="请输入 Token 绑定设备">
-  <button id="btn" onclick="save()">一键绑定设备</button>
+  <input type="password" id="secret" placeholder="请输入 Token 绑定设备" autocomplete="off" required oninput="updateBindButton()">
+  <button id="btn" onclick="save()" disabled>一键绑定设备</button>
   <div id="msg"></div>
   <div class="status">
     <div class="dot" id="statusDot"></div>
@@ -51,6 +51,12 @@
 </div>
 <script>
   let currentMachineID = '';
+  let bindingInProgress = false;
+  function updateBindButton() {
+    const btn = document.getElementById('btn');
+    const secret = document.getElementById('secret').value.trim();
+    btn.disabled = bindingInProgress || !secret;
+  }
   function fetchWithTimeout(url, options = {}, timeout = 3000) {
     return Promise.race([ fetch(url, options), new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout)) ]);
   }
@@ -91,10 +97,10 @@
       const btn = document.getElementById('btn');
       if (data.config_readable === false) {
         btn.innerText = data.has_token ? '重新绑定' : '一键绑定设备';
-        setStatus('error', '无法读取绑定配置，请检查 /data 挂载和目录权限');
+        setStatus('error', '设备绑定状态暂不可用，请稍后重试或联系管理员');
       } else if (data.config_valid === false) {
         btn.innerText = '重试绑定';
-        setStatus('error', '绑定配置文件格式异常，请检查 Agent 日志');
+        setStatus('error', '绑定信息异常，请联系管理员处理');
       } else if (!data.has_token) {
         btn.innerText = '一键绑定设备';
         setStatus('', data.config_exists ? '未检测到有效绑定 Token，请重新绑定' : '设备尚未绑定');
@@ -105,6 +111,7 @@
         btn.innerText = '重新绑定';
         setStatus('', '已保存绑定信息，正在连接主控端…');
       }
+      updateBindButton();
     } catch (_) {
       // Retain the last state when the local API briefly fails.
     } finally {
@@ -122,30 +129,32 @@
   function setStatus(state, text) { document.getElementById('statusDot').className = 'dot ' + state; document.getElementById('statusText').innerText = text; }
   async function save() {
     let url = document.getElementById('url').value.trim().replace(/\/$/, '');
-    const secret = document.getElementById('secret').value;
-    if (!url) return showMsg('请输入控制台地址', false);
+    const secret = document.getElementById('secret').value.trim();
+    if (!secret) { updateBindButton(); return; }
+    if (!url) return showMsg('请输入服务器地址', false);
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
     if (/^https?:\/\/$/i.test(url)) return showMsg('请输入有效的主控服务器域名或 IP 地址', false);
     document.getElementById('url').value = url;
-    const btn = document.getElementById('btn'); btn.innerText = '正在绑定...'; btn.disabled = true; setStatus('', '通信中...');
+    const btn = document.getElementById('btn'); bindingInProgress = true; btn.innerText = '正在绑定...'; updateBindButton(); setStatus('', '正在绑定设备…');
     try {
       const res = await fetch('/api/bind', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({central_url: url, secret: secret}) });
       const text = await res.text(); let data = {};
       try { data = JSON.parse(text); } catch { data = { message: text }; }
       if (!res.ok) throw new Error(data.error || data.message || '绑定失败');
-      showMsg(data.message || '绑定凭据已保存，正在建立实时连接', true);
+      showMsg('绑定请求已提交，正在连接服务器。', true);
       document.getElementById('secret').value = '';
       // Registration only persists credentials; the WebSocket connects asynchronously.
       // Re-enable the button so a failed/expired connection can be retried without reload.
-      btn.disabled = false;
       btn.innerText = '重新绑定';
       await refreshBindingStatus();
     } catch (e) {
-      showMsg(e.message, false);
+      // Do not expose backend validation details or security configuration to end users.
+      showMsg('绑定失败，请检查服务器地址和注册密钥后重试；如持续失败，请联系管理员。', false);
       btn.innerText = '重试绑定';
-      setStatus('error', '绑定失败');
+      setStatus('error', '绑定未成功，请检查填写内容');
     } finally {
-      btn.disabled = false;
+      bindingInProgress = false;
+      updateBindButton();
     }
   }
   function showMsg(text, isSuccess) { const msg = document.getElementById('msg'); msg.innerText = text; msg.className = isSuccess ? 'msg-success' : 'msg-error'; msg.style.display = 'block'; }

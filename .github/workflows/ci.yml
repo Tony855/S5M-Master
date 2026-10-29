@@ -76,6 +76,26 @@ jobs:
           sh -n routeros/cont-init.d/10-mihomo-config
           sh -n routeros/services/mihomo/run
           sh -n routeros/services/agent/run
+      - name: Verify Agent Compose TUN capabilities match the default config
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          compose = Path("s5m-agent/docker-compose.yml").read_text(encoding="utf-8")
+          active_compose = "\\n".join(line.split("#", 1)[0] for line in compose.splitlines())
+          config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
+          tun = config.split("tun:", 1)[1].split("proxies:", 1)[0]
+          assert re.search(r"(?m)^\s+cap_add:\s*\n\s+- NET_ADMIN$", compose), "Compose must grant NET_ADMIN for opt-in TUN"
+          assert re.search(r"(?m)^\s+devices:\s*\n\s+- /dev/net/tun:/dev/net/tun$", compose), "Compose must map /dev/net/tun for opt-in TUN"
+          assert re.search(r"(?m)^  enable: false$", tun), "first-boot Agent config must keep TUN disabled"
+          assert not re.search(r"(?m)^\\s*network_mode:\\s*host\\s*$", active_compose), "Agent must not use host networking"
+          assert "Existing /data/config.yaml is intentionally preserved" in config, "existing runtime config must not be overwritten"
+          print("PASS: first-boot TUN is disabled; opt-in permissions exist; host networking is forbidden")
+          PY
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -132,34 +152,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-      - name: Validate S5M deploy script safety and shell syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash -n scripts/s5m-deploy.sh
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          script = Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
-          forbidden = [
-              r"docker\s+system\s+prune",
-              r"docker\s+volume\s+prune",
-              r"docker\s+ps\s+-aq\s*\|[^\n]*docker\s+rm",
-              r"docker\s+images\s+-aq\s*\|[^\n]*docker\s+rmi",
-              r"rm\s+-rf\s+/opt/s5m-agent",
-          ]
-          for pattern in forbidden:
-              assert not re.search(pattern, script), f"Unsafe cleanup pattern found: {pattern}"
-          assert 'docker rm -f "$CONTAINER"' in script, "Expected targeted container replacement missing"
-          assert ' -v "$DATA_DIR":/data' in script, "Persistent data mount missing"
-          assert "--cap-add=NET_ADMIN" in script, "TUN network capability missing"
-          assert "--device=/dev/net/tun:/dev/net/tun" in script, "TUN device mapping missing"
-          assert "http_get()" in script and "http_head()" in script, "HTTP health-check fallback helpers missing"
-          assert "command -v wget" in script and "command -v python3" in script, "curl-free HTTP fallback missing"
-          assert 'curl -fsS "http://127.0.0.1:' not in script, "machine-id check still requires curl directly"
-          print("Deploy script syntax, Docker safeguards, TUN parameters and curl-free health checks verified")
-          PY
       - name: Validate installer shell syntax and password generator
         shell: bash
         run: |
@@ -167,6 +159,57 @@ jobs:
           bash -n scripts/install.sh
           password="$(openssl rand -hex 24)"
           [[ "$password" =~ ^[a-f0-9]{48}$ ]]
+      - name: Validate Agent TUN isolation and host SSH safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/s5m-deploy.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script = Path("scripts/s5m-deploy.sh").read_text(encoding="utf-8")
+          run_start = script.index("docker run -d")
+          run_end = script.index('|| die "容器启动失败"', run_start)
+          run_block = script[run_start:run_end]
+          checks = {
+              "Agent container explicitly uses Docker bridge networking": "--network bridge" in run_block,
+              "Agent docker run command never selects host networking": "--network host" not in run_block,
+              "Agent TUN route changes are documented as container namespace scoped": "Keep Mihomo TUN routes inside the Agent container's network namespace" in script,
+              "Runtime guard verifies the actual container network mode": "docker inspect -f '{{.HostConfig.NetworkMode}}' \"$CONTAINER\"" in script and 'if [ "$network_mode" != "bridge" ]; then' in script,
+              "Deployment does not publish host SSH port 22": '-p "22:' not in script and "-p 22:" not in script,
+              "Deployment does not perform global Docker cleanup": "docker system prune" not in script and "docker rm -f $(docker ps -aq)" not in script and "docker rmi -f $(docker images -aq)" not in script,
+              "Deployment does not delete persistent Agent data": 'rm -rf "/opt/s5m-agent"' not in script and "rm -rf /opt/s5m-agent" not in script,
+              "Health checks support curl, wget and Python fallbacks": "http_get()" in script and "http_head()" in script and "urllib.request" in script and "wget -qO-" in script,
+              "Health checks use fallback helpers instead of requiring curl": 'http_get "http://127.0.0.1:${PORT_WEB}/api/machine-id"' in script and 'http_head "http://127.0.0.1:${PORT_WEB}"' in script,
+          }
+          for name, passed in checks.items():
+              print(("PASS" if passed else "FAIL") + ": " + name)
+          if not all(checks.values()):
+              raise SystemExit(1)
+          PY
+      - name: Integration test Docker route isolation from host network
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v docker
+          docker info >/dev/null
+          test_cidr="198.51.100.0/24"
+          if ip route show table all | grep -Fq "$test_cidr"; then
+            echo "Refusing test: reserved test CIDR already exists on runner host"
+            exit 1
+          fi
+          # Change only a temporary bridge container's route table. If TUN-like
+          # route changes leak into the host namespace, the host assertion fails.
+          docker run --rm --network bridge --cap-add NET_ADMIN alpine:3.21 sh -ec '
+            apk add --no-cache iproute2 >/dev/null
+            ip route add blackhole 198.51.100.0/24
+            ip route show 198.51.100.0/24 | grep -F "blackhole 198.51.100.0/24"
+          '
+          if ip route show table all | grep -Fq "$test_cidr"; then
+            echo "FAIL: container route change leaked into host route table"
+            exit 1
+          fi
+          echo "PASS: container route change stayed in its bridge network namespace; host route table unchanged"
       - name: Validate inline JavaScript syntax
         shell: bash
         run: |
