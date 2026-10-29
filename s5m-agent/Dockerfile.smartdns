@@ -83,8 +83,7 @@ COPY --from=mihomo-fetch /usr/local/bin/mihomo /usr/local/bin/mihomo
 COPY --from=smartdns-builder /out/usr/sbin/smartdns /usr/sbin/smartdns
 COPY --from=smartdns-builder /out/usr/share/licenses/smartdns /usr/share/licenses/smartdns
 COPY s5m-agent/index.html /app/index.html
-COPY s5m-agent/healthcheck.sh /healthcheck.sh
-COPY s5m-agent/default-config.yaml /app/default-config.yaml
+COPY s5m-agent/smartdns/healthcheck.sh /healthcheck.sh
 COPY s5m-agent/smartdns/default-config-smartdns.yaml /app/default-config.yaml
 COPY s5m-agent/smartdns/smartdns.conf /etc/smartdns/smartdns.conf
 COPY s5m-agent/cont-init.d/ /etc/cont-init.d/
