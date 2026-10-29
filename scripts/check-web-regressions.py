@@ -332,6 +332,18 @@ checks["Agent kernel release lookup and binding revocation use authenticated Web
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+checks["administrator password change uses authenticated WebSocket RPC, not HTTP"] = (
+    "type: 'auth.password.change'" in app_js
+    and "api('/api/v1/auth/password'" not in app_js
+    and 'case "auth.password.change":' in browser_ws_source
+    and 'PasswordOld     string `json:"old"`' in browser_ws_source
+    and 'PasswordNew     string `json:"new"`' in browser_ws_source
+    and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
+    and "a.handlePassword" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
     and "api('/api/v1/nodes/config-sync'" not in app_js

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -58,6 +59,8 @@ type browserControlMessage struct {
 	ConfigYAML      string `json:"config_yaml"`
 	Note            string `json:"note"`
 	Confirm         bool   `json:"confirm"`
+	PasswordOld     string `json:"old"`
+	PasswordNew     string `json:"new"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -141,6 +144,12 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
 		case "proxies.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
+		case "auth.password.change":
+			body, _ := json.Marshal(map[string]string{"old": message.PasswordOld, "new": message.PasswordNew})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePassword, req)
 		case "settings.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
 		case "mihomo.status.get":

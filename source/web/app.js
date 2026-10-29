@@ -376,9 +376,8 @@ createApp({
       if (pwdForm.old === pwdForm.new) return showMsg('新密码不能与当前密码相同', 'warning');
       pwdSaving.value = true;
       try {
-        const res = await api('/api/v1/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old: pwdForm.old, new: pwdForm.new }) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        const result = await sendBrowserWSControl({ type: 'auth.password.change', old: pwdForm.old, new: pwdForm.new });
+        const data = result.data || result;
         showMsg(data.message || '管理员密码已更新', 'success');
         pwdDialog.value = false;
         resetPwdForm();
