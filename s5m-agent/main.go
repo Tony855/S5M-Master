@@ -573,7 +573,7 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 		return nil
 	}
 	if err := reloadMihomo(); err != nil {
-		fmt.Printf("Mihomo 重载动态主控路由失败，正在回滚配置: %v\n", err)
+		fmt.Printf("Mihomo 重载动态主控路由失败，正在回滚配置: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 		if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 			return fmt.Errorf("动态路由重载失败且回滚失败: %w", rollbackErr)
 		}
@@ -617,7 +617,7 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		var routeErr error
 		managedCentralCIDRs, _, routeErr = setCentralRouteExclusions(nextCfg, centralURL)
 		if routeErr != nil {
-			fmt.Printf("主控直连排除地址暂未更新: %v\n", routeErr)
+			fmt.Printf("主控直连排除地址暂未更新: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
 		}
 	}
 
@@ -1834,7 +1834,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
 		// cycle, without changing the hash of the controller-provided YAML.
 		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败: %v\n", routeErr)
+			fmt.Printf("刷新主控直连排除地址失败: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
@@ -2157,17 +2157,17 @@ func main() {
 			continue
 		}
 		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败（将继续重试）: %v\n", routeErr)
+			fmt.Printf("刷新主控直连排除地址失败（将继续重试）: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
-			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\n", err)
+			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 			time.Sleep(backoff)
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
 		sessionStarted := time.Now()
 		if err := runAgentWebSocketSession(cfg); err != nil {
-			fmt.Printf("Agent WebSocket 会话断开: %v\n", err)
+			fmt.Printf("Agent WebSocket 会话断开: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 		}
 		// A session that stayed healthy for at least two minutes resets the
 		// exponential backoff; short-lived sessions continue backing off.
