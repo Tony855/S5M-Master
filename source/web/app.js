@@ -645,7 +645,15 @@ createApp({
         await loadProxies();
         showMsg('已删除', 'success');
       } catch (e) {
-        showMsg(e.message || '删除失败', 'error');
+        const message = e.message || '删除失败';
+        // The backend may commit the delete before reporting a node-sync failure.
+        if (message.includes('代理已删除')) {
+          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
+          await loadProxies();
+          showMsg(message + '。请进入配置管理点击“立即重试同步所有节点”。', 'warning');
+          return;
+        }
+        showMsg(message, 'error');
       }
     };
 

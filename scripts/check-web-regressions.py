@@ -194,6 +194,11 @@ checks.update({
     "Agent status and command lifecycle are delivered as browser WebSocket events": '"type": "agent.status.updated"' in browser_ws_source and '"type": "agent.command.queued"' in browser_ws_source and '"type": "agent.command.updated"' in browser_ws_source and "publishBrowserEvent" in browser_ws_source,
     "dashboard overview and traffic are not driven by a periodic HTTP polling timer": "setInterval(() => loadOverview" not in app_js and "setInterval(loadOverview" not in app_js and "setInterval(() => loadTraffic" not in app_js and "setInterval(loadTraffic" not in app_js,
     "dashboard overview and traffic snapshots use authenticated WebSocket RPC with no HTTP fallback": "type: 'monitor.overview.get'" in app_js and "type: 'monitor.traffic.get'" in app_js and "api('/api/v1/monitor/overview" not in app_js and "api('/api/v1/monitor/traffic" not in app_js and 'case "monitor.overview.get":' in browser_ws_source and 'case "monitor.traffic.get":' in browser_ws_source and "Revalidate the administrator session for every browser RPC" in browser_ws_source,
+    "Proxy deletion preserves committed-delete sync failure recovery": (
+        "message.includes('代理已删除')" in app_js
+        and "立即重试同步所有节点" in app_js
+        and "type: 'proxy.delete'" in app_js
+    ),
     "Proxy deletion uses authenticated WebSocket RPC with validated numeric ID": (
         "type: 'proxy.delete'" in app_js
         and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js
