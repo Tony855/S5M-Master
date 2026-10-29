@@ -178,6 +178,8 @@ jobs:
               "Deployment does not publish host SSH port 22": '-p "22:' not in script and "-p 22:" not in script,
               "Deployment does not perform global Docker cleanup": "docker system prune" not in script and "docker rm -f $(docker ps -aq)" not in script and "docker rmi -f $(docker images -aq)" not in script,
               "Deployment does not delete persistent Agent data": 'rm -rf "/opt/s5m-agent"' not in script and "rm -rf /opt/s5m-agent" not in script,
+              "Health checks support curl, wget and Python fallbacks": "http_get()" in script and "http_head()" in script and "urllib.request" in script and "wget -qO-" in script,
+              "Health checks use fallback helpers instead of requiring curl": 'http_get "http://127.0.0.1:${PORT_WEB}/api/machine-id"' in script and 'http_head "http://127.0.0.1:${PORT_WEB}"' in script,
           }
           for name, passed in checks.items():
               print(("PASS" if passed else "FAIL") + ": " + name)
