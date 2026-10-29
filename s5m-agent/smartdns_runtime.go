@@ -60,8 +60,15 @@ func validateSmartDNSConfig(data []byte) error {
 		if strings.ContainsAny(line, "`$") || strings.Contains(line, "include") {
 			return fmt.Errorf("第 %d 行包含不允许的特殊内容", lineNo+1)
 		}
-		if (directive == "bind" || directive == "bind-tcp") && len(fields) != 2 {
-			return fmt.Errorf("第 %d 行 %s 仅允许一个监听地址", lineNo+1, directive)
+		if directive == "bind" || directive == "bind-tcp" {
+			if len(fields) != 2 || fields[1] != "127.0.0.1:6053" {
+				return fmt.Errorf("第 %d 行监听地址必须保持在容器回环地址 127.0.0.1:6053", lineNo+1)
+			}
+			if directive == "bind" {
+				bindUDP = true
+			} else {
+				bindTCP = true
+			}
 		}
 		if strings.HasPrefix(directive, "server") && len(fields) < 2 {
 			return fmt.Errorf("第 %d 行上游 DNS 地址不能为空", lineNo+1)
