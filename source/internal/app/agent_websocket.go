@@ -121,6 +121,16 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		switch message.Type {
+		case "agent.mihomo.update-info":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
+			rec := httptest.NewRecorder()
+			a.handleAgentMihomoUpdateInfo(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload { reply[key] = value }
+			if rec.Code < 200 || rec.Code >= 300 { if errText, ok := payload["error"].(string); ok { reply["error"] = errText } }
+			_ = client.writeJSON(reply)
 		case "node.config.get":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+message.MachineCode+"/config", nil)
 			req.SetPathValue("code", message.MachineCode)
