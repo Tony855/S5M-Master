@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,18 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
+	payload := []byte("mixed-port: 7890\nsecret: test-secret\n\n")
+	want := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if got := controllerConfigHash(payload); got != want {
+		t.Fatalf("controllerConfigHash() = %q, want exact-byte hash %q", got, want)
+	}
+	trimmedHash := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(payload)))))
+	if controllerConfigHash(payload) == trimmedHash {
+		t.Fatal("trailing whitespace must remain part of the exact payload hash")
+	}
+}
 
 func TestCentralHostname(t *testing.T) {
 	tests := []struct {
