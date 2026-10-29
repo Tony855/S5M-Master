@@ -32,6 +32,10 @@ on:
       - "s5m-agent/services/**"
       - ".github/workflows/s5m-agent-smartdns.yml"
 
+concurrency:
+  group: s5m-agent-smartdns-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
