@@ -282,6 +282,13 @@ createApp({
             const code = String(message.machine_code);
             const status = message.status && typeof message.status === 'object' ? message.status : {};
             const receivedAt = Number(message.last_seen) || Math.floor(Date.now() / 1000);
+            // Live telemetry is authoritative while WebSocket is connected.
+            // HTTP is only used for initial/reconnect snapshots, not polling.
+            traffic.value = {
+              up: Math.max(0, Number(status.upload_speed) || 0),
+              down: Math.max(0, Number(status.download_speed) || 0),
+              conns: Math.max(0, Number(status.connections) || 0)
+            };
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
               const previous = agentEntries.value[index];
