@@ -9,10 +9,10 @@ import (
 
 func TestProbeSmartDNSDNSAtRequiresSuccessfulAnswer(t *testing.T) {
 	tests := []struct {
-		name       string
-		flags      uint16
+		name        string
+		flags       uint16
 		answerCount uint16
-		want       bool
+		want        bool
 	}{
 		{name: "successful A answer", flags: 0x8180, answerCount: 1, want: true},
 		{name: "NOERROR without answers", flags: 0x8180, answerCount: 0, want: false},
