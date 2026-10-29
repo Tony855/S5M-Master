@@ -54,8 +54,8 @@ type proxyOut struct {
 	Extra  map[string]any `yaml:",inline"`
 }
 
-// normalizeAgentMixedPort enforces the Agent container's published proxy port.
-// Controller configs intentionally keep port 8080; every per-machine config must use 7890.
+// normalizeAgentMixedPort enforces the Agent's published proxy port and TUN safety settings.
+// Controller/global configs intentionally retain their own 8080 listener.
 func normalizeAgentMixedPort(yml string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
@@ -65,31 +65,151 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 		return "", fmt.Errorf("Agent Mihomo 配置必须是 YAML 对象")
 	}
 	root := doc.Content[0]
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "mixed-port" {
-			root.Content[i+1].Tag = "!!int"
-			root.Content[i+1].Value = "7890"
-			var out strings.Builder
-			enc := yaml.NewEncoder(&out)
-			enc.SetIndent(2)
-			if err := enc.Encode(&doc); err != nil {
-				return "", fmt.Errorf("序列化 Agent Mihomo 配置失败: %w", err)
+	setScalar := func(mapping *yaml.Node, key, value, tag string) {
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				mapping.Content[i+1].Kind = yaml.ScalarNode
+				mapping.Content[i+1].Tag = tag
+				mapping.Content[i+1].Value = value
+				mapping.Content[i+1].Content = nil
+				return
 			}
-			_ = enc.Close()
-			return out.String(), nil
+		}
+		mapping.Content = append(mapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: value},
+		)
+	}
+	mappingValue := func(mapping *yaml.Node, key string) *yaml.Node {
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			if mapping.Content[i].Value == key {
+				return mapping.Content[i+1]
+			}
+		}
+		return nil
+	}
+	deleteKeys := map[string]bool{"port": true, "socks-port": true}
+	filtered := make([]*yaml.Node, 0, len(root.Content))
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if !deleteKeys[root.Content[i].Value] {
+			filtered = append(filtered, root.Content[i], root.Content[i+1])
 		}
 	}
-	root.Content = append([]*yaml.Node{
-		{Kind: yaml.ScalarNode, Tag: "!!str", Value: "mixed-port"},
-		{Kind: yaml.ScalarNode, Tag: "!!int", Value: "7890"},
-	}, root.Content...)
+	root.Content = filtered
+	setScalar(root, "mixed-port", "7890", "!!int")
+	setScalar(root, "external-controller", "127.0.0.1:8088", "!!str")
+
+	// Keep the controller's own hostname out of fake-IP answers to avoid breaking
+	// Agent registration/heartbeats when strict-route TUN is enabled.
+	dns := mappingValue(root, "dns")
+	if dns == nil || dns.Kind != yaml.MappingNode {
+		dns = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		setNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "dns"}
+		root.Content = append(root.Content, setNode, dns)
+	}
+	filter := mappingValue(dns, "fake-ip-filter")
+	if filter == nil || filter.Kind != yaml.SequenceNode {
+		filter = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for i := 0; i+1 < len(dns.Content); i += 2 {
+			if dns.Content[i].Value == "fake-ip-filter" {
+				dns.Content[i+1] = filter
+				break
+			}
+		}
+		if mappingValue(dns, "fake-ip-filter") == nil {
+			dns.Content = append(dns.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "fake-ip-filter"}, filter)
+		}
+	}
+	filterHasControllerDomain := false
+	for _, item := range filter.Content {
+		if item.Value == "+.v2net.cc" {
+			filterHasControllerDomain = true
+			break
+		}
+	}
+	if !filterHasControllerDomain {
+		filter.Content = append(filter.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "+.v2net.cc"})
+	}
+
+	// Exclude private/local ranges from TUN route capture and also exclude literal
+	// proxy endpoint IPs so TUN cannot recursively route its own upstream transport.
+	excluded := []string{
+		"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12",
+		"192.168.0.0/16", "198.18.0.0/16",
+	}
+	seen := make(map[string]bool, len(excluded))
+	for _, cidr := range excluded {
+		seen[cidr] = true
+	}
+	if proxies := mappingValue(root, "proxies"); proxies != nil && proxies.Kind == yaml.SequenceNode {
+		for _, proxy := range proxies.Content {
+			if proxy.Kind != yaml.MappingNode {
+				continue
+			}
+			server := mappingValue(proxy, "server")
+			if server == nil || server.Kind != yaml.ScalarNode {
+				continue
+			}
+			ip := net.ParseIP(strings.Trim(server.Value, "[]"))
+			if ip == nil {
+				continue
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			cidr := fmt.Sprintf("%s/%d", ip.String(), bits)
+			if !seen[cidr] {
+				excluded = append(excluded, cidr)
+				seen[cidr] = true
+			}
+		}
+	}
+	tun := mappingValue(root, "tun")
+	if tun == nil || tun.Kind != yaml.MappingNode {
+		tun = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "tun"}, tun)
+	}
+	routeExclude := mappingValue(tun, "route-exclude-address")
+	if routeExclude == nil || routeExclude.Kind != yaml.SequenceNode {
+		routeExclude = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		found := false
+		for i := 0; i+1 < len(tun.Content); i += 2 {
+			if tun.Content[i].Value == "route-exclude-address" {
+				tun.Content[i+1] = routeExclude
+				found = true
+				break
+			}
+		}
+		if !found {
+			tun.Content = append(tun.Content,
+				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "route-exclude-address"}, routeExclude)
+		}
+	}
+	for _, cidr := range excluded {
+		found := false
+		for _, item := range routeExclude.Content {
+			if item.Value == cidr {
+				found = true
+				break
+			}
+		}
+		if !found {
+			routeExclude.Content = append(routeExclude.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: cidr})
+		}
+	}
+
 	var out strings.Builder
 	enc := yaml.NewEncoder(&out)
 	enc.SetIndent(2)
 	if err := enc.Encode(&doc); err != nil {
 		return "", fmt.Errorf("序列化 Agent Mihomo 配置失败: %w", err)
 	}
-	_ = enc.Close()
+	if err := enc.Close(); err != nil {
+		return "", fmt.Errorf("关闭 Agent YAML 编码器失败: %w", err)
+	}
 	return out.String(), nil
 }
 
