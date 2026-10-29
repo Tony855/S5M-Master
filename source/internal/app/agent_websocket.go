@@ -56,7 +56,6 @@ type browserControlMessage struct {
 	ConfigYAML  string `json:"config_yaml"`
 	Note        string `json:"note"`
 	Confirm     bool   `json:"confirm"`
-	Version     int    `json:"version"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
