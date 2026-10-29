@@ -1771,7 +1771,6 @@ func applyAgentControlError(status map[string]any, controlErr string) {
 	status["last_error"] = controlErr
 }
 
-
 func controllerWebSocketResponseError(operation, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
