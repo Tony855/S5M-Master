@@ -145,6 +145,8 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
 		case "mihomo.template.nodes.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetNodeTemplateStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template/nodes", nil))
+		case "system.logs.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
 		case "agent.mihomo.update-info":
 			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
 			rec := httptest.NewRecorder()

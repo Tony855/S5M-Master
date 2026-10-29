@@ -478,9 +478,8 @@ createApp({
     const loadSystemLogs = async () => {
       loadingSystemLogs.value = true;
       try {
-        const res = await api('/api/v1/logs?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取系统日志失败');
+        const result = await sendBrowserWSControl({ type: 'system.logs.get' });
+        const data = result.data || {};
         systemLogs.value = data.logs || '';
       } catch (e) {
         showMsg(e.message || '读取系统日志失败', 'error');
