@@ -167,7 +167,7 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/usr/sbin/smartdns", "-f", "-x", "-c", tmpPath)
+	cmd := exec.CommandContext(ctx, "/usr/sbin/smartdns", "-f", "-x", "-p", "-", "-c", tmpPath)
 	output := make(chan error, 1)
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("SmartDNS 配置预检启动失败: %w", err)
