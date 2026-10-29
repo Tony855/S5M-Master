@@ -378,6 +378,24 @@
           <p style="color:var(--sub);font-size:12px;margin-top:10px;">每个机器码独立保存。保存后只有对应节点会获取这份 YAML；未保存配置的节点不会回退到全局 YAML。</p>
         </div>
         <div class="card-panel">
+          <div class="card-title">Agent SmartDNS 配置与运行状态</div>
+          <p class="import-note">SmartDNS 配置通过主控 WebSocket 下发到所选 Agent；监听地址由服务端校验并限制为容器回环地址。提交后显示“已排队”，请刷新状态确认 Agent 是否已应用，失败原因会显示在下方。</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+            <el-tag :type="smartDNSStatus && smartDNSStatus.available ? 'success' : 'info'">程序：{{ smartDNSStatus ? (smartDNSStatus.available ? '可用' : '未上报/不可用') : '未知' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.running ? 'success' : 'warning'">服务：{{ smartDNSStatus ? (smartDNSStatus.running ? '运行中' : '未运行') : '未知' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.dns_healthy ? 'success' : 'warning'">DNS：{{ smartDNSStatus ? (smartDNSStatus.dns_healthy ? '健康' : '异常/未上报') : '未知' }}</el-tag>
+            <span v-if="smartDNSStatus && smartDNSStatus.version" class="section-hint">版本 {{ smartDNSStatus.version }}</span>
+            <el-button size="small" :disabled="!selectedConfigNode" :loading="loadingSmartDNS" @click="loadSmartDNSConfig">刷新 SmartDNS 状态/配置</el-button>
+          </div>
+          <el-alert v-if="smartDNSQueued" title="配置已排队，尚需 Agent 执行确认；请刷新状态查看实际结果。" type="info" :closable="false" show-icon style="margin-bottom:10px;"></el-alert>
+          <el-alert v-if="smartDNSStatus && smartDNSStatus.last_error" :title="'SmartDNS 最近错误：' + smartDNSStatus.last_error" type="error" :closable="false" show-icon style="margin-bottom:10px;"></el-alert>
+          <el-input v-model="smartDNSConfig" type="textarea" :rows="10" :disabled="!selectedConfigNode" placeholder="选择节点后加载 SmartDNS 配置；仅允许受控的 SmartDNS 指令。"></el-input>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
+            <el-button type="primary" :loading="savingSmartDNS" :disabled="!selectedConfigNode" @click="saveSmartDNSConfig">校验并下发 SmartDNS 配置</el-button>
+          </div>
+          <p v-if="smartDNSStatus && smartDNSStatus.desired_config_sha256" class="section-hint" style="overflow-wrap:anywhere;margin-top:10px;">期望配置 SHA-256：{{ smartDNSStatus.desired_config_sha256 }}<br>Agent 上报 SHA-256：{{ smartDNSStatus.reported_config_sha256 || '尚未上报' }}</p>
+        </div>
+        <div class="card-panel">
           <div class="card-title">Mihomo 独立配置模板与版本</div>
           <p class="import-note">保存草稿不会发布；发布新版本不会自动覆盖任何节点。只有明确选择节点、模板版本并确认后，才会备份并应用到所选节点。</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
