@@ -55,7 +55,7 @@ type proxyOut struct {
 }
 
 // normalizeAgentMixedPort enforces the Agent container's published proxy port.
- // Controller configs intentionally keep port 8080; every per-machine config must use 7890.
+// Controller configs intentionally keep port 8080; every per-machine config must use 7890.
 func normalizeAgentMixedPort(yml string) (string, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(yml), &doc); err != nil {
