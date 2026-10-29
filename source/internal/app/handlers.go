@@ -2166,7 +2166,8 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		Status              map[string]any    `json:"status,omitempty"`
 		CommandResult       map[string]any    `json:"command_result,omitempty"`
 		PendingCommand      map[string]string `json:"pending_command,omitempty"`
-		DesiredConfigSHA256 string            `json:"desired_config_sha256,omitempty"`
+		DesiredConfigSHA256        string            `json:"desired_config_sha256,omitempty"`
+		DesiredSmartDNSConfigSHA256 string            `json:"desired_smartdns_config_sha256,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
 
@@ -2213,6 +2214,13 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if nodeConfig, configErr := a.store.GetNodeConfig(code); configErr == nil && nodeConfig != nil && strings.TrimSpace(nodeConfig.YAML) != "" {
 			sum := sha256.Sum256([]byte(strings.TrimSpace(nodeConfig.YAML)))
 			info.DesiredConfigSHA256 = fmt.Sprintf("%x", sum[:])
+		}
+		smartDNSConfig := settings["agent_smartdns_config_"+code]
+		if strings.TrimSpace(smartDNSConfig) == "" && status["smartdns_available"] == true {
+			smartDNSConfig = defaultAgentSmartDNSConfig
+		}
+		if strings.TrimSpace(smartDNSConfig) != "" {
+			info.DesiredSmartDNSConfigSHA256 = hashConfig(smartDNSConfig)
 		}
 		result[code] = info
 	}
