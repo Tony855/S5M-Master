@@ -31,6 +31,85 @@ func TestNormalizeAgentMixedPort(t *testing.T) {
 	}
 }
 
+func TestNormalizeAgentPortsAndTUNSafety(t *testing.T) {
+	input := `mixed-port: 8080 # stale mixed listener
+port: 8080 # stale HTTP listener
+socks-port: 8080 # stale SOCKS listener
+external-controller: 0.0.0.0:8088
+dns:
+  fake-ip-filter:
+    - '*.lan'
+tun:
+  enable: true
+  route-exclude-address:
+    - 10.1.2.0/24
+proxies:
+  - name: upstream
+    type: socks5
+    server: 203.0.113.10
+    port: 1080
+`
+	got, err := normalizeAgentMixedPort(input)
+	if err != nil {
+		t.Fatalf("normalizeAgentMixedPort: %v", err)
+	}
+	var config map[string]any
+	if err := yaml.Unmarshal([]byte(got), &config); err != nil {
+		t.Fatalf("decode normalized YAML: %v", err)
+	}
+	if config["mixed-port"] != 7890 {
+		t.Fatalf("mixed-port = %#v, want 7890", config["mixed-port"])
+	}
+	if _, exists := config["port"]; exists {
+		t.Fatalf("stale HTTP port must be removed: %s", got)
+	}
+	if _, exists := config["socks-port"]; exists {
+		t.Fatalf("stale SOCKS port must be removed: %s", got)
+	}
+	if config["external-controller"] != "127.0.0.1:8088" {
+		t.Fatalf("external-controller = %#v", config["external-controller"])
+	}
+	dns, ok := config["dns"].(map[string]any)
+	if !ok {
+		t.Fatalf("dns is not a mapping: %#v", config["dns"])
+	}
+	filters, ok := dns["fake-ip-filter"].([]any)
+	if !ok {
+		t.Fatalf("fake-ip-filter is not a sequence: %#v", dns["fake-ip-filter"])
+	}
+	foundDomain := false
+	for _, item := range filters {
+		if item == "+.v2net.cc" {
+			foundDomain = true
+		}
+	}
+	if !foundDomain {
+		t.Fatalf("missing +.v2net.cc fake-ip exclusion: %s", got)
+	}
+	tun, ok := config["tun"].(map[string]any)
+	if !ok {
+		t.Fatalf("tun is not a mapping: %#v", config["tun"])
+	}
+	addresses, ok := tun["route-exclude-address"].([]any)
+	if !ok {
+		t.Fatalf("route-exclude-address is not a sequence: %#v", tun["route-exclude-address"])
+	}
+	for _, want := range []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/16", "203.0.113.10/32", "10.1.2.0/24"} {
+		found := false
+		for _, item := range addresses {
+			if item == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("route-exclude-address missing %q: %#v", want, addresses)
+		}
+	}
+	if !strings.Contains(got, "# stale HTTP listener") || !strings.Contains(got, "# stale SOCKS listener") {
+		t.Fatalf("expected YAML to parse and rewrite fields without string-based comment damage; output: %s", got)
+	}
+}
+
 func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "config-ports.db"))
 	if err != nil {
