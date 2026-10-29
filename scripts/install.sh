@@ -46,35 +46,27 @@ if command -v nginx >/dev/null 2>&1; then
     fi
   done < <(nginx -T 2>/dev/null | python3 -c '
 import re, sys
-text = sys.stdin.read()
-# Remove comments before scanning blocks; preserve line boundaries.
-text = re.sub(r"(?m)^\\s*#.*$", "", text)
-for match in re.finditer(r"\\bserver\\s*\\{", text):
+text = re.sub(r"(?m)^\s*#.*$", "", sys.stdin.read())
+# Split the expanded configuration into brace-balanced server blocks.
+for match in re.finditer(r"(?m)^\s*server\s*\{", text):
     start = match.end()
-    depth, quote, escaped = 1, None, False
+    depth = 1
     i = start
     while i < len(text) and depth:
-        ch = text[i]
-        if quote:
-            if escaped: escaped = False
-            elif ch == "\\\\": escaped = True
-            elif ch == quote: quote = None
-        elif ch in "\\\"\\\x27":
-            quote = ch
-        elif ch == "{": depth += 1
-        elif ch == "}": depth -= 1
+        if text[i] == "{": depth += 1
+        elif text[i] == "}": depth -= 1
         i += 1
     block = text[start:i-1]
-    listen = re.search(r"(?m)^\\s*listen\\s+(?:\\[::\\]:)?443\\s+[^;]*\\bssl\\b[^;]*;", block)
-    proxy = re.search(r"(?m)^\\s*proxy_pass\\s+http://127\\.0\\.0\\.1:8080(?:[/;\\s]|$)", block)
-    cert = re.search(r"(?m)^\\s*ssl_certificate\\s+([^;]+);", block)
-    key = re.search(r"(?m)^\\s*ssl_certificate_key\\s+([^;]+);", block)
-    names = re.search(r"(?m)^\\s*server_name\\s+([^;]+);", block)
+    listen = re.search(r"(?m)^\s*listen\s+(?:\[::\]:)?443\s+[^;]*\bssl\b[^;]*;", block)
+    proxy = re.search(r"(?m)^\s*proxy_pass\s+http://127\.0\.0\.1:8080(?:[/;\s]|$)", block)
+    cert = re.search(r"(?m)^\s*ssl_certificate\s+([^;]+);", block)
+    key = re.search(r"(?m)^\s*ssl_certificate_key\s+([^;]+);", block)
+    names = re.search(r"(?m)^\s*server_name\s+([^;]+);", block)
     if not (listen and proxy and cert and key and names): continue
     cert_path, key_path = cert.group(1).strip(), key.group(1).strip()
     for domain in names.group(1).split():
         if domain != "_" and "*" not in domain and not domain.startswith("$"):
-            print("\\t".join((domain, cert_path, key_path, "nginx -T server block")))
+            print("\t".join((domain, cert_path, key_path, "nginx -T server block")))
 ') 
 fi
 
