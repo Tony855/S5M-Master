@@ -236,7 +236,7 @@
             try {
                 const data = await editorAPI('/api/v1/agents/smartdns/config?machine_code=' + encodeURIComponent(code));
                 document.getElementById('smartdnsConfig').value = data.config || '';
-                const state = data.available ? (data.running ? '运行中' : '异常') : '未上报/未安装';
+                const state = !data.available ? '未上报/未安装' : (!data.running ? '进程异常' : (data.dns_healthy ? '运行中 / DNS 正常' : '运行中 / DNS 异常'));
                 document.getElementById('smartdnsStatus').textContent =
                     '运行状态：' + state + '；版本：' + (data.version || '未知') +
                     '；配置同步：' + (data.desired_config_sha256 && data.desired_config_sha256 === data.reported_config_sha256 ? '已同步' : '待应用/未上报') +
