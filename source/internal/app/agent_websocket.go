@@ -123,11 +123,16 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	// WebSocket is the primary live control channel. HTTP remains the
 	// authentication/ticket, initial snapshot, health, and recovery path.
 	conn.SetReadLimit(16 << 10)
+	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil { fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err); return }
+	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(90 * time.Second)) })
+	pingDone := make(chan struct{})
+	defer close(pingDone)
+	go func() { ticker := time.NewTicker(25*time.Second); defer ticker.Stop(); for { select { case <-pingDone: return; case <-ticker.C: client.mu.Lock(); _ = client.conn.SetWriteDeadline(time.Now().Add(5*time.Second)); err := client.conn.WriteControl(websocket.PingMessage, []byte("s5m"), time.Now().Add(5*time.Second)); client.mu.Unlock(); if err != nil { fmt.Printf("browser_ws: ping failed user=%q: %v\n", client.username, err); _ = client.conn.Close(); return } } } }()
 	for {
 		var message browserControlMessage
-		if err := conn.ReadJSON(&message); err != nil {
-			return
-		}
+		if err := conn.ReadJSON(&message); err != nil { if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) { fmt.Printf("browser_ws: read failed user=%q: %v\n", client.username, err) }; return }
+		if err := conn.SetReadDeadline(time.Now().Add(90*time.Second)); err != nil { fmt.Printf("browser_ws: refresh deadline user=%q: %v\n", client.username, err); return }
+		if strings.TrimSpace(message.RequestID) == "" { _ = client.writeJSON(map[string]any{"type":"request.result","request_id":"","ok":false,"error":"缺少 request_id，无法关联操作结果"}); continue }
 		// Revalidate the administrator session for every browser RPC, not only
 		// when the one-time WebSocket ticket is exchanged.
 		u, authErr := a.store.UserByUsername(client.username)
@@ -297,7 +302,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 func (c *browserEventClient) writeJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := c.conn.SetWriteDeadline(time.Now().Add(5*time.Second)); err != nil { return fmt.Errorf("设置 WebSocket 写入超时失败: %w", err) }
 	return c.conn.WriteJSON(v)
 }
 
@@ -305,7 +310,9 @@ func (c *browserEventClient) writeJSON(v any) error {
 // WebSocket RPC. Authorization is checked by handleBrowserEventsWebSocket first.
 func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string, handler http.HandlerFunc, req *http.Request) {
 	rec := httptest.NewRecorder()
+	started := time.Now()
 	handler(rec, req)
+	if rec.Code < 200 || rec.Code >= 300 { fmt.Printf("browser_ws: rpc failed user=%q request_id=%q status=%d duration_ms=%d path=%q\n", client.username, requestID, rec.Code, time.Since(started).Milliseconds(), req.URL.Path) }
 	var payload any
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		payload = map[string]any{"error": "服务器返回了无效 JSON"}
@@ -322,7 +329,7 @@ func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string
 	} else {
 		reply["error"] = "读取数据失败"
 	}
-	_ = client.writeJSON(reply)
+	if err := client.writeJSON(reply); err != nil { fmt.Printf("browser_ws: rpc response write failed user=%q request_id=%q path=%q: %v\n", client.username, requestID, req.URL.Path, err) }
 }
 
 func (a *App) publishBrowserEvent(event map[string]any) {
@@ -334,6 +341,7 @@ func (a *App) publishBrowserEvent(event map[string]any) {
 	a.browserWSMu.Unlock()
 	for _, client := range clients {
 		if err := client.writeJSON(event); err != nil {
+			fmt.Printf("browser_ws: event write failed user=%q event_type=%v: %v\n", client.username, event["type"], err)
 			a.browserWSMu.Lock()
 			delete(a.browserWSClients, client)
 			a.browserWSMu.Unlock()
@@ -642,10 +650,9 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 	if err := a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: strconv.FormatInt(time.Now().Unix(), 10)}); err != nil {
 		return err
 	}
-	if clientHash == hash {
-		return conn.WriteJSON(map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash})
-	}
-	return conn.WriteJSON(map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml})
+	if clientHash == hash { if err := conn.WriteJSON(map[string]any{"type":"config.unchanged","id":requestID,"sha256":hash}); err != nil { return fmt.Errorf("发送配置未变更确认失败: %w",err) }; fmt.Printf("agent_ws: config unchanged machine_code=%q request_id=%q sha256=%s\n",machineCode,requestID,hash); return nil }
+	if err := conn.WriteJSON(map[string]any{"type":"config.sync","id":requestID,"sha256":hash,"yaml":yml}); err != nil { return fmt.Errorf("发送配置失败: %w",err) }
+	fmt.Printf("agent_ws: config delivered machine_code=%q request_id=%q bytes=%d sha256=%s\n",machineCode,requestID,len(yml),hash); return nil
 }
 
 // sendAgentWSCommand redelivers the persisted pending command until an ACK is stored.
@@ -662,7 +669,8 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	if err := json.Unmarshal([]byte(raw), &command); err != nil {
 		return fmt.Errorf("解析待执行命令失败: %w", err)
 	}
-	return conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command})
+	if err := conn.WriteJSON(map[string]any{"type":"command.deliver","id":requestID,"command":command}); err != nil { return fmt.Errorf("发送待执行命令失败: %w",err) }
+	fmt.Printf("agent_ws: command delivered machine_code=%q request_id=%q command_id=%v command_type=%v\n",machineCode,requestID,command["id"],command["type"]); return nil
 }
 
 // ackAgentWSCommand persists an ACK only for the currently pending command.
@@ -675,9 +683,8 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if err != nil {
 		return fmt.Errorf("原子保存命令结果失败: %w", err)
 	}
-	if !matched {
-		return fmt.Errorf("命令已被替换或不存在")
-	}
+	if !matched { return fmt.Errorf("命令已被替换或不存在") }
+	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n",machineCode,commandID,status,message)
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
 }
