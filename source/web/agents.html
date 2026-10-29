@@ -30,8 +30,8 @@
             <button type="button" onclick="loadAgents()">刷新列表</button>
         </div>
         <table>
-            <thead><tr><th>机器码</th><th>授权状态</th><th>Agent 状态</th><th>Mihomo 版本</th><th>连接数</th><th>上传 / 下载</th><th>最后心跳</th><th>操作</th></tr></thead>
-            <tbody id="agentList"><tr><td colspan="8" class="empty">正在加载...</td></tr></tbody>
+            <thead><tr><th>机器码</th><th>授权状态</th><th>Agent 状态</th><th>Mihomo 版本</th><th>SmartDNS 状态</th><th>连接数</th><th>上传 / 下载</th><th>最后心跳</th><th>操作</th></tr></thead>
+            <tbody id="agentList"><tr><td colspan="9" class="empty">正在加载...</td></tr></tbody>
         </table>
         </div>
     <div id="configModal" class="container" style="display:none;margin-top:16px;max-width:1200px">
@@ -48,6 +48,14 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="applyQuickSettings()">将上方 TUN/DNS 设置写入 YAML</button><button type="button" onclick="saveNodeConfig()">保存并下发</button><span id="editorMessage"></span></div>
     </div>
     <script>
+    <div id="smartdnsModal" class="container" style="display:none;margin-top:16px;max-width:1200px">
+        <div class="header"><h2 id="smartdnsTitle">SmartDNS 配置</h2><button type="button" onclick="closeSmartDNS()">关闭</button></div>
+        <p>此处配置只作用于包含 SmartDNS 的独立 Agent 镜像。主控会先校验配置格式，再通过 Agent 的 WebSocket 下发；Agent 会在本地预检、备份旧配置、重载并回报结果。</p>
+        <div id="smartdnsStatus" style="margin-bottom:10px;color:#94a3b8"></div>
+        <label for="smartdnsConfig">SmartDNS 配置（最多 8 KiB）</label>
+        <textarea id="smartdnsConfig" spellcheck="false" rows="16" style="width:100%;box-sizing:border-box;margin:8px 0 14px;background:#020617;color:#dbeafe;border:1px solid #475569;border-radius:6px;padding:12px;font:13px/1.5 ui-monospace,SFMono-Regular,monospace"></textarea>
+        <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" onclick="saveSmartDNS()">校验并下发 SmartDNS 配置</button><span id="smartdnsMessage"></span></div>
+    </div>
         const TOKEN_KEY = 's5m_next_token';
         const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
         function formatTime(seconds) {
@@ -60,7 +68,7 @@
             tbody.innerHTML = '<tr><td colspan="8" class="empty">正在加载...</td></tr>';
             const token = localStorage.getItem(TOKEN_KEY);
             if (!token) {
-                tbody.innerHTML = '<tr><td colspan="8" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="empty error">请先登录 S5M 主控台，再打开本页面。</td></tr>';
                 return;
             }
             try {
@@ -73,7 +81,7 @@
                 const data = await res.json();
                 const entries = Object.entries(data || {});
                 if (!entries.length) {
-                    tbody.innerHTML = '<tr><td colspan="8" class="empty">暂无已授权机器码。</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" class="empty">暂无已授权机器码。</td></tr>';
                     return;
                 }
                 const now = Date.now() / 1000;
@@ -84,6 +92,10 @@
                     const status = info && info.status || {};
                     const healthy = status.mihomo_healthy === true;
                     const version = status.mihomo_version || '未知';
+                    const smartdnsAvailable = status.smartdns_available === true;
+                    const smartdnsRunning = status.smartdns_running === true;
+                    const smartdnsStatus = !smartdnsAvailable ? '未安装（标准镜像）' : (smartdnsRunning ? '运行中' : '异常');
+                    const smartdnsClass = smartdnsRunning ? 'online' : (smartdnsAvailable ? 'error' : 'offline');
                     const connections = Number(status.connections || 0);
                     const up = Number(status.upload_speed || 0);
                     const down = Number(status.download_speed || 0);
@@ -96,16 +108,23 @@
                     return '<tr><td><span class="code">' + esc(code) + '</span></td>' +
                         '<td>' + (info && info.authorized ? '已授权' : '未授权') + '</td>' +
                         '<td><span class="status ' + (online && healthy ? 'online' : 'offline') + '">' + (online ? (healthy ? '在线 / 正常' : '在线 / 异常') : '离线') + '</span></td>' +
-                        '<td>' + esc(version) + '</td><td>' + esc(connections) + '</td>' +
+                        '<td>' + esc(version) + '</td>' +
+                        '<td><span class="status ' + smartdnsClass + '">' + esc(smartdnsStatus) + '</span>' +
+                        (status.smartdns_version ? '<div>' + esc(status.smartdns_version) + '</div>' : '') +
+                        (status.smartdns_last_error ? '<div class="error">' + esc(status.smartdns_last_error) + '</div>' : '') + '</td>' +
+                        '<td>' + esc(connections) + '</td>' +
                         '<td>↑ ' + esc(fmt(up)) + ' / ↓ ' + esc(fmt(down)) + '</td>' +
                         '<td>' + esc(formatTime(seen)) + (info.desired_config_sha256 ? '<div class="' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? 'online' : 'error') + '">' + (String(status.config_sha256 || '') === String(info.desired_config_sha256) ? '配置已同步' : '配置待应用') + '</div>' : '') + (status.last_error ? '<div class="error">' + esc(status.last_error) + '</div>' : '') + (info.command_result ? '<div>内核更新：' + esc(info.command_result.status || '') + ' ' + esc(info.command_result.message || '') + '</div>' : '') + '</td>' +
-                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> <button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
+                        '<td><button class="btn-copy" type="button" data-code="' + esc(code) + '">复制机器码</button> <button type="button" data-edit="' + esc(code) + '">编辑配置</button> ' +
+                        (smartdnsAvailable ? '<button type="button" data-smartdns="' + esc(code) + '">SmartDNS 配置</button> ' : '') +
+                        '<button type="button" data-update="' + esc(code) + '">更新内核</button></td></tr>';
                 }).join('');
                 tbody.querySelectorAll('button[data-code]').forEach(button => button.addEventListener('click', () => copyText(button.dataset.code)));
                 tbody.querySelectorAll('button[data-edit]').forEach(button => button.addEventListener('click', () => openEditor(button.dataset.edit)));
                 tbody.querySelectorAll('button[data-update]').forEach(button => button.addEventListener('click', () => queueMihomoUpdate(button.dataset.update)));
+                tbody.querySelectorAll('button[data-smartdns]').forEach(button => button.addEventListener('click', () => openSmartDNS(button.dataset.smartdns)));
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="8" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="empty error">加载失败：' + esc(e.message) + '</td></tr>';
             }
         }
         async function copyText(value) {
@@ -206,6 +225,48 @@
         }
 
 
+        let smartdnsEditingCode = '';
+        async function openSmartDNS(code) {
+            smartdnsEditingCode = code;
+            document.getElementById('smartdnsTitle').textContent = 'SmartDNS 配置：' + code;
+            document.getElementById('smartdnsMessage').textContent = '正在读取...';
+            document.getElementById('smartdnsModal').style.display = 'block';
+            try {
+                const data = await editorAPI('/api/v1/agents/smartdns/config?machine_code=' + encodeURIComponent(code));
+                document.getElementById('smartdnsConfig').value = data.config || '';
+                const state = data.available ? (data.running ? '运行中' : '异常') : '未上报/未安装';
+                document.getElementById('smartdnsStatus').textContent =
+                    '运行状态：' + state + '；版本：' + (data.version || '未知') +
+                    '；当前上报配置 SHA-256：' + (data.reported_config_sha256 || '尚未上报') +
+                    (data.last_error ? '；错误：' + data.last_error : '');
+                document.getElementById('smartdnsMessage').textContent = '配置已加载';
+                document.getElementById('smartdnsModal').scrollIntoView({behavior:'smooth',block:'start'});
+            } catch (e) {
+                document.getElementById('smartdnsMessage').textContent = '读取失败：' + e.message;
+            }
+        }
+        function closeSmartDNS() {
+            document.getElementById('smartdnsModal').style.display = 'none';
+            smartdnsEditingCode = '';
+        }
+        async function saveSmartDNS() {
+            if (!smartdnsEditingCode) return;
+            const message = document.getElementById('smartdnsMessage');
+            message.textContent = '正在校验并排队...';
+            try {
+                const result = await editorAPI('/api/v1/agents/smartdns/config', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        machine_code: smartdnsEditingCode,
+                        config: document.getElementById('smartdnsConfig').value
+                    })
+                });
+                message.textContent = result.message || '配置命令已排队';
+            } catch (e) {
+                message.textContent = '下发失败：' + e.message;
+            }
+        }
+
         async function queueMihomoUpdate(code) {
             try {
                 const info = await editorAPI('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(code));
@@ -242,7 +303,9 @@
                     try { message = JSON.parse(event.data); } catch (_) { return; }
                     if (message.type === 'agent.binding.revoked' ||
                         message.type === 'agent.binding.updated' ||
-                        message.type === 'agent.status.updated') {
+                        message.type === 'agent.status.updated' ||
+                        message.type === 'agent.command.updated' ||
+                        message.type === 'agent.command.queued') {
                         loadAgents();
                     }
                 };
