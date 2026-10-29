@@ -36,7 +36,6 @@ log-syslog no
 	}
 }
 
-
 func TestRestoreSmartDNSConfigRestoresPreviousFileAtomically(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "smartdns.conf")
