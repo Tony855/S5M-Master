@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"encoding/json"
 	"errors"
 	"net/http"
