@@ -86,6 +86,37 @@ proxies:
 	if !foundDomain {
 		t.Fatalf("missing +.v2net.cc fake-ip exclusion: %s", got)
 	}
+	for _, want := range []string{"*.lan", "*.local", "geosite:private", "+.v2net.cc"} {
+		found := false
+		for _, item := range filters {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("fake-ip-filter missing %q: %#v", want, filters)
+		}
+	}
+	if dns["ipv6"] != false {
+		t.Errorf("dns.ipv6 = %#v, want false", dns["ipv6"])
+	}
+	defaultNameservers, ok := dns["default-nameserver"].([]any)
+	if !ok {
+		t.Fatalf("default-nameserver is not a sequence: %#v", dns["default-nameserver"])
+	}
+	for _, want := range []string{"223.5.5.5", "119.29.29.29"} {
+		found := false
+		for _, item := range defaultNameservers {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("default-nameserver missing %q: %#v", want, defaultNameservers)
+		}
+	}
 	bootstrap, ok := dns["proxy-server-nameserver"].([]any)
 	if !ok {
 		t.Fatalf("proxy-server-nameserver is not a sequence: %#v", dns["proxy-server-nameserver"])
@@ -125,6 +156,20 @@ proxies:
 	tun, ok := config["tun"].(map[string]any)
 	if !ok {
 		t.Fatalf("tun is not a mapping: %#v", config["tun"])
+	}
+	dnsHijack, ok := tun["dns-hijack"].([]any)
+	if !ok {
+		t.Fatalf("tun dns-hijack is not a sequence: %#v", tun["dns-hijack"])
+	}
+	foundDNSHijack := false
+	for _, item := range dnsHijack {
+		if item == "any:53" {
+			foundDNSHijack = true
+			break
+		}
+	}
+	if !foundDNSHijack {
+		t.Errorf("tun dns-hijack missing any:53: %#v", dnsHijack)
 	}
 	addresses, ok := tun["route-exclude-address"].([]any)
 	if !ok {
@@ -791,9 +836,14 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 		"enhanced-mode: fake-ip",
 		"listen: 127.0.0.1:5353",
 		"fake-ip-filter:",
+		"'*.local'",
+		"'geosite:private'",
 		"'+.v2net.cc'",
+		"default-nameserver:",
 		"proxy-server-nameserver:",
 		"fallback:",
+		"dns-hijack:",
+		"ipv6: false",
 		"https://dns.cloudflare.com/dns-query",
 		"https://dns.google/dns-query",
 		"fallback-filter:",
