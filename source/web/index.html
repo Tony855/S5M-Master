@@ -389,6 +389,7 @@
           </div>
           <el-alert v-if="smartDNSQueued" title="配置已排队，尚需 Agent 执行确认；请刷新状态查看实际结果。" type="info" :closable="false" show-icon style="margin-bottom:10px;"></el-alert>
           <el-alert v-if="smartDNSStatus && smartDNSStatus.last_error" :title="'SmartDNS 最近错误：' + smartDNSStatus.last_error" type="error" :closable="false" show-icon style="margin-bottom:10px;"></el-alert>
+          <el-alert v-if="smartDNSStatus && smartDNSStatus.command_result && smartDNSStatus.command_result.type === 'configure_smartdns'" :title="'最近命令结果：' + (smartDNSStatus.command_result.status === 'success' ? '成功' : '失败') + (smartDNSStatus.command_result.message ? ' · ' + smartDNSStatus.command_result.message : '')" :type="smartDNSStatus.command_result.status === 'success' ? 'success' : 'error'" :closable="false" show-icon style="margin-bottom:10px;"></el-alert>
           <el-input v-model="smartDNSConfig" type="textarea" :rows="10" :disabled="!selectedConfigNode" placeholder="选择节点后加载 SmartDNS 配置；仅允许受控的 SmartDNS 指令。"></el-input>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;">
             <el-button type="primary" :loading="savingSmartDNS" :disabled="!selectedConfigNode" @click="saveSmartDNSConfig">校验并下发 SmartDNS 配置</el-button>
