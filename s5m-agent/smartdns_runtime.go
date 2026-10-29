@@ -255,7 +255,11 @@ func safeSmartDNSDiagnostic(message string) string {
 }
 
 func probeSmartDNSDNS() bool {
-	conn, err := net.DialTimeout("udp", "127.0.0.1:6053", 800*time.Millisecond)
+	return probeSmartDNSDNSAt("127.0.0.1:6053")
+}
+
+func probeSmartDNSDNSAt(address string) bool {
+	conn, err := net.DialTimeout("udp", address, 800*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -282,5 +286,9 @@ func probeSmartDNSDNS() bool {
 		return false
 	}
 	flags := binary.BigEndian.Uint16(response[2:4])
-	return flags&0x8000 != 0 && flags&0x000f != 2
+	// A healthy A lookup must be a DNS response with NOERROR and at least
+	// one answer. NXDOMAIN, REFUSED, SERVFAIL, and empty NOERROR responses
+	// must not be reported as a successful resolver probe.
+	answerCount := binary.BigEndian.Uint16(response[6:8])
+	return flags&0x8000 != 0 && flags&0x000f == 0 && answerCount > 0
 }
