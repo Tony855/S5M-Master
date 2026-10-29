@@ -86,6 +86,22 @@ proxies:
 	if !foundDomain {
 		t.Fatalf("missing +.v2net.cc fake-ip exclusion: %s", got)
 	}
+	bootstrap, ok := dns["proxy-server-nameserver"].([]any)
+	if !ok {
+		t.Fatalf("proxy-server-nameserver is not a sequence: %#v", dns["proxy-server-nameserver"])
+	}
+	for _, want := range []string{"223.5.5.5", "119.29.29.29"} {
+		found := false
+		for _, item := range bootstrap {
+			if item == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("proxy-server-nameserver missing %q: %#v", want, bootstrap)
+		}
+	}
 	tun, ok := config["tun"].(map[string]any)
 	if !ok {
 		t.Fatalf("tun is not a mapping: %#v", config["tun"])
@@ -756,6 +772,7 @@ func TestBuildConfigIncludesTUNDNSDefaults(t *testing.T) {
 		"listen: 127.0.0.1:5353",
 		"fake-ip-filter:",
 		"'+.v2net.cc'",
+		"proxy-server-nameserver:",
 		"223.5.5.5",
 		"119.29.29.29",
 	} {
