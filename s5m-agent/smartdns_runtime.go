@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"encoding/binary"
+	"net"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -79,6 +81,7 @@ func smartDNSBinaryAvailable() bool {
 func collectSmartDNSStatus(status map[string]any) {
 	status["smartdns_available"] = smartDNSBinaryAvailable()
 	status["smartdns_running"] = false
+	status["smartdns_dns_healthy"] = false
 	status["smartdns_version"] = ""
 	status["smartdns_config_sha256"] = ""
 	status["smartdns_last_error"] = ""
@@ -103,6 +106,13 @@ func collectSmartDNSStatus(status map[string]any) {
 	} else if status["smartdns_last_error"] == "" {
 		status["smartdns_last_error"] = "SmartDNS 进程未运行"
 	}
+	if status["smartdns_running"] == true {
+		if probeSmartDNSDNS() {
+			status["smartdns_dns_healthy"] = true
+		} else if status["smartdns_last_error"] == "" {
+			status["smartdns_last_error"] = "SmartDNS DNS 查询探测失败"
+		}
+	}
 }
 
 func writeSmartDNSConfig(data []byte) (string, error) {
@@ -118,8 +128,14 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 
 	// Validate the candidate with the actual SmartDNS parser on a temporary
 	// loopback port before replacing the live configuration.
-	candidate := strings.ReplaceAll(string(data), "bind 0.0.0.0:6053", "bind 127.0.0.1:16053")
-	candidate = strings.ReplaceAll(candidate, "bind-tcp 0.0.0.0:6053", "bind-tcp 127.0.0.1:16053")
+	candidateLines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	for i, line := range candidateLines {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) == 2 && (fields[0] == "bind" || fields[0] == "bind-tcp") {
+			candidateLines[i] = fields[0] + " 127.0.0.1:16053"
+		}
+	}
+	candidate := strings.Join(candidateLines, "\n")
 	tmp, err := os.CreateTemp("/data", ".smartdns-check-*.conf")
 	if err != nil {
 		return "", fmt.Errorf("创建 SmartDNS 校验文件失败")
@@ -222,4 +238,35 @@ func safeSmartDNSDiagnostic(message string) string {
 		message = message[:500] + "…"
 	}
 	return message
+}
+
+func probeSmartDNSDNS() bool {
+	conn, err := net.DialTimeout("udp", "127.0.0.1:6053", 800*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(800 * time.Millisecond))
+	query := make([]byte, 12)
+	binary.BigEndian.PutUint16(query[0:2], 0x534d)
+	binary.BigEndian.PutUint16(query[2:4], 0x0100)
+	binary.BigEndian.PutUint16(query[4:6], 1)
+	for _, label := range []string{"example", "com"} {
+		query = append(query, byte(len(label)))
+		query = append(query, label...)
+	}
+	query = append(query, 0, 0, 1, 0, 1) // QNAME terminator, A, IN
+	if _, err := conn.Write(query); err != nil {
+		return false
+	}
+	response := make([]byte, 1500)
+	n, err := conn.Read(response)
+	if err != nil || n < 12 {
+		return false
+	}
+	if binary.BigEndian.Uint16(response[0:2]) != 0x534d {
+		return false
+	}
+	flags := binary.BigEndian.Uint16(response[2:4])
+	return flags&0x8000 != 0 && flags&0x000f != 2
 }
