@@ -44,7 +44,7 @@ tun:
     auto-route: true
     auto-detect-interface: true
 proxies:__PROXIES__
-rules:__RULES__
+rules:__RULES__`
 
 type proxyOut struct {
 	Name   string         `yaml:"name"`
