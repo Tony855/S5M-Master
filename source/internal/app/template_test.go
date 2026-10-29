@@ -36,8 +36,9 @@ func TestDefaultMihomoTemplateIsUsableStarter(t *testing.T) {
 	for _, want := range []string{
 		"mixed-port: 7890",
 		"external-controller: 127.0.0.1:8088",
-		"listen: 0.0.0.0:5353",
-		"enable: true",
+		"listen: 127.0.0.1:5353",
+		"DOMAIN-SUFFIX,v2net.cc,DIRECT",
+		"enable: false",
 	} {
 		if !strings.Contains(defaultMihomoTemplate, want) {
 			t.Errorf("default template missing %q", want)
