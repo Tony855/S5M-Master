@@ -52,7 +52,7 @@ func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
 func TestAtomicWriteFileReplacesFileWithSyncedPrivateFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "controller-config.yaml")
-	if err := os.WriteFile(path, []byte("secret: old\\n"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("secret: old\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	want := []byte("secret: new\ntun:\n  enable: true\n")
