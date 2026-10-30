@@ -103,3 +103,18 @@ func TestOpenWrtProcessStatusRejectsNonNumericProcEntries(t *testing.T) {
 		t.Fatalf("non-numeric proc entries must be ignored: %#v", got)
 	}
 }
+
+func TestValidateOpenWrtServiceAction(t *testing.T) {
+	valid := [][2]string{{"mihomo", "start"}, {"mihomo", "stop"}, {"mihomo", "restart"}, {"agent", "restart"}}
+	for _, item := range valid {
+		if err := validateOpenWrtServiceAction(item[0], item[1]); err != nil {
+			t.Errorf("expected %s/%s to be allowed: %v", item[0], item[1], err)
+		}
+	}
+	invalid := [][2]string{{"unknown", "restart"}, {"mihomo", "shell"}, {"agent", "start"}, {"agent", "stop"}, {"", "restart"}}
+	for _, item := range invalid {
+		if err := validateOpenWrtServiceAction(item[0], item[1]); err == nil {
+			t.Errorf("expected %s/%s to be rejected", item[0], item[1])
+		}
+	}
+}
