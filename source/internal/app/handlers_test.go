@@ -1208,7 +1208,7 @@ func TestSaveNodeConfigReportsYAMLParseError(t *testing.T) {
 	req.SetPathValue("code", code)
 	rec := httptest.NewRecorder()
 	app.handleSaveNodeConfig(rec, req)
-	if rec.Code != http.StatusBadRequest { t.Fatalf("status = %d, want 400; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String()) }
+	if rec.Code != http.StatusBadRequest { t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String()) }
 	if !strings.Contains(rec.Body.String(), "Mihomo YAML 解析失败") || !strings.Contains(rec.Body.String(), "line") {
 		t.Fatalf("response should include parser detail and line: %s", rec.Body.String())
 	}
