@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"io"
+	"sync/atomic"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +17,41 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+func TestAgentRegistrationClientDoesNotFollowRedirectWithSecretBody(t *testing.T) {
+	var redirectTargetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirectTargetHits.Add(1)
+	}))
+	defer target.Close()
+
+	const secret = "one-time-registration-secret"
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read registration body: %v", err)
+			return
+		}
+		if !strings.Contains(string(body), secret) {
+			t.Errorf("origin did not receive expected registration secret")
+		}
+		w.Header().Set("Location", target.URL+"/capture")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	resp, err := newAgentRegistrationHTTPClient().Post(origin.URL, "application/json", strings.NewReader(`{"secret":"`+secret+`"}`))
+	if err != nil {
+		t.Fatalf("registration POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("registration status = %d, want %d", resp.StatusCode, http.StatusTemporaryRedirect)
+	}
+	if got := redirectTargetHits.Load(); got != 0 {
+		t.Fatalf("registration secret was forwarded to redirect target %d times", got)
+	}
+}
 
 func TestControllerWebSocketResponseErrorPreservesDetails(t *testing.T) {
 	tests := []struct {
