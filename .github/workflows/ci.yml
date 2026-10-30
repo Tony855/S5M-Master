@@ -79,7 +79,6 @@ jobs:
           assert 'EXISTING_ADDR="$(sed -n \'s/^S5M_ADDR=//p\' "$ENV_FILE" | tail -n1)"' in script
           assert 'PORT_TO_USE=8080' in script
           assert '不将其误判为 S5M 后端冲突' in script
-          assert '不将其误判为 S5M 后端冲突' in script
           assert 'grep -oP \'pid=\\K[0-9]+\'' in script
           print("PASS: installer derives backend port from S5M_ADDR and does not mistake public Nginx :80 for S5M backend")
           PY
