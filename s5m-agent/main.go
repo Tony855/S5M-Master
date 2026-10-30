@@ -1808,7 +1808,7 @@ func applyAgentControlError(status map[string]any, controlErr string) {
 	}
 	controlErr = safeMihomoValidationDiagnostic([]byte(controlErr))
 	if existing, ok := status["last_error"].(string); ok && strings.TrimSpace(existing) != "" {
-		status["last_error"] = controlErr + "; Mihomo: " + existing
+		status["last_error"] = safeMihomoValidationDiagnostic([]byte(controlErr + "; Mihomo: " + existing))
 		return
 	}
 	status["last_error"] = controlErr
