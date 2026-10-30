@@ -399,11 +399,11 @@ checks["Primary console loads Agent list over authenticated WebSocket RPC"] = (
 )
 
 
-checks["Agent revoke events invalidate in-flight snapshots and force an authoritative list reload"] = (
-    "let agentRevocationRevision = 0;" in app_js
-    and "agentRevocationRevision++;" in app_js
-    and "const revocationRevision = agentRevocationRevision;" in app_js
-    and "if (revocationRevision !== agentRevocationRevision)" in app_js
+checks["Agent binding updates and revocations invalidate in-flight snapshots and force an authoritative list reload"] = (
+    "let agentBindingRevision = 0;" in app_js
+    and app_js.count("agentBindingRevision++;") >= 2
+    and "const revocationRevision = agentBindingRevision;" in app_js
+    and "if (revocationRevision !== agentBindingRevision)" in app_js
     and "retryAfterRevocation = true;" in app_js
     and "Promise.resolve().then(() => loadAgentsData());" in app_js
 )
