@@ -366,6 +366,12 @@ createApp({
                 lastCommandAt: Number(message.at) || Math.floor(Date.now() / 1000)
               });
             }
+            // The server has atomically persisted the ACK and cleared the pending
+            // command. Refresh the authoritative snapshot so the node card reflects
+            // command_result instead of only the transient browser event fields.
+            if (message.type === 'agent.command.updated') {
+              Promise.resolve().then(() => loadAgentsData());
+            }
           }
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
