@@ -825,6 +825,11 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
 			tracker.acked && tracker.baselineGeneration == generation {
 			tracker.disconnected = true
+			// A reconnect may register before this handler's deferred cleanup runs.
+			// In that case, bind confirmation to the already-current generation.
+			if current := a.agentWSGeneration[machineCode]; current > generation && a.agentWSConnections[machineCode] != nil {
+				tracker.reconnectGeneration = current
+			}
 		}
 		if a.agentWSConnections[machineCode] == session {
 			delete(a.agentWSConnections, machineCode)
