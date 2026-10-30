@@ -1,5 +1,7 @@
 name: S5M Agent + SmartDNS image
 
+# Validation marker: exercise CI and image checks for the SmartDNS branch.
+
 on:
   pull_request:
     branches: [s5m-agent-smartdns]
