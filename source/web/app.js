@@ -1351,9 +1351,9 @@ createApp({
         const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
         const data = result.data || result;
         if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
-        const verifyResult = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
-        const verify = verifyResult.data || verifyResult;
-        if (String(verify.config_yaml || '') !== yaml) {
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const verifyData = verify.data || verify;
+        if (String(verifyData.config_yaml || '') !== yaml) {
           showMsg('保存已返回，但 WebSocket 回读内容不一致；请重新加载核对', 'error');
           return;
         }
@@ -1461,6 +1461,7 @@ createApp({
       updateKernel, recoverMihomoUpdateTask, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
+      loadSmartDNSConfig, saveSmartDNSConfig,
       fmtBytes, fmtSpeed
     };
   }
