@@ -296,7 +296,7 @@ createApp({
             const revokedCode = String(message.machine_code);
             // Invalidate snapshots already in flight: an older agents.list.get
             // response must never resurrect a binding removed by this event.
-            agentRevocationRevision++;
+            agentBindingRevision++;
             agentEntries.value = agentEntries.value.filter(item => item.code !== revokedCode);
             loadAgentsData();
             return;
@@ -305,7 +305,7 @@ createApp({
             // A registration/rebind event must invalidate older list snapshots
             // just like revocation; otherwise the newly authorized node can
             // remain absent until another manual refresh or reconnect.
-            agentRevocationRevision++;
+            agentBindingRevision++;
             loadAgentsData();
             return;
           }
@@ -834,12 +834,12 @@ createApp({
     };
 
     const agentRefreshing = ref(false);
-    let agentRevocationRevision = 0;
+    let agentBindingRevision = 0;
     const loadAgentsData = async () => {
       // Never overlap instance requests. Once data exists, refresh silently so
       // the current list and expanded cards remain mounted while the request runs.
       if (agentLoading.value || agentRefreshing.value) return;
-      const revocationRevision = agentRevocationRevision;
+      const revocationRevision = agentBindingRevision;
       let retryAfterRevocation = false;
       const hasExistingData = agentEntries.value.length > 0;
       if (hasExistingData) agentRefreshing.value = true;
@@ -900,7 +900,7 @@ createApp({
           });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
-        if (revocationRevision !== agentRevocationRevision) {
+        if (revocationRevision !== agentBindingRevision) {
           // A revoke event arrived while this snapshot was loading. Discard it
           // and fetch a fresh authoritative snapshot after releasing the lock.
           retryAfterRevocation = true;
