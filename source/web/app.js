@@ -494,8 +494,9 @@ createApp({
       }
       updatingKernel.value = true;
       try {
-        const result = await sendBrowserWSControl({ type: 'mihomo.update' });
-        const d = result.data || result;
+        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
         await loadMainMihomoStatus();
         const expectedVersion = String(d.version || '').trim();
         const actualVersion = String(mainMihomoStatus.value.version || '').trim();
