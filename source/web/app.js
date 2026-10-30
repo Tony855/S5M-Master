@@ -30,6 +30,7 @@ createApp({
     const generatedToken = ref('');
     const generating = ref(false);
     const agentEntries = ref([]);
+    const openWrtExpandedNode = ref('');
     const agentLoadError = ref('');
     const agentLoading = ref(false);
     const agentSearch = ref('');
@@ -331,6 +332,8 @@ createApp({
                 hostname: String(status.hostname || previous.hostname || ''),
                 os: String(status.os || previous.os || ''),
                 arch: String(status.arch || previous.arch || ''),
+                platform: String(status.platform || previous.platform || ''),
+                openwrt: status.openwrt && typeof status.openwrt === 'object' ? status.openwrt : (previous.openwrt || null),
                 mihomoRunning: status.mihomo_healthy === true,
                 mihomoVersion: normalizeMihomoVersion(status.mihomo_version || previous.mihomoVersion),
                 connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : previous.connections,
@@ -901,6 +904,8 @@ createApp({
             hostname,
             os,
             arch,
+            platform: String(status.platform || ''),
+            openwrt: status.openwrt && typeof status.openwrt === 'object' ? status.openwrt : null,
             mihomoRunning: online && status.mihomo_healthy === true,
             mihomoVersion,
             runtimeReported,
@@ -1401,7 +1406,7 @@ createApp({
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
-      retryingNodeConfigSync, retryNodeConfigSync,
+      retryingNodeConfigSync, retryNodeConfigSync, openWrtExpandedNode,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
