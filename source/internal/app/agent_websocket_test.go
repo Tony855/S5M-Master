@@ -546,7 +546,9 @@ func TestValidateAgentWSStatusAcceptsBoundedOpenWrtTelemetry(t *testing.T) {
 		"connections": float64(3), "config_sha256": strings.Repeat("a", 64), "last_error": "",
 	}
 	withOpenWrt := make(map[string]any, len(base)+2)
-	for key, value := range base { withOpenWrt[key] = value }
+	for key, value := range base {
+		withOpenWrt[key] = value
+	}
 	withOpenWrt["platform"] = "openwrt"
 	withOpenWrt["openwrt"] = map[string]any{"available": true, "interfaces": []any{}}
 	if err := validateAgentWSStatus(withOpenWrt); err != nil {
@@ -554,14 +556,18 @@ func TestValidateAgentWSStatusAcceptsBoundedOpenWrtTelemetry(t *testing.T) {
 	}
 
 	invalidPlatform := make(map[string]any, len(withOpenWrt))
-	for key, value := range withOpenWrt { invalidPlatform[key] = value }
+	for key, value := range withOpenWrt {
+		invalidPlatform[key] = value
+	}
 	invalidPlatform["platform"] = "unknown"
 	if err := validateAgentWSStatus(invalidPlatform); err == nil {
 		t.Fatal("unknown platform should be rejected")
 	}
 
 	oversized := make(map[string]any, len(withOpenWrt))
-	for key, value := range withOpenWrt { oversized[key] = value }
+	for key, value := range withOpenWrt {
+		oversized[key] = value
+	}
 	oversized["openwrt"] = map[string]any{"data": strings.Repeat("x", (8<<10)+1)}
 	if err := validateAgentWSStatus(oversized); err == nil {
 		t.Fatal("oversized OpenWrt telemetry should be rejected")
