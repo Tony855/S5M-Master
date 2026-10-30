@@ -281,7 +281,7 @@ jobs:
         run: |
           mkdir -p dist
           docker save s5m-agent:amd64-test -o dist/s5m-agent-linux-amd64.tar
-          sha256sum dist/s5m-agent-linux-amd64.tar > dist/s5m-agent-linux-amd64.tar.sha256
+          (cd dist && sha256sum s5m-agent-linux-amd64.tar > s5m-agent-linux-amd64.tar.sha256)
 
       - name: Upload amd64 archive
         uses: actions/upload-artifact@v4
@@ -325,7 +325,7 @@ jobs:
         run: |
           mkdir -p dist
           docker save s5m-agent:arm64-test -o dist/s5m-agent-linux-arm64.tar
-          sha256sum dist/s5m-agent-linux-arm64.tar > dist/s5m-agent-linux-arm64.tar.sha256
+          (cd dist && sha256sum s5m-agent-linux-arm64.tar > s5m-agent-linux-arm64.tar.sha256)
 
       - name: Upload ARM64 archive
         uses: actions/upload-artifact@v4
@@ -436,7 +436,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           docker save s5m-agent:routeros-${{ matrix.arch }}-test -o dist/s5m-agent-routeros-${{ matrix.arch }}.tar
-          sha256sum dist/s5m-agent-routeros-${{ matrix.arch }}.tar > dist/s5m-agent-routeros-${{ matrix.arch }}.tar.sha256
+          (cd dist && sha256sum s5m-agent-routeros-${{ matrix.arch }}.tar > s5m-agent-routeros-${{ matrix.arch }}.tar.sha256)
       - name: Upload RouterOS archive
         uses: actions/upload-artifact@v4
         with:
@@ -480,8 +480,8 @@ jobs:
     name: Publish stable GitHub Release
     # Run the decision step after successful builds even for PR/dev runs, so
     # GitHub reports why a release was not created instead of silently skipping the job.
-    if: always() && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success'
-    needs: [build-and-publish, build-arm64-archive, build-routeros-archives]
+    if: always() && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success' && (needs.publish-container-image.result == 'success' || (github.event_name == 'pull_request' && needs.publish-container-image.result == 'skipped'))
+    needs: [build-and-publish, build-arm64-archive, build-routeros-archives, publish-container-image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -537,6 +537,28 @@ jobs:
         with:
           name: s5m-agent-routeros-arm64
           path: dist/routeros-arm64
+
+      - name: Verify all four archive checksums
+        if: steps.release_gate.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd dist/amd64
+            sha256sum --check s5m-agent-linux-amd64.tar.sha256
+          )
+          (
+            cd dist/arm64
+            sha256sum --check s5m-agent-linux-arm64.tar.sha256
+          )
+          (
+            cd dist/routeros-amd64
+            sha256sum --check s5m-agent-routeros-amd64.tar.sha256
+          )
+          (
+            cd dist/routeros-arm64
+            sha256sum --check s5m-agent-routeros-arm64.tar.sha256
+          )
 
       - name: Publish release and attach archives
         if: steps.release_gate.outputs.enabled == 'true'
