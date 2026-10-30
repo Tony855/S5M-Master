@@ -223,15 +223,17 @@ func controllerConfigHash(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func writeControllerConfig(data []byte) error {
-	path := controllerConfigPath()
-	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
+// atomicWriteFile writes a complete file beside its destination, fsyncs it,
+// atomically renames it into place, then fsyncs the containing directory.
+func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".s5m-atomic-*")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -246,7 +248,19 @@ func writeControllerConfig(data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+func writeControllerConfig(data []byte) error {
+	return atomicWriteFile(controllerConfigPath(), data, 0600)
 }
 
 func centralHostname(centralURL string) string {
@@ -644,13 +658,13 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		}
 		return false, nil
 	}
-	if err := os.WriteFile(previousPath, oldData, 0600); err != nil {
+	if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败")
 	}
 	tmpPath := mainPath + ".tmp"
 	// Write the normalized configuration so the preserved local secret is
 	// actually persisted; writing agentYml here would undo the protection above.
-	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
+	if err := atomicWriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
 	validationOutput, validationErr := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
@@ -665,7 +679,7 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 				validationOutput, validationErr = exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
 				if validationErr == nil {
 					// Restore the exact original normalized config before committing it.
-					if writeErr := os.WriteFile(tmpPath, newNorm, 0600); writeErr != nil {
+					if writeErr := atomicWriteFile(tmpPath, newNorm, 0600); writeErr != nil {
 						_ = os.Remove(tmpPath)
 						return false, fmt.Errorf("恢复待写入的 Mihomo 配置失败")
 					}
@@ -711,15 +725,7 @@ func rollbackConfigAfterReloadFailure() error {
 	if err != nil {
 		return fmt.Errorf("读取旧配置备份失败")
 	}
-	tmpPath := mainPath + ".restore"
-	if err := os.WriteFile(tmpPath, oldData, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, mainPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return atomicWriteFile(mainPath, oldData, 0600)
 }
 
 // mihomoSecretCandidates returns unique secrets in previous-then-current order.
