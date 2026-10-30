@@ -2247,10 +2247,9 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 					if updatedTracking, marshalErr := json.Marshal(tracking); marshalErr == nil {
 						settings["agent_reboot_tracking_"+code] = string(updatedTracking)
 					}
-					if commandResult == nil {
-						commandResult = make(map[string]any)
+					if commandResult != nil && commandResult["id"] == tracking.CommandID {
+						commandResult["reboot_status"] = "timeout"
 					}
-					commandResult["reboot_status"] = "timeout"
 				} else if commandResult != nil && commandResult["id"] == tracking.CommandID {
 					commandResult["reboot_status"] = tracking.Status
 					if tracking.Interrupted {
