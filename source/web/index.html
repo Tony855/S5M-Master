@@ -394,7 +394,7 @@
                         </el-select>
                       </div>
                       <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;padding:10px;border-radius:8px;background:var(--surface);font-size:12px;line-height:1.5;">{{ filteredOpenWrtLogs(item.openwrt.logs_tail) || '暂无日志，等待 Agent 下一次 WebSocket 心跳采集。' }}</pre>
-                      <p class="section-hint">日志通过 Agent WebSocket 心跳只读采集，最多保留最近 80 行、3 KiB；敏感字段会脱敏。刷新会重新读取主控保存的最新快照。</p>
+                      <p class="section-hint">日志通过 Agent WebSocket 心跳只读采集，最多保留最近 80 行、2 KiB；敏感字段会脱敏。刷新会重新读取主控保存的最新快照。</p>
                     </div>
                     <div v-if="item.openwrt.uci_readonly" style="margin-top:14px;">
                       <div style="font-weight:600;margin-bottom:8px;">UCI 网络配置快照（只读 / 敏感字段已脱敏）</div>
