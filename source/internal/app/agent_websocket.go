@@ -1191,7 +1191,8 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 		(commandType == "openwrt_service_action" && command["service"] == "agent" && command["action"] == "restart")
 	if isReconnectSensitive {
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-			tracker.CommandID == commandID && tracker.Interrupted {
+			tracker.CommandID == commandID && !tracker.Acked &&
+			tracker.Status != "timeout" && tracker.Status != "failed" {
 			// A reboot/restart that had not yet been ACKed when the controller
 			// restarted can safely resume tracking from this newly authenticated
 			// session. ACKed operations cannot be reconstructed this way.
