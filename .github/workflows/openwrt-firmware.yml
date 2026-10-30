@@ -118,7 +118,195 @@ jobs:
           EOF
           chmod 0755 files/etc/uci-defaults/99-s5m-agent
 
-          grep -Eq '^  enable: false$' files/usr/share/s5m-agent/default-config.yaml
+          grep -Eq '^  enable: true
+          grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+
+      - name: Build full OpenWrt image
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make image \
+            PROFILE="generic" \
+            PACKAGES="kmod-tun ip-full ca-bundle ca-certificates" \
+            FILES="$IMAGEBUILDER_DIR/files"
+
+      - name: Verify firmware manifest and checksums
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          manifest="$(find bin/targets -maxdepth 4 -type f -name '*.manifest' | head -n1)"
+          test -n "$manifest"
+          grep -q '^kmod-tun ' "$manifest"
+          grep -q '^firewall4 ' "$manifest"
+          grep -q '^dropbear ' "$manifest"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
+          test -n "$images"
+          mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
+          cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
+          cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
+          (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo "Target: ${{ matrix.target }}/${{ matrix.subtarget }}"
+            echo "OpenWrt: $OPENWRT_VERSION"
+            echo "Mihomo: $MIHOMO_VERSION"
+            echo "Agent arch: ${{ matrix.goarch }}"
+            echo "Profile: generic"
+            echo "Images:"
+            echo "$images"
+          } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
+
+      - name: Upload firmware artifacts (no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-openwrt-${{ matrix.target }}-${{ matrix.subtarget }}-${{ github.sha }}
+          path: ${{ runner.temp }}/s5m-openwrt-output/
+          if-no-files-found: error
+          retention-days: 30
+ files/usr/share/s5m-agent/default-config.yaml
+          grep -Eq '^  auto-route: true
+          grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+
+      - name: Build full OpenWrt image
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make image \
+            PROFILE="generic" \
+            PACKAGES="kmod-tun ip-full ca-bundle ca-certificates" \
+            FILES="$IMAGEBUILDER_DIR/files"
+
+      - name: Verify firmware manifest and checksums
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          manifest="$(find bin/targets -maxdepth 4 -type f -name '*.manifest' | head -n1)"
+          test -n "$manifest"
+          grep -q '^kmod-tun ' "$manifest"
+          grep -q '^firewall4 ' "$manifest"
+          grep -q '^dropbear ' "$manifest"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
+          test -n "$images"
+          mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
+          cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
+          cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
+          (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo "Target: ${{ matrix.target }}/${{ matrix.subtarget }}"
+            echo "OpenWrt: $OPENWRT_VERSION"
+            echo "Mihomo: $MIHOMO_VERSION"
+            echo "Agent arch: ${{ matrix.goarch }}"
+            echo "Profile: generic"
+            echo "Images:"
+            echo "$images"
+          } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
+
+      - name: Upload firmware artifacts (no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-openwrt-${{ matrix.target }}-${{ matrix.subtarget }}-${{ github.sha }}
+          path: ${{ runner.temp }}/s5m-openwrt-output/
+          if-no-files-found: error
+          retention-days: 30
+ files/usr/share/s5m-agent/default-config.yaml
+          grep -Eq '^  auto-redirect: true
+          grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+
+      - name: Build full OpenWrt image
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make image \
+            PROFILE="generic" \
+            PACKAGES="kmod-tun ip-full ca-bundle ca-certificates" \
+            FILES="$IMAGEBUILDER_DIR/files"
+
+      - name: Verify firmware manifest and checksums
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          manifest="$(find bin/targets -maxdepth 4 -type f -name '*.manifest' | head -n1)"
+          test -n "$manifest"
+          grep -q '^kmod-tun ' "$manifest"
+          grep -q '^firewall4 ' "$manifest"
+          grep -q '^dropbear ' "$manifest"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
+          test -n "$images"
+          mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
+          cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
+          cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
+          (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo "Target: ${{ matrix.target }}/${{ matrix.subtarget }}"
+            echo "OpenWrt: $OPENWRT_VERSION"
+            echo "Mihomo: $MIHOMO_VERSION"
+            echo "Agent arch: ${{ matrix.goarch }}"
+            echo "Profile: generic"
+            echo "Images:"
+            echo "$images"
+          } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
+
+      - name: Upload firmware artifacts (no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-openwrt-${{ matrix.target }}-${{ matrix.subtarget }}-${{ github.sha }}
+          path: ${{ runner.temp }}/s5m-openwrt-output/
+          if-no-files-found: error
+          retention-days: 30
+ files/usr/share/s5m-agent/default-config.yaml
+          grep -Eq '^  strict-route: false
+          grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+
+      - name: Build full OpenWrt image
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make image \
+            PROFILE="generic" \
+            PACKAGES="kmod-tun ip-full ca-bundle ca-certificates" \
+            FILES="$IMAGEBUILDER_DIR/files"
+
+      - name: Verify firmware manifest and checksums
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          manifest="$(find bin/targets -maxdepth 4 -type f -name '*.manifest' | head -n1)"
+          test -n "$manifest"
+          grep -q '^kmod-tun ' "$manifest"
+          grep -q '^firewall4 ' "$manifest"
+          grep -q '^dropbear ' "$manifest"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
+          test -n "$images"
+          mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
+          cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
+          cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
+          (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo "Target: ${{ matrix.target }}/${{ matrix.subtarget }}"
+            echo "OpenWrt: $OPENWRT_VERSION"
+            echo "Mihomo: $MIHOMO_VERSION"
+            echo "Agent arch: ${{ matrix.goarch }}"
+            echo "Profile: generic"
+            echo "Images:"
+            echo "$images"
+          } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
+
+      - name: Upload firmware artifacts (no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-openwrt-${{ matrix.target }}-${{ matrix.subtarget }}-${{ github.sha }}
+          path: ${{ runner.temp }}/s5m-openwrt-output/
+          if-no-files-found: error
+          retention-days: 30
+ files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq '192.168.0.0/16' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'START=95' files/etc/init.d/s5m-agent
           ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
