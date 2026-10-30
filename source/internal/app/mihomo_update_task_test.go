@@ -56,7 +56,9 @@ func TestMihomoUpdateTaskStatusRejectsUnknownTask(t *testing.T) {
 		app.handleMihomoUpdateTaskStatus(&browserEventClient{conn: conn, username: "admin"}, "rpc-2", "missing")
 	}))
 	defer server.Close()
-	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], nil)
+	header := http.Header{}
+	header.Set("Origin", server.URL)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
 	if err != nil {
 		t.Fatal(err)
 	}
