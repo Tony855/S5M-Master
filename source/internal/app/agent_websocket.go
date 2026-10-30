@@ -485,12 +485,55 @@ type agentWSConnection struct {
 // disconnect followed by a new authenticated connection and a fresh heartbeat.
 // It is intentionally conservative: missing lifecycle evidence never means success.
 type agentRebootTracker struct {
-	commandID           string
-	baselineGeneration  uint64
-	acked               bool
-	disconnected        bool
-	reconnectGeneration uint64
-	queuedAt            int64
+	CommandID           string `json:"command_id"`
+	BaselineGeneration  uint64 `json:"baseline_generation"`
+	Acked               bool   `json:"acked"`
+	Disconnected        bool   `json:"disconnected"`
+	ReconnectGeneration uint64 `json:"reconnect_generation"`
+	QueuedAt            int64  `json:"queued_at"`
+	Status              string `json:"status"`
+	Interrupted         bool   `json:"interrupted,omitempty"`
+}
+
+func (a *App) saveAgentRebootTracker(machineCode string, tracker *agentRebootTracker) error {
+	payload, err := json.Marshal(tracker)
+	if err != nil {
+		return err
+	}
+	return a.store.UpdateSettings(map[string]string{"agent_reboot_tracking_" + machineCode: string(payload)})
+}
+
+// A controller restart destroys the old WebSocket generation evidence. Keep
+// the operation visible, but never infer a successful router reboot from a
+// heartbeat that happens after the controller itself restarted.
+func (a *App) restoreAgentRebootTracking() error {
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return err
+	}
+	for key, raw := range settings {
+		if !strings.HasPrefix(key, "agent_reboot_tracking_") {
+			continue
+		}
+		machineCode := strings.TrimPrefix(key, "agent_reboot_tracking_")
+		var tracker agentRebootTracker
+		if err := json.Unmarshal([]byte(raw), &tracker); err != nil || tracker.CommandID == "" {
+			continue
+		}
+		if tracker.Status == "reconnected" || tracker.Status == "timeout" || tracker.Status == "failed" {
+			continue
+		}
+		tracker.Interrupted = true
+		tracker.Status = "verification_interrupted"
+		if err := a.saveAgentRebootTracker(machineCode, &tracker); err != nil {
+			return err
+		}
+		if a.agentRebootTracking == nil {
+			a.agentRebootTracking = make(map[string]*agentRebootTracker)
+		}
+		a.agentRebootTracking[machineCode] = &tracker
+	}
+	return nil
 }
 
 func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebootTracker, at int64) error {
@@ -503,13 +546,18 @@ func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebo
 	if err := json.Unmarshal([]byte(settings[key]), &result); err != nil {
 		return err
 	}
-	if result["id"] != tracker.commandID {
+	if result["id"] != tracker.CommandID {
 		return fmt.Errorf("重启命令结果已被更新，拒绝覆盖")
 	}
 	result["reconnected"] = true
 	result["reconnected_at"] = at
+	result["reboot_status"] = "reconnected"
 	payload, err := json.Marshal(result)
 	if err != nil {
+		return err
+	}
+	tracker.Status = "reconnected"
+	if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
 		return err
 	}
 	return a.store.UpdateSettings(map[string]string{key: string(payload)})
