@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
+	"os/exec"\n\t"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -47,6 +47,7 @@ func collectOpenWrtTelemetry() map[string]any {
 	if logs, ok := collectOpenWrtSystemLogs(); ok {
 		result["logs_tail"] = logs
 	}
+	result["services"] = collectOpenWrtServiceStatus("/proc")
 	// UCI inspection is read-only and limited to the three requested network
 	// domains. Potential credentials are redacted before leaving the device.
 	uci := map[string]string{}
@@ -210,4 +211,40 @@ func redactOpenWrtLog(raw string) string {
 		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
+}
+
+func collectOpenWrtServiceStatus(procRoot string) map[string]any {
+	return map[string]any{
+		"agent":  openWrtProcessStatus(procRoot, "s5m-agent"),
+		"mihomo": openWrtProcessStatus(procRoot, "mihomo"),
+	}
+}
+
+func openWrtProcessStatus(procRoot, processName string) map[string]any {
+	status := map[string]any{"running": false, "pid": 0}
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		status["error"] = "无法读取进程信息"
+		return status
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		comm, err := os.ReadFile(filepath.Join(procRoot, entry.Name(), "comm"))
+		if err != nil || strings.TrimSpace(string(comm)) != processName {
+			continue
+		}
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid <= 0 {
+			continue
+		}
+		status["running"] = true
+		status["pid"] = pid
+		return status
+	}
+	return status
 }
