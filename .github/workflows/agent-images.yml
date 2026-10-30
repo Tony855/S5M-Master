@@ -668,6 +668,18 @@ jobs:
               echo "::error title=Release tag commit mismatch::The triggering tag does not resolve to this workflow commit."
               exit 1
             }
+            if ! remote_tag_refs="$(git ls-remote origin "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")"; then
+              echo "::error title=Remote tag lookup failed::Could not verify the current remote value of ${RELEASE_TAG}."
+              exit 1
+            fi
+            remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk '$2 ~ /\^\{\}$/ {print $1; found=1} END {if (!found) exit 0}')"
+            if [[ -z "${remote_tag_commit}" ]]; then
+              remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref {print $1; exit}')"
+            fi
+            [[ "${remote_tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Remote tag moved::Remote ${RELEASE_TAG} resolves to '${remote_tag_commit}', not this workflow commit ${GITHUB_SHA}."
+              exit 1
+            }
           fi
 
           response_file="$(mktemp)"
