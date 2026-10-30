@@ -426,6 +426,15 @@ checks["OpenWrt reboot and Agent restart ACKs never treat an ordinary heartbeat 
     and "item.last_seen > Number(item.commandResult.updated_at || 0)" not in instance_card_section
 )
 
+checks["OpenWrt reboot UI distinguishes queued, disconnected, reconnecting, interrupted and timed-out states"] = (
+    "item.pendingCommand.reboot_interrupted === 'true'" in instance_card_section
+    and "item.pendingCommand.reboot_status === 'timeout'" in instance_card_section
+    and "item.commandResult.reboot_status === 'waiting_heartbeat'" in instance_card_section
+    and "item.commandResult.reboot_status === 'verification_interrupted'" in instance_card_section
+    and "重连确认超时" in instance_card_section
+    and "等待首条有效心跳" in instance_card_section
+)
+
 checks["Agent binding updates and revocations invalidate in-flight snapshots and force an authoritative list reload"] = (
     "let agentBindingRevision = 0;" in app_js
     and app_js.count("agentBindingRevision++;") >= 2
