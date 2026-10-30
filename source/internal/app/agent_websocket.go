@@ -481,6 +481,58 @@ type agentWSConnection struct {
 	conn *websocket.Conn
 }
 
+// agentRebootTracker distinguishes an acknowledged reboot from an actual
+// disconnect followed by a new authenticated connection and a fresh heartbeat.
+// It is intentionally conservative: missing lifecycle evidence never means success.
+type agentRebootTracker struct {
+	commandID           string
+	baselineGeneration  uint64
+	acked               bool
+	disconnected        bool
+	reconnectGeneration uint64
+	queuedAt            int64
+}
+
+func (a *App) markAgentRebootDisconnected(machineCode string, generation uint64) {
+	a.agentWSMu.Lock()
+	defer a.agentWSMu.Unlock()
+	tracker := a.agentRebootTracking[machineCode]
+	if tracker != nil && tracker.acked && tracker.baselineGeneration == generation {
+		tracker.disconnected = true
+	}
+}
+
+func (a *App) markAgentRebootReconnected(machineCode string, generation uint64) bool {
+	tracker := a.agentRebootTracking[machineCode]
+	if tracker == nil || !tracker.acked || !tracker.disconnected ||
+		generation <= tracker.baselineGeneration || tracker.reconnectGeneration != generation {
+		return false
+	}
+	return true
+}
+
+func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebootTracker, at int64) error {
+	key := "agent_command_result_" + machineCode
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return err
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings[key]), &result); err != nil {
+		return err
+	}
+	if result["id"] != tracker.commandID {
+		return fmt.Errorf("重启命令结果已被更新，拒绝覆盖")
+	}
+	result["reconnected"] = true
+	result["reconnected_at"] = at
+	payload, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return a.store.UpdateSettings(map[string]string{key: string(payload)})
+}
+
 type agentWSMessage struct {
 	Type          string         `json:"type"`
 	ID            string         `json:"id,omitempty"`
