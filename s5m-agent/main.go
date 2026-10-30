@@ -1896,7 +1896,6 @@ func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 	if !markAgentWebSocketConnected(conn, bindingGeneration) {
 		return fmt.Errorf("绑定凭证已更新，拒绝激活旧 WebSocket 会话")
 	}
-	defer agentConnected.Store(false)
 
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalSec) * time.Second
 	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
@@ -2135,6 +2134,7 @@ func clearAgentActiveWebSocket(conn *websocket.Conn) {
 	agentActiveWSMu.Lock()
 	if agentActiveWSConn == conn {
 		agentActiveWSConn = nil
+		agentConnected.Store(false)
 	}
 	agentActiveWSMu.Unlock()
 }
