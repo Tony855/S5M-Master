@@ -1591,3 +1591,27 @@ func TestAgentSyncErrorsPersistAcrossWebSocketSessions(t *testing.T) {
 		t.Fatalf("sync errors remain after independent recovery: config=%q route=%q", configState, routeState)
 	}
 }
+
+func TestApplyAgentControlErrorPreservesMihomoDiagnosticAndBoundsOutput(t *testing.T) {
+	status := map[string]any{"last_error": "Mihomo API unavailable at /opt/s5m/data/config.yaml"}
+	applyAgentControlError(status, "主控配置同步失败: token=private-token rejected by controller")
+	got, ok := status["last_error"].(string)
+	if !ok {
+		t.Fatalf("last_error has unexpected type: %#v", status["last_error"])
+	}
+	if !strings.Contains(got, "主控配置同步失败") || !strings.Contains(got, "Mihomo:") {
+		t.Fatalf("combined diagnostic lost one error source: %q", got)
+	}
+	for _, secret := range []string{"private-token", "/opt/s5m"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("combined diagnostic leaked %q: %q", secret, got)
+		}
+	}
+
+	largeStatus := map[string]any{"last_error": strings.Repeat("M", 700)}
+	applyAgentControlError(largeStatus, strings.Repeat("C", 700))
+	bounded, _ := largeStatus["last_error"].(string)
+	if len(bounded) > 704 {
+		t.Fatalf("combined diagnostic exceeds safe 700-byte bound: %d", len(bounded))
+	}
+}
