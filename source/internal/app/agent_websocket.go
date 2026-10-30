@@ -52,6 +52,8 @@ type browserControlMessage struct {
 	RequestID       string          `json:"request_id"`
 	TaskID          string          `json:"task_id"`
 	MachineCode     string          `json:"machine_code"`
+	Service         string          `json:"service"`
+	Action          string          `json:"action"`
 	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
 	YAML            string          `json:"yaml"`
@@ -218,6 +220,16 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "路由器重启命令已排队"})
+		case "openwrt.service.action":
+			if !message.Confirm {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "必须明确确认后才能操作 OpenWrt 服务"})
+				continue
+			}
+			if err := a.queueOpenWrtServiceAction(message.MachineCode, message.Service, message.Action); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "OpenWrt 服务操作命令已排队"})
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
 		case "agent.binding.generate":
@@ -623,6 +635,60 @@ func (a *App) queueOpenWrtReboot(machineCode string) error {
 		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
 	}
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
+	return nil
+}
+
+func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) error {
+	machineCode = strings.TrimSpace(machineCode)
+	service = strings.TrimSpace(service)
+	action = strings.TrimSpace(action)
+	if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(machineCode) {
+		return fmt.Errorf("机器码格式无效")
+	}
+	if service != "mihomo" && service != "agent" {
+		return fmt.Errorf("不支持的 OpenWrt 服务")
+	}
+	if action != "start" && action != "stop" && action != "restart" {
+		return fmt.Errorf("不支持的服务操作")
+	}
+	if service == "agent" && action != "restart" {
+		return fmt.Errorf("为避免失去远程管理通道，Agent 仅允许远程重启")
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return fmt.Errorf("读取 Agent 状态失败")
+	}
+	token := settings["agent_machine_"+machineCode]
+	if token == "" || token == settings["agent_token"] {
+		return fmt.Errorf("目标 Agent 未授权")
+	}
+	var status map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+machineCode]), &status); err != nil || status["platform"] != "openwrt" {
+		return fmt.Errorf("目标设备不是 OpenWrt，拒绝执行服务操作")
+	}
+	lastSeen, parseErr := strconv.ParseInt(settings["agent_lastseen_"+machineCode], 10, 64)
+	lastSeenAt := time.Unix(lastSeen, 0)
+	if parseErr != nil || time.Since(lastSeenAt) > agentWSHeartbeatTTL || lastSeenAt.After(time.Now().Add(time.Minute)) {
+		return fmt.Errorf("目标路由器离线或心跳已过期，拒绝排队服务操作")
+	}
+	command := map[string]string{
+		"id": fmt.Sprintf("%d", time.Now().UnixNano()),
+		"type": "openwrt_service_action",
+		"service": service,
+		"action": action,
+	}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("生成 OpenWrt 服务命令失败")
+	}
+	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
+	if err != nil {
+		return fmt.Errorf("保存 OpenWrt 服务命令失败")
+	}
+	if !created {
+		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+	}
+	a.publishBrowserEvent(map[string]any{"type":"agent.command.queued","machine_code":machineCode,"command_id":command["id"],"command_type":command["type"],"at":time.Now().Unix()})
 	return nil
 }
 
