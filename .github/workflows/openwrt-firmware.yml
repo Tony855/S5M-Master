@@ -45,7 +45,7 @@ jobs:
           sudo apt-get install -y build-essential clang flex bison g++ gawk fakeroot \
             gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
             python3 python3-setuptools rsync swig unzip zlib1g-dev zstd \
-            file curl
+            file curl binutils
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -70,6 +70,7 @@ jobs:
         env:
           ASSET: ${{ matrix.mihomo_asset }}
           EXPECTED_SHA256: ${{ matrix.mihomo_sha }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
         run: |
           set -euo pipefail
           url="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/${ASSET}-${MIHOMO_VERSION}.gz"
@@ -77,7 +78,12 @@ jobs:
           echo "${EXPECTED_SHA256}  $RUNNER_TEMP/mihomo.gz" | sha256sum -c -
           gzip -dc "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
           chmod 0755 "$RUNNER_TEMP/mihomo"
-          "$RUNNER_TEMP/mihomo" -v
+          file "$RUNNER_TEMP/mihomo"
+          if [ "$TARGET_GOARCH" = "amd64" ]; then
+            "$RUNNER_TEMP/mihomo" -v
+          else
+            readelf -h "$RUNNER_TEMP/mihomo" | grep -q "AArch64"
+          fi
 
       - name: Download OpenWrt ImageBuilder
         run: |
