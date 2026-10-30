@@ -36,7 +36,7 @@ dns:
     fake-ip-filter:
         - '*.lan'
         - '*.local'
-		- '+.v2net.cc'
+        - '+.v2net.cc'
         - 'geosite:private'
     default-nameserver:
         - 223.5.5.5
@@ -54,7 +54,7 @@ dns:
         geoip: true
         geoip-code: CN
 tun:
-    enable: true
+    enable: false
     stack: system
     auto-route: true
     auto-detect-interface: true
