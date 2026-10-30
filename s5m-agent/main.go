@@ -1138,6 +1138,8 @@ type agentCommand struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
+	Service string `json:"service"`
+	Action  string `json:"action"`
 }
 
 // processAgentCommandWebSocket polls and acknowledges commands through the authenticated WebSocket protocol.
@@ -1210,6 +1212,8 @@ func processAgentCommandWebSocket(cfg Config) error {
 		message, runErr = updateMihomoKernel(cmd)
 	case "reboot_openwrt":
 		message, runErr = scheduleOpenWrtReboot()
+	case "openwrt_service_action":
+		message, runErr = runOpenWrtServiceAction(cmd.Service, cmd.Action)
 	default:
 		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 	}
@@ -1276,6 +1280,61 @@ func scheduleOpenWrtReboot() (string, error) {
 		}
 	}()
 	return "OpenWrt 路由器重启已安排，设备即将离线并重新启动", nil
+}
+
+// runOpenWrtServiceAction uses only fixed init scripts and an explicit allowlist.
+// Agent restart is delayed so the command acknowledgement can reach the controller.
+var openWrtAgentRestartMu sync.Mutex
+var openWrtAgentRestartScheduled bool
+
+func runOpenWrtServiceAction(service, action string) (string, error) {
+	if _, err := os.Stat("/etc/openwrt_release"); err != nil {
+		return "", fmt.Errorf("当前设备不是 OpenWrt，拒绝执行服务操作")
+	}
+	if service != "mihomo" && service != "agent" {
+		return "", fmt.Errorf("不支持的 OpenWrt 服务")
+	}
+	if action != "start" && action != "stop" && action != "restart" {
+		return "", fmt.Errorf("不支持的服务操作")
+	}
+	if service == "agent" && action != "restart" {
+		return "", fmt.Errorf("为避免失去远程管理通道，Agent 仅允许远程重启")
+	}
+	initScript := "/etc/init.d/s5m-mihomo"
+	if service == "agent" {
+		initScript = "/etc/init.d/s5m-agent"
+	}
+	info, err := os.Stat(initScript)
+	if err != nil || info.Mode()&0111 == 0 {
+		return "", fmt.Errorf("未找到可执行的 OpenWrt 服务脚本")
+	}
+	if service == "agent" {
+		openWrtAgentRestartMu.Lock()
+		if openWrtAgentRestartScheduled {
+			openWrtAgentRestartMu.Unlock()
+			return "", fmt.Errorf("Agent 重启任务已经安排，请勿重复提交")
+		}
+		openWrtAgentRestartScheduled = true
+		openWrtAgentRestartMu.Unlock()
+		go func() {
+			time.Sleep(3 * time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			if err := exec.CommandContext(ctx, initScript, "restart").Run(); err != nil {
+				fmt.Printf("openwrt_agent_restart: failed: %s\\n", err.Error())
+				openWrtAgentRestartMu.Lock()
+				openWrtAgentRestartScheduled = false
+				openWrtAgentRestartMu.Unlock()
+			}
+		}()
+		return "Agent 重启已安排，当前连接将短暂中断", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, initScript, action).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("Mihomo %s 失败：%s", action, safeMihomoValidationDiagnostic(output))
+	}
+	return "Mihomo " + action + " 命令已执行", nil
 }
 
 func processAgentCommand(cfg Config) error {
