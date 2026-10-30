@@ -1070,3 +1070,52 @@ html, body, #app {
   .instance-row .instance-identity-top .agent-code { font-size: 13px; }
   .instance-row .instance-copy-button.el-button { height: 27px; padding: 0 8px; }
 }
+
+
+/* Scheme A: integrated, single-module Mihomo runtime and update status. */
+.instance-row .instance-copy-button.el-button { min-height: 30px; padding: 0 11px; font-size: 11px; font-weight: 650; }
+.instance-row .instance-mihomo-status {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border: 1px solid #e6ebf3;
+  border-radius: 10px;
+  background: #fff;
+}
+.instance-row .instance-mihomo-runtime {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  min-width: 0;
+}
+.instance-row .instance-mihomo-label { color: var(--text); font-size: 12px; font-weight: 750; }
+.instance-row .instance-summary-mihomo { font-size: 12px; font-weight: 750; }
+.instance-row .instance-mihomo-version { color: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.instance-row .instance-mihomo-version.is-unknown { color: var(--sub); font-weight: 500; }
+.instance-row .instance-update-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf1f6;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.instance-row .instance-update-label { flex: 0 0 auto; color: var(--sub); font-weight: 650; }
+.instance-row .instance-summary-update { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
+.instance-row .instance-summary-secondary { gap: 7px 15px; }
+@media (max-width: 760px) {
+  .instance-row .instance-mihomo-status { margin-top: 8px; padding: 9px 10px; }
+  .instance-row .instance-mihomo-runtime { gap: 6px 9px; }
+  .instance-row .instance-mihomo-label { font-size: 11px; }
+  .instance-row .instance-summary-mihomo,
+  .instance-row .instance-mihomo-version { font-size: 11px; }
+  .instance-row .instance-update-row { gap: 4px 8px; }
+  .instance-row .instance-summary-update { flex-basis: 100%; }
+  .instance-row .instance-copy-button.el-button { padding: 0 9px; }
+}
