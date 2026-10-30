@@ -556,11 +556,20 @@ func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebo
 	if err != nil {
 		return err
 	}
+	previousStatus := tracker.Status
 	tracker.Status = "reconnected"
-	if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+	trackingPayload, err := json.Marshal(tracker)
+	if err != nil {
+		tracker.Status = previousStatus
 		return err
 	}
-	return a.store.UpdateSettings(map[string]string{key: string(payload)})
+	if err := a.store.UpdateSettings(map[string]string{
+		key: string(payload), "agent_reboot_tracking_" + machineCode: string(trackingPayload),
+	}); err != nil {
+		tracker.Status = previousStatus
+		return err
+	}
+	return nil
 }
 
 type agentWSMessage struct {
