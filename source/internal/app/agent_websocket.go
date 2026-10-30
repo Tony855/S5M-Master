@@ -709,21 +709,29 @@ func (a *App) queueOpenWrtReboot(machineCode string) error {
 	if err != nil {
 		return fmt.Errorf("生成路由器重启命令失败")
 	}
-	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
-	if err != nil {
-		return fmt.Errorf("保存路由器重启命令失败")
-	}
-	if !created {
-		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
-	}
 	a.agentWSMu.Lock()
 	if a.agentRebootTracking == nil {
 		a.agentRebootTracking = make(map[string]*agentRebootTracker)
 	}
-	a.agentRebootTracking[machineCode] = &agentRebootTracker{
-		commandID: command["id"], baselineGeneration: a.agentWSGeneration[machineCode],
-		queuedAt: time.Now().Unix(),
+	tracker := &agentRebootTracker{
+		CommandID: command["id"], BaselineGeneration: a.agentWSGeneration[machineCode],
+		QueuedAt: time.Now().Unix(), Status: "queued",
 	}
+	trackingPayload, err := json.Marshal(tracker)
+	if err != nil {
+		a.agentWSMu.Unlock()
+		return fmt.Errorf("生成重启跟踪记录失败")
+	}
+	created, err := a.store.CreateAgentCommandWithTracking(machineCode, string(payload), string(trackingPayload))
+	if err != nil {
+		a.agentWSMu.Unlock()
+		return fmt.Errorf("保存路由器重启命令失败")
+	}
+	if !created {
+		a.agentWSMu.Unlock()
+		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+	}
+	a.agentRebootTracking[machineCode] = tracker
 	a.agentWSMu.Unlock()
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
 	return nil
@@ -854,8 +862,12 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
 	if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-		tracker.acked && tracker.disconnected && generation > tracker.baselineGeneration {
-		tracker.reconnectGeneration = generation
+		tracker.Acked && tracker.Disconnected && !tracker.Interrupted && generation > tracker.BaselineGeneration {
+		tracker.ReconnectGeneration = generation
+		tracker.Status = "waiting_heartbeat"
+		if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+			fmt.Printf("agent_ws: persist reconnect candidate failed machine_code=%q: %v\\n", machineCode, err)
+		}
 	}
 	if a.agentWSConnections == nil {
 		a.agentWSConnections = make(map[string]*agentWSConnection)
@@ -871,12 +883,16 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		a.agentWSMu.Lock()
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-			tracker.acked && tracker.baselineGeneration == generation {
-			tracker.disconnected = true
+			tracker.Acked && tracker.BaselineGeneration == generation && !tracker.Interrupted {
+			tracker.Disconnected = true
+			tracker.Status = "waiting_reconnect"
 			// A reconnect may register before this handler's deferred cleanup runs.
-			// In that case, bind confirmation to the already-current generation.
 			if current := a.agentWSGeneration[machineCode]; current > generation && a.agentWSConnections[machineCode] != nil {
-				tracker.reconnectGeneration = current
+				tracker.ReconnectGeneration = current
+				tracker.Status = "waiting_heartbeat"
+			}
+			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+				fmt.Printf("agent_ws: persist disconnect state failed machine_code=%q: %v\\n", machineCode, err)
 			}
 		}
 		if a.agentWSConnections[machineCode] == session {
@@ -1024,8 +1040,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
 		rebootReconnected := false
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-			tracker.acked && tracker.disconnected && tracker.reconnectGeneration == generation &&
-			generation > tracker.baselineGeneration {
+			tracker.Acked && tracker.Disconnected && !tracker.Interrupted &&
+			tracker.ReconnectGeneration == generation && generation > tracker.BaselineGeneration {
 			if persistErr := a.persistAgentRebootReconnect(machineCode, tracker, receivedAt.Unix()); persistErr != nil {
 				fmt.Printf("agent_ws: reboot reconnect result persist failed machine_code=%q command_id=%q: %v\\n", machineCode, tracker.commandID, persistErr)
 			} else {
@@ -1150,10 +1166,18 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 		return fmt.Errorf("命令已被替换或不存在")
 	}
 	// ackAgentWSCommand is called while handleAgentWebSocket holds agentWSMu.
-	if tracker := a.agentRebootTracking[machineCode]; tracker != nil && tracker.commandID == commandID {
+	if tracker := a.agentRebootTracking[machineCode]; tracker != nil && tracker.CommandID == commandID {
 		if status == "success" {
-			tracker.acked = true
+			tracker.Acked = true
+			tracker.Status = "waiting_disconnect"
+			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+				return fmt.Errorf("保存重启 ACK 跟踪状态失败: %w", err)
+			}
 		} else {
+			tracker.Status = "failed"
+			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+				return fmt.Errorf("保存重启失败状态失败: %w", err)
+			}
 			delete(a.agentRebootTracking, machineCode)
 		}
 	}
