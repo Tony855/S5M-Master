@@ -155,6 +155,7 @@
             <el-table-column prop="name" label="名称" min-width="140"></el-table-column>
             <el-table-column prop="type" label="类型" width="90"></el-table-column>
             <el-table-column label="服务器" min-width="180"><template #default="scope">{{ scope.row.server }}:{{ scope.row.port }}</template></el-table-column>
+            <el-table-column prop="source_cidr" label="源 IP (CIDR)" min-width="170"></el-table-column>
             <el-table-column label="关联节点实例" min-width="190">
               <template #default="scope">
                 <div v-if="scope.row.machine_code === '__GLOBAL__'">
@@ -182,6 +183,7 @@
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">名称</div><div class="proxy-mobile-value"><strong>{{ item.name }}</strong></div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">类型/模式</div><div class="proxy-mobile-value">{{ item.type }} / {{ item.mode }}</div></div>
               <div class="proxy-mobile-row"><div class="proxy-mobile-label">服务器</div><div class="proxy-mobile-value">{{ item.server }}:{{ item.port }}</div></div>
+              <div class="proxy-mobile-row"><div class="proxy-mobile-label">源 IP (CIDR)</div><div class="proxy-mobile-value">{{ item.source_cidr || '0.0.0.0/0' }}</div></div>
               <div class="proxy-mobile-row">
                 <div class="proxy-mobile-label">关联实例</div><div class="proxy-mobile-value"><span v-if="item.machine_code === '__GLOBAL__'">全局节点</span><span v-else-if="item.machine_code" class="machine-tag">{{ item.machine_code }}</span><span v-else>未绑定</span><div class="section-hint">{{ item.machine_code === '__GLOBAL__' ? '同步至所有已授权节点' : (item.machine_code ? machineCodeStatus(item.machine_code) : '未关联节点实例，不会同步到节点配置') }}</div></div>
               </div>
