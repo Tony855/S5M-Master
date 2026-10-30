@@ -1132,11 +1132,11 @@ createApp({
       const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line));
       if (start < 0) return null;
       let end = start + 1;
-      while (end < lines.length && (!lines[end].trim() || /^\\s/.test(lines[end]))) end++;
+      while (end < lines.length && (!lines[end].trim() || /^\s/.test(lines[end]))) end++;
       return { start, end };
     };
     const setYamlScalar = (yaml, section, key, value) => {
-      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      const lines = String(yaml || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, section);
       if (!bounds) { if (lines.length && lines[lines.length - 1]) lines.push(''); lines.push(section + ':', '  ' + key + ': ' + value); }
       else {
         const re = new RegExp('^\\s{2}' + key + ':');
@@ -1144,10 +1144,10 @@ createApp({
         if (index >= 0) lines[index] = '  ' + key + ': ' + value;
         else lines.splice(bounds.start + 1, 0, '  ' + key + ': ' + value);
       }
-      return lines.join('\\n');
+      return lines.join('\n');
     };
     const readYamlScalar = (yaml, section, key) => {
-      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      const lines = String(yaml || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, section);
       if (!bounds) return '';
       const line = lines.find((value, i) => i > bounds.start && i < bounds.end && new RegExp('^\\s{2}' + key + ':').test(value));
       return line ? line.replace(/^\\s{2}[^:]+:\\s*/, '').split('#')[0].trim().replace(/^['"]|['"]$/g, '') : '';
@@ -1155,30 +1155,30 @@ createApp({
     const syncConfigQuickSettingsFromYaml = () => {
       configTunEnabled.value = readYamlScalar(configYaml.value, 'tun', 'enable') === 'true';
       configDnsEnabled.value = readYamlScalar(configYaml.value, 'dns', 'enable') === 'true';
-      const lines = String(configYaml.value || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
-      const index = bounds && lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\\s{2}nameserver:/.test(line));
-      configDnsNameservers.value = index >= 0 ? lines.slice(index + 1).filter(line => /^\\s{4}-\\s*/.test(line)).map(line => line.replace(/^\\s{4}-\\s*/, '').trim()).join('\\n') : '';
+      const lines = String(configYaml.value || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const index = bounds && lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\s{2}nameserver:/.test(line));
+      configDnsNameservers.value = index >= 0 ? lines.slice(index + 1, bounds.end).filter(line => /^\s{4}-\s*/.test(line)).map(line => line.replace(/^\s{4}-\s*/, '').trim()).join('\n') : '';
     };
     const applyConfigQuickSettings = () => {
       if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
       let yaml = setYamlScalar(configYaml.value, 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
       yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
-      const lines = yaml.split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
-      const values = String(configDnsNameservers.value || '').split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+      const lines = yaml.split(/\r?\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const values = String(configDnsNameservers.value || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
       if (bounds) {
-        let index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\\s{2}nameserver:/.test(line));
+        let index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\s{2}nameserver:/.test(line));
         if (index < 0) { lines.splice(bounds.end, 0, '  nameserver:'); index = bounds.end; }
-        let end = index + 1; while (end < lines.length && /^\\s{4}-\\s*/.test(lines[end])) end++;
+        let end = index + 1; while (end < lines.length && /^\s{4}-\s*/.test(lines[end])) end++;
         lines.splice(index + 1, end - index - 1, ...values.map(v => '    - ' + v));
       } else lines.push('dns:', '  nameserver:', ...values.map(v => '    - ' + v));
-      configYaml.value = lines.join('\\n');
+      configYaml.value = lines.join('\n');
       showMsg('快捷设置已写入当前 YAML，请检查后保存', 'success');
     };
 
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
-        syncConfigQuickSettingsFromYaml();
+      syncConfigQuickSettingsFromYaml();
       if (!code) return;
       try {
         const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
@@ -1187,6 +1187,7 @@ createApp({
         showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
         configYaml.value = '';
+        syncConfigQuickSettingsFromYaml();
         showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
       }
     };
