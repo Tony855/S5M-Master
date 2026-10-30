@@ -52,6 +52,11 @@ createApp({
     const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    const smartDNSConfig = ref('');
+    const smartDNSStatus = ref(null);
+    const loadingSmartDNS = ref(false);
+    const savingSmartDNS = ref(false);
+    const smartDNSQueued = ref(false);
     let nodeConfigLoadGeneration = 0;
     const templateYaml = ref('');
     const templateNote = ref('');
@@ -1276,6 +1281,45 @@ createApp({
       }
     };
 
+    const loadSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      if (!code || loadingSmartDNS.value) return;
+      loadingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.get', machine_code: code });
+        if (result.ok === false) throw new Error(result.error || '读取 SmartDNS 状态失败');
+        smartDNSConfig.value = String(result.config || '');
+        smartDNSStatus.value = result;
+        smartDNSQueued.value = false;
+      } catch (e) {
+        showMsg(e.message || '读取 SmartDNS 状态失败', 'error');
+      } finally {
+        loadingSmartDNS.value = false;
+      }
+    };
+
+    const saveSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const config = String(smartDNSConfig.value || '');
+      if (!code) { showMsg('请先选择节点机器码', 'warning'); return; }
+      if (!config.trim()) { showMsg('SmartDNS 配置不能为空', 'warning'); return; }
+      if (savingSmartDNS.value) return;
+      savingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.configure', machine_code: code, config });
+        if (result.ok === false) throw new Error(result.error || 'SmartDNS 配置提交失败');
+        smartDNSQueued.value = true;
+        showMsg(result.message || 'SmartDNS 配置已排队，等待 Agent 执行并回报', 'success');
+        await loadSmartDNSConfig();
+        smartDNSQueued.value = true;
+      } catch (e) {
+        showMsg(e.message || 'SmartDNS 配置提交失败', 'error');
+      } finally {
+        savingSmartDNS.value = false;
+      }
+    };
+
+
     const loadNodeConfig = async () => {
       const code = String(selectedConfigNode.value || '').trim();
       const generation = ++nodeConfigLoadGeneration;
@@ -1307,9 +1351,9 @@ createApp({
         const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
         const data = result.data || result;
         if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
-        const verifyResult = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
-        const verify = verifyResult.data || verifyResult;
-        if (String(verify.config_yaml || '') !== yaml) {
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const verifyData = verify.data || verify;
+        if (String(verifyData.config_yaml || '') !== yaml) {
           showMsg('保存已返回，但 WebSocket 回读内容不一致；请重新加载核对', 'error');
           return;
         }
@@ -1417,6 +1461,7 @@ createApp({
       updateKernel, recoverMihomoUpdateTask, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
+      loadSmartDNSConfig, saveSmartDNSConfig,
       fmtBytes, fmtSpeed
     };
   }
