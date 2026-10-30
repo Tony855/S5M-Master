@@ -271,7 +271,6 @@ func TestStoreMigrationPreservesExistingLegacyAgentTasksTable(t *testing.T) {
 	}
 }
 
-
 func TestSaveNodeConfigIfUnchangedRejectsStaleSnapshot(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-cas.db"))
 	if err != nil {
