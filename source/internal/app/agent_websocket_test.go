@@ -1432,7 +1432,6 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 	}
 }
 
-
 func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
