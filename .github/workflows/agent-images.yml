@@ -40,14 +40,24 @@ jobs:
         id: tags
         shell: bash
         env:
-          RELEASE_VERSION_INPUT: ${{ inputs.release_version }}
+          # Read the workflow_dispatch payload directly, with the inputs context as fallback.
+          RELEASE_VERSION_INPUT: ${{ github.event.inputs.release_version || inputs.release_version || '' }}
         run: |
           set -euo pipefail
           release_version=""
           if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == s5m-agent-v* ]]; then
             release_version="${GITHUB_REF_NAME#s5m-agent-v}"
-          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${RELEASE_VERSION_INPUT}" ]]; then
-            release_version="${RELEASE_VERSION_INPUT}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Trim accidental leading/trailing whitespace from the UI input.
+            release_version="$(printf '%s' "${RELEASE_VERSION_INPUT}" | tr -d '[:space:]')"
+          fi
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            if [[ -n "${release_version}" ]]; then
+              echo "Workflow dispatch release input received: ${release_version}"
+            else
+              echo "Workflow dispatch release input received: <empty> (dev build only)"
+            fi
           fi
 
           if [[ -n "${release_version}" && ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -447,17 +457,24 @@ jobs:
         id: release_gate
         shell: bash
         env:
-          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version }}
+          # Fallback to the original dispatch payload if a job output is unexpectedly empty.
+          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version || github.event.inputs.release_version || inputs.release_version || '' }}
         run: |
           set -euo pipefail
-          if [[ -n "${RELEASE_VERSION}" ]]; then
+          release_version="$(printf '%s' "${release_version}" | tr -d '[:space:]')"
+          if [[ -n "${release_version}" ]]; then
+            if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error title=Invalid release version::Received '${release_version}', expected X.Y.Z (for example 1.0.0)."
+              exit 1
+            fi
+            echo "Release gate received version: ${release_version}"
             echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "tag=s5m-agent-v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "name=S5M Agent v${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
-            echo "Stable release requested: s5m-agent-v${RELEASE_VERSION}"
+            echo "tag=s5m-agent-v${release_version}" >> "$GITHUB_OUTPUT"
+            echo "name=S5M Agent v${release_version}" >> "$GITHUB_OUTPUT"
+            echo "Stable release requested: s5m-agent-v${release_version}"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Release not requested::This run was triggered by ${GITHUB_EVENT_NAME}. Stable releases require either a pushed s5m-agent-vX.Y.Z tag or Actions → Run workflow with release_version set. A version typed in a pull request is not a workflow_dispatch input."
+            echo "::notice title=Release not requested::No release_version was present in the workflow_dispatch payload. This run will only build development artifacts."
           fi
 
       - name: Download amd64 archive
