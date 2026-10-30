@@ -1270,7 +1270,7 @@ func scheduleOpenWrtReboot() (string, error) {
 	go func() {
 		time.Sleep(3 * time.Second)
 		if err := exec.Command("/sbin/reboot").Run(); err != nil {
-			fmt.Printf("openwrt_reboot: failed: %s\\n", err.Error())
+			fmt.Printf("openwrt_reboot: failed: %s\n", err.Error())
 			openWrtRebootMu.Lock()
 			openWrtRebootScheduled = false
 			openWrtRebootMu.Unlock()
