@@ -1851,7 +1851,6 @@ func TestSafeMihomoValidationDiagnosticRedactsQuotedCredentialsAndBearerTokens(t
 	}
 }
 
-
 func TestAgentWebIndexPathOverride(t *testing.T) {
 	t.Setenv("S5M_WEB_INDEX", "/usr/share/s5m-agent/index.html")
 	if got, want := agentWebIndexPath(), "/usr/share/s5m-agent/index.html"; got != want {
