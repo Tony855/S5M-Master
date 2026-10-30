@@ -675,7 +675,7 @@ func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) err
 		"id":      fmt.Sprintf("%d", time.Now().UnixNano()),
 		"type":    "openwrt_service_action",
 		"service": service,
-		"action": action,
+		"action":  action,
 	}
 	payload, err := json.Marshal(command)
 	if err != nil {
