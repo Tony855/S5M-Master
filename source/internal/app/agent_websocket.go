@@ -907,7 +907,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		tracker.ReconnectGeneration = generation
 		tracker.Status = "waiting_heartbeat"
 		if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
-			fmt.Printf("agent_ws: persist reconnect candidate failed machine_code=%q: %v\\n", machineCode, err)
+			fmt.Printf("agent_ws: persist reconnect candidate failed machine_code=%q: %v\n", machineCode, err)
 		}
 	}
 	if a.agentWSConnections == nil {
@@ -934,7 +934,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 				tracker.Status = "waiting_heartbeat"
 			}
 			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
-				fmt.Printf("agent_ws: persist disconnect state failed machine_code=%q: %v\\n", machineCode, err)
+				fmt.Printf("agent_ws: persist disconnect state failed machine_code=%q: %v\n", machineCode, err)
 			}
 		}
 		if a.agentWSConnections[machineCode] == session {
@@ -1086,7 +1086,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			tracker.Status != "timeout" &&
 			tracker.ReconnectGeneration == generation && generation > tracker.BaselineGeneration {
 			if persistErr := a.persistAgentRebootReconnect(machineCode, tracker, receivedAt.Unix()); persistErr != nil {
-				fmt.Printf("agent_ws: reboot reconnect result persist failed machine_code=%q command_id=%q: %v\\n", machineCode, tracker.CommandID, persistErr)
+				fmt.Printf("agent_ws: reboot reconnect result persist failed machine_code=%q command_id=%q: %v\n", machineCode, tracker.CommandID, persistErr)
 			} else {
 				delete(a.agentRebootTracking, machineCode)
 				rebootReconnected = true
