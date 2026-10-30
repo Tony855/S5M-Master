@@ -519,7 +519,19 @@ jobs:
               echo "::error title=Tag commit mismatch::${release_tag} resolves to ${tag_commit}, but this workflow checked out ${GITHUB_SHA}."
               exit 1
             fi
-            echo "Verified tag ${release_tag} points to workflow commit ${GITHUB_SHA}."
+            if ! remote_tag_refs="$(git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}")"; then
+              echo "::error title=Remote tag lookup failed::Could not verify the current remote value of ${release_tag}."
+              exit 1
+            fi
+            remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk '$2 ~ /\^\{\}$/ {print $1; found=1} END {if (!found) exit 0}')"
+            if [[ -z "${remote_tag_commit}" ]]; then
+              remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk -v ref="refs/tags/${release_tag}" '$2 == ref {print $1; exit}')"
+            fi
+            [[ "${remote_tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Remote tag moved::Remote ${release_tag} resolves to '${remote_tag_commit}', not this workflow commit ${GITHUB_SHA}."
+              exit 1
+            }
+            echo "Verified local and remote tag ${release_tag} point to workflow commit ${GITHUB_SHA}."
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             # A manually requested version must be unused before its image is published.
             if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
