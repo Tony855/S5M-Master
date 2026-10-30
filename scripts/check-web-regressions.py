@@ -320,7 +320,7 @@ checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP f
 checks["Mihomo template publish/apply/rollback/delete mutations use explicit authenticated WebSocket RPC"] = (
     "type: 'mihomo.template.publish'" in app_js
     and "type: 'mihomo.template.apply'" in app_js
-    and 'TemplateVersion int    `json:"template_version"`' in browser_ws_source
+    and 'TemplateVersion int             `json:"template_version"`' in browser_ws_source
     and '"version": message.TemplateVersion' in browser_ws_source
     and "template_version: version" in app_js
     and "type: 'mihomo.template.rollback'" in app_js
@@ -368,8 +368,8 @@ checks["administrator password change uses authenticated WebSocket RPC, not HTTP
     "type: 'auth.password.change'" in app_js
     and "api('/api/v1/auth/password'" not in app_js
     and 'case "auth.password.change":' in browser_ws_source
-    and 'PasswordOld     string `json:"old"`' in browser_ws_source
-    and 'PasswordNew     string `json:"new"`' in browser_ws_source
+    and 'PasswordOld     string          `json:"old"`' in browser_ws_source
+    and 'PasswordNew     string          `json:"new"`' in browser_ws_source
     and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
     and "a.handlePassword" in browser_ws_source
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
