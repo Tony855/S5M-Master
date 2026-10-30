@@ -181,8 +181,8 @@ func safeMihomoValidationDiagnostic(output []byte) string {
 		lines = lines[len(lines)-6:]
 	}
 	message = strings.Join(lines, " | ")
-	message = regexp.MustCompile(\`(?i)(["']?(?:secret|token|password|api[_-]?key)["']?\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^"'[:space:],;}{]+)\`).ReplaceAllString(message, "$1\"[已隐藏]\"")
-	message = regexp.MustCompile(\`(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]+\`).ReplaceAllString(message, "$1[已隐藏]")
+	message = regexp.MustCompile(`(?i)(["']?(?:secret|token|password|api[_-]?key)["']?\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^"'[:space:],;}{]+)`).ReplaceAllString(message, "$1\"[已隐藏]\"")
+	message = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]+`).ReplaceAllString(message, "$1[已隐藏]")
 	message = regexp.MustCompile(`([A-Za-z]:)?[/\\][^[:space:]\"']+`).ReplaceAllString(message, "[路径已隐藏]")
 	message = strings.Join(strings.Fields(message), " ")
 	if len(message) > 700 {
