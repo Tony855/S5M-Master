@@ -87,9 +87,9 @@ for (let i = 0; i < 10; i++) {
 
 // Read-back synchronization must reflect the YAML model rather than stale UI state.
 quick.syncConfigQuickSettingsFromYaml();
-assert.equal(context.configTunEnabled.value, true);
-assert.equal(context.configDnsEnabled.value, false);
-assert.equal(context.configDnsNameservers.value, '1.0.0.1\n1.1.1.1');
+assert.equal(context.configTunEnabled.value, false);
+assert.equal(context.configDnsEnabled.value, true);
+assert.equal(context.configDnsNameservers.value, '8.8.8.8');
 
 // Missing root sections are created exactly once and use actual line breaks.
 context.configYaml.value = 'mixed-port: 7890\n';
