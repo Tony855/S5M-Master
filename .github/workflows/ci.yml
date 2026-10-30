@@ -160,7 +160,7 @@ jobs:
           config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
           tun = config.split("tun:", 1)[1].split("proxies:", 1)[0]
           assert "NET_ADMIN" in service.get("cap_add", []), "Compose must grant NET_ADMIN for opt-in TUN"
-          assert any(item.startswith("/dev/net/tun:/dev/net/tun") for item in service.get("devices", [])), "Compose must map /dev/net/tun for opt-in TUN"
+          assert any((item.get("source") == "/dev/net/tun" and item.get("target") == "/dev/net/tun") if isinstance(item, dict) else str(item).startswith("/dev/net/tun:/dev/net/tun") for item in service.get("devices", [])), "Compose must map /dev/net/tun for opt-in TUN"
           assert re.search(r"(?m)^  enable: false$", tun), "first-boot Agent config must keep TUN disabled"
           assert service.get("network_mode") != "host", "Agent must not use host networking"
           assert "Existing /data/config.yaml is intentionally preserved" in config, "existing runtime config must not be overwritten"
