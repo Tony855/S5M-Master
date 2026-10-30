@@ -382,21 +382,18 @@ checks["main browser WebSocket ignores stale ticket responses and stale socket e
     and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
 )
 
-checks["Agent management page rejects pending WebSocket RPCs on disconnect and stops reconnecting after pagehide"] = (
-    "function rejectPendingAgentWSRequests(message) {" in agent_list_html
-    and "rejectPendingAgentWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in agent_list_html
-    and "let agentEventsStopped = false;" in agent_list_html
-    and "agentEventsStopped = true;" in agent_list_html
-    and "if (!agentEventsStopped && localStorage.getItem(TOKEN_KEY))" in agent_list_html
-    and "页面已离开，实时操作结果未确认；重新进入后请刷新状态" in agent_list_html
-    and "WebSocket 操作超时，操作结果未确认" in agent_list_html
+checks["Primary console rejects pending WebSocket RPCs on disconnect and stops stale socket reconnects"] = (
+    "const rejectPendingBrowserWSRequests = (message) => {" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
+    and "let browserEventsStopped = false;" in app_js
+    and "browserEventsStopped = true;" in app_js
+    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
 )
-
-checks["Agent management list snapshot uses authenticated WebSocket RPC instead of HTTP"] = (
-    "sendAgentWSControl({ type: 'agents.list.get' })" in agent_list_html
-    and "fetch('/api/v1/agents'" not in agent_list_html
-    and "window.addEventListener('load', () => {\n            connectAgentEvents();" in agent_list_html
-    and "socket.onopen" in agent_list_html
+checks["Primary console loads Agent list over authenticated WebSocket RPC"] = (
+    "sendBrowserWSControl({ type: 'agents.list.get' })" in app_js
+    and "api('/api/v1/agents'" not in app_js
+    and "const connectBrowserEvents = async () => {" in app_js
+    and "socket.onopen" in app_js
 )
 
 failed = [name for name, ok in checks.items() if not ok]
