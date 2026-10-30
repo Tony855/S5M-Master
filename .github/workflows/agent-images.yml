@@ -1,5 +1,7 @@
 name: S5M Agent multi-arch images
 
+# Validation marker: run CI for s5m-agent-smartdns after regression-check updates.
+
 on:
   push:
     branches: [main, dev, s5m-agent-smartdns]
