@@ -2,7 +2,7 @@ name: S5M CI
 
 on:
   push:
-    branches: [dev, main, "fix/**"]
+    branches: [dev, main, "fix/**", s5m-agent-openwrt]
   pull_request:
     branches: [dev, main]
   workflow_dispatch:
@@ -138,6 +138,7 @@ jobs:
           sh -n routeros/cont-init.d/10-mihomo-config
           sh -n routeros/services/mihomo/run
           sh -n routeros/services/agent/run
+          sh -n openwrt/etc/init.d/s5m-agent
       - name: Verify Agent Compose TUN capabilities match the default config
         working-directory: .
         shell: bash
