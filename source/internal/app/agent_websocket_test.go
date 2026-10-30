@@ -1505,12 +1505,23 @@ func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoun
 		t.Fatal("reboot must reject a stale OpenWrt heartbeat")
 	}
 	if err := app.store.UpdateSettings(map[string]string{
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Add(time.Minute+time.Second).Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtReboot(code); err == nil {
+		t.Fatal("reboot must reject a future heartbeat timestamp")
+	}
+	if err := app.store.UpdateSettings(map[string]string{
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := app.queueOpenWrtReboot(code); err != nil {
 		t.Fatalf("queue OpenWrt reboot: %v", err)
+	}
+	if err := app.queueOpenWrtReboot(code); err == nil {
+		t.Fatal("reboot must reject a duplicate pending command")
 	}
 	settings, err := app.store.GetSettings()
 	if err != nil {
