@@ -987,8 +987,22 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
+		rebootReconnected := false
+		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
+			tracker.acked && tracker.disconnected && tracker.reconnectGeneration == generation &&
+			generation > tracker.baselineGeneration {
+			if persistErr := a.persistAgentRebootReconnect(machineCode, tracker, receivedAt.Unix()); persistErr != nil {
+				fmt.Printf("agent_ws: reboot reconnect result persist failed machine_code=%q command_id=%q: %v\\n", machineCode, tracker.commandID, persistErr)
+			} else {
+				delete(a.agentRebootTracking, machineCode)
+				rebootReconnected = true
+			}
+		}
 		a.agentWSMu.Unlock()
 		a.publishBrowserEvent(map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "last_seen": receivedAt.Unix(), "status": msg.Status})
+		if rebootReconnected {
+			a.publishBrowserEvent(map[string]any{"type": "agent.command.reconnected", "machine_code": machineCode, "at": receivedAt.Unix()})
+		}
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 			"type": "heartbeat.ack",
