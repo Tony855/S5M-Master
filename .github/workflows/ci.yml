@@ -38,7 +38,7 @@ jobs:
           assert detection < prompt < cert_issue, "TLS detection must happen before prompting and certificate issuance"
           for marker in (
               "nginx -T 2>/dev/null | python3 -c",
-              "never combine a certificate from one vhost",
+              "只复用 443+ssl+proxy_pass 127.0.0.1:8080 且证书有效的 server 块",
               "proxy_pass",
               "ssl_certificate_key",
               "openssl x509 -in \"$cert_path\" -noout -checkhost",
