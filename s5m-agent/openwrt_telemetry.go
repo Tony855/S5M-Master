@@ -37,9 +37,11 @@ func collectOpenWrtTelemetry() map[string]any {
 	// UCI inspection is read-only and limited to the three requested network
 	// domains. Potential credentials are redacted before leaving the device.
 	uci := map[string]string{}
+	uciBytes := 0
 	for _, section := range []string{"network", "dhcp", "firewall"} {
-		if value, ok := openWrtUCIShow(section); ok {
+		if value, ok := openWrtUCIShow(section); ok && uciBytes+len(value) <= 5<<10 {
 			uci[section] = value
+			uciBytes += len(value)
 		}
 	}
 	if len(uci) > 0 {
@@ -125,7 +127,7 @@ func openWrtUCIShow(section string) (string, bool) {
 			continue
 		}
 		option := strings.ToLower(left[strings.LastIndex(left, ".")+1:])
-		for _, sensitive := range []string{"password", "passwd", "secret", "token", "key", "psk", "private_key", "auth"} {
+		for _, sensitive := range []string{"password", "passwd", "secret", "token", "key", "psk", "private_key", "auth", "username", "identity", "passphrase", "pin"} {
 			if option == sensitive || strings.Contains(option, sensitive) {
 				line = left + "='[REDACTED]'"
 				break
