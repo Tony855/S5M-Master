@@ -133,7 +133,6 @@ func TestAckAgentCommandPreservesOpenWrtServiceActionMetadata(t *testing.T) {
 	}
 }
 
-
 func TestCreateAgentCommandWithTrackingIsAtomicOnPendingConflict(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "reboot-queue.db"))
 	if err != nil {
@@ -143,7 +142,7 @@ func TestCreateAgentCommandWithTrackingIsAtomicOnPendingConflict(t *testing.T) {
 
 	const machineCode = "atomic_reboot_node"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_command_" + machineCode: `{"id":"existing","type":"reboot_openwrt"}`,
+		"agent_command_" + machineCode:         `{"id":"existing","type":"reboot_openwrt"}`,
 		"agent_reboot_tracking_" + machineCode: `{"command_id":"existing","status":"queued"}`,
 	}); err != nil {
 		t.Fatal(err)
