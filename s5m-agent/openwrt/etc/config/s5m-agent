@@ -1,5 +1,6 @@
 config s5m-agent 'main'
 	option enabled '1'
+	option mihomo_enabled '1'
 	option data_dir '/etc/s5m-agent'
 	option web_listen '0.0.0.0:80'
 	option mihomo_api '127.0.0.1:8088'
