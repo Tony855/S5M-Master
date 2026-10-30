@@ -104,12 +104,14 @@ jobs:
           install -D -m 0755 "$RUNNER_TEMP/s5m-agent" files/usr/bin/s5m-agent
           install -D -m 0755 "$RUNNER_TEMP/mihomo" files/usr/bin/mihomo
           install -D -m 0755 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/init.d/s5m-agent" files/etc/init.d/s5m-agent
+          install -D -m 0755 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/init.d/s5m-mihomo" files/etc/init.d/s5m-mihomo
           install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/config/s5m-agent" files/etc/config/s5m-agent
           install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/index.html" files/usr/share/s5m-agent/index.html
           install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/default-config.yaml" files/usr/share/s5m-agent/default-config.yaml
 
           mkdir -p files/etc/uci-defaults
           cat > files/etc/uci-defaults/99-s5m-agent <<'EOF'
+          /etc/init.d/s5m-mihomo enable
           /etc/init.d/s5m-agent enable
           exit 0
           EOF
@@ -122,6 +124,9 @@ jobs:
           grep -Fq '192.168.0.0/16' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          grep -Fq 'START=94' files/etc/init.d/s5m-mihomo
+          grep -Fq 'procd_open_instance main' files/etc/init.d/s5m-mihomo
+          ! grep -Fq 'procd_open_instance mihomo' files/etc/init.d/s5m-agent
           ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
 
       - name: Build full OpenWrt image
