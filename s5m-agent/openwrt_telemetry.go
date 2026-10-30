@@ -38,6 +38,9 @@ func collectOpenWrtTelemetry() map[string]any {
 	if disk := collectOpenWrtDiskUsage(); len(disk) > 0 {
 		result["disk"] = disk
 	}
+	if logs, ok := collectOpenWrtSystemLogs(); ok {
+		result["logs_tail"] = logs
+	}
 	// UCI inspection is read-only and limited to the three requested network
 	// domains. Potential credentials are redacted before leaving the device.
 	uci := map[string]string{}
@@ -177,4 +180,37 @@ func collectOpenWrtDiskUsage() []map[string]any {
 		})
 	}
 	return result
+}
+
+func collectOpenWrtSystemLogs() (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "/sbin/logread", "-l", "80").Output()
+	if err != nil || len(output) == 0 {
+		return "", false
+	}
+	value := redactOpenWrtLog(string(output))
+	if len(value) > 3<<10 {
+		value = value[len(value)-(3<<10):]
+	}
+	return strings.TrimSpace(value), value != ""
+}
+
+func redactOpenWrtLog(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		for _, marker := range []string{"password=", "passwd=", "token=", "secret=", "authorization: bearer ", "private_key="} {
+			if index := strings.Index(lower, marker); index >= 0 {
+				end := strings.IndexAny(line[index+len(marker):], " \\t,;")
+				if end < 0 {
+					end = len(line) - index - len(marker)
+				}
+				line = line[:index+len(marker)] + "[REDACTED]" + line[index+len(marker)+end:]
+				lower = strings.ToLower(line)
+			}
+		}
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
 }
