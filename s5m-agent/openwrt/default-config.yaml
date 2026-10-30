@@ -1,5 +1,5 @@
 # 基础设置
-# Existing /data/config.yaml is intentionally preserved by init script.
+# Existing MIHOMO_HOME/config.yaml is intentionally preserved by the OpenWrt init scripts.
 mixed-port: 7890
 allow-lan: true
 mode: rule
