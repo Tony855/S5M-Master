@@ -606,6 +606,10 @@ func (a *App) queueOpenWrtReboot(machineCode string) error {
 	if status["platform"] != "openwrt" {
 		return fmt.Errorf("目标设备不是 OpenWrt，拒绝执行路由器重启")
 	}
+	lastSeen, parseErr := strconv.ParseInt(settings["agent_lastseen_"+machineCode], 10, 64)
+	if parseErr != nil || time.Since(time.Unix(lastSeen, 0)) > agentWSHeartbeatTTL || time.Unix(lastSeen, 0).After(time.Now().Add(time.Minute)) {
+		return fmt.Errorf("目标路由器当前离线或心跳已过期，拒绝排队重启")
+	}
 	command := map[string]string{"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": "reboot_openwrt"}
 	payload, err := json.Marshal(command)
 	if err != nil {
