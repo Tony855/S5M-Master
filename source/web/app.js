@@ -34,6 +34,7 @@ createApp({
     const openWrtLogQuery = ref('');
     const openWrtLogLevel = ref('all');
     const rebootingOpenWrtNode = ref('');
+    const openWrtServiceActionNode = ref('');
     const agentLoadError = ref('');
     const agentLoading = ref(false);
     const agentSearch = ref('');
@@ -566,6 +567,32 @@ createApp({
         showMsg(e.message || '重启命令提交失败', 'error');
       } finally {
         rebootingOpenWrtNode.value = '';
+      }
+    };
+
+    const openWrtServiceAction = async (item, service, action) => {
+      const code = String(item && item.code || '').trim();
+      if (!code || item.platform !== 'openwrt' || !item.online || openWrtServiceActionNode.value) return;
+      const serviceLabel = service === 'mihomo' ? 'Mihomo' : 'S5M Agent';
+      const actionLabel = { start: '启动', stop: '停止', restart: '重启' }[action];
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确认对节点 ' + code + ' 执行' + serviceLabel + actionLabel + '？' +
+          (service === 'agent' ? ' Agent 会短暂断开，稍后自动重新连接。' : ' 代理连接可能短暂中断。'),
+          '确认服务操作',
+          { type: 'warning', confirmButtonText: '确认' + actionLabel, cancelButtonText: '取消', distinguishCancelAndClose: true }
+        );
+      } catch (_) { return; }
+      openWrtServiceActionNode.value = code + ':' + service;
+      try {
+        const result = await sendBrowserWSControl({
+          type: 'openwrt.service.action', machine_code: code, service, action, confirm: true
+        });
+        showMsg(result.message || serviceLabel + actionLabel + '命令已排队', 'success');
+      } catch (e) {
+        showMsg(e.message || serviceLabel + actionLabel + '失败', 'error');
+      } finally {
+        openWrtServiceActionNode.value = '';
       }
     };
 
