@@ -672,8 +672,8 @@ func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) err
 		return fmt.Errorf("目标路由器离线或心跳已过期，拒绝排队服务操作")
 	}
 	command := map[string]string{
-		"id": fmt.Sprintf("%d", time.Now().UnixNano()),
-		"type": "openwrt_service_action",
+		"id":      fmt.Sprintf("%d", time.Now().UnixNano()),
+		"type":    "openwrt_service_action",
 		"service": service,
 		"action": action,
 	}
@@ -688,7 +688,7 @@ func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) err
 	if !created {
 		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
 	}
-	a.publishBrowserEvent(map[string]any{"type":"agent.command.queued","machine_code":machineCode,"command_id":command["id"],"command_type":command["type"],"at":time.Now().Unix()})
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
 	return nil
 }
 
