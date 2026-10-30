@@ -875,6 +875,7 @@ func collectMihomoStatus() map[string]any {
 		"upload_speed": float64(0), "download_speed": float64(0),
 		"connections": 0, "config_sha256": "", "last_error": "",
 	}
+	collectSmartDNSStatus(status)
 	if hostname, err := agentHostname(); err == nil {
 		status["hostname"] = hostname
 	}
@@ -1122,6 +1123,7 @@ type agentCommand struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
+	Config string `json:"config"`
 }
 
 // processAgentCommandWebSocket polls and acknowledges commands through the authenticated WebSocket protocol.
@@ -1192,6 +1194,12 @@ func processAgentCommandWebSocket(cfg Config) error {
 	switch cmd.Type {
 	case "update_mihomo":
 		message, runErr = updateMihomoKernel(cmd)
+	case "configure_smartdns":
+		var configHash string
+		configHash, runErr = writeSmartDNSConfig([]byte(cmd.Config))
+		if runErr == nil {
+			message = "SmartDNS 配置已校验并应用，SHA-256: " + configHash
+		}
 	default:
 		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 	}
@@ -2054,6 +2062,12 @@ func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 			switch cmd.Type {
 			case "update_mihomo":
 				message, commandErr = updateMihomoKernel(cmd)
+			case "configure_smartdns":
+				var configHash string
+				configHash, commandErr = writeSmartDNSConfig([]byte(cmd.Config))
+				if commandErr == nil {
+					message = "SmartDNS 配置已校验并应用，SHA-256: " + configHash
+				}
 			default:
 				commandErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 			}
