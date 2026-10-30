@@ -1470,7 +1470,7 @@ createApp({
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
-      retryingNodeConfigSync, retryNodeConfigSync, openWrtExpandedNode, openWrtLogQuery, openWrtLogLevel, filteredOpenWrtLogs, rebootingOpenWrtNode, rebootOpenWrtRouter,
+      retryingNodeConfigSync, retryNodeConfigSync, openWrtExpandedNode, openWrtLogQuery, openWrtLogLevel, filteredOpenWrtLogs, rebootingOpenWrtNode, rebootOpenWrtRouter, openWrtServiceAction, openWrtServiceActionNode,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
