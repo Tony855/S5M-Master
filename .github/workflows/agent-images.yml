@@ -2,7 +2,7 @@ name: S5M Agent multi-arch images
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, S5M-SmartDNS]
     tags: ["s5m-agent-v*"]
   pull_request:
     branches: [main, dev, S5M-SmartDNS]
