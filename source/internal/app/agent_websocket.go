@@ -391,23 +391,32 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			config := strings.TrimSpace(settings["agent_smartdns_config_"+code])
-			if config == "" { config = defaultAgentSmartDNSConfig }
+			if config == "" {
+				config = defaultAgentSmartDNSConfig
+			}
 			status := map[string]any{}
-			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" { _ = json.Unmarshal([]byte(raw), &status) }
+			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &status)
+			}
 			commandResult := map[string]any{}
-			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" { _ = json.Unmarshal([]byte(raw), &commandResult) }
+			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &commandResult)
+			}
 			_ = client.writeJSON(map[string]any{
-				"type": "request.result", "request_id": message.RequestID, "ok": true,
-				"machine_code": code, "config": config,
-				"desired_config_sha256": hashSmartDNSConfig(config),
-				"reported_config_sha256": status["smartdns_config_sha256"],
-				"available": status["smartdns_available"] == true,
-				"running": status["smartdns_running"] == true,
-				"dns_healthy": status["smartdns_dns_healthy"] == true,
-				"version": status["smartdns_version"],
-				"last_error": status["smartdns_last_error"],
-				"command_result": commandResult,
-				"last_seen": settings["agent_lastseen_"+code],
+				"type":                       "request.result",
+				"request_id":                 message.RequestID,
+				"ok":                         true,
+				"machine_code":               code,
+				"config":                     config,
+				"desired_config_sha256":      hashSmartDNSConfig(config),
+				"reported_config_sha256":     status["smartdns_config_sha256"],
+				"available":                 status["smartdns_available"] == true,
+				"running":                   status["smartdns_running"] == true,
+				"dns_healthy":               status["smartdns_dns_healthy"] == true,
+				"version":                   status["smartdns_version"],
+				"last_error":                status["smartdns_last_error"],
+				"command_result":            commandResult,
+				"last_seen":                 settings["agent_lastseen_"+code],
 			})
 		case "agent.smartdns.configure":
 			if err := a.queueAgentSmartDNSConfig(message.MachineCode, message.Config); err != nil {
