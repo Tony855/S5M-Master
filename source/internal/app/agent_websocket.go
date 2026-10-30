@@ -389,6 +389,10 @@ func (a *App) publishBrowserEvent(event map[string]any) {
 	}
 }
 
+type agentWSConnection struct {
+	conn *websocket.Conn
+}
+
 type agentWSMessage struct {
 	Type          string         `json:"type"`
 	ID            string         `json:"id,omitempty"`
@@ -558,10 +562,25 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
+	if a.agentWSConnections == nil {
+		a.agentWSConnections = make(map[string]*agentWSConnection)
+	}
+	// Actively close the previous socket, rather than merely waiting for its
+	// next heartbeat/request to notice the generation change.
+	if previous := a.agentWSConnections[machineCode]; previous != nil && previous.conn != nil {
+		_ = previous.conn.Close()
+	}
+	session := &agentWSConnection{conn: conn}
+	a.agentWSConnections[machineCode] = session
 	a.agentWSMu.Unlock()
-	// Keep the generation counter after disconnect. Deleting it would let a
-	// later reconnect reuse generation 1 and accidentally re-authorize an old
-	// still-open socket (an ABA problem).
+	defer func() {
+		a.agentWSMu.Lock()
+		if a.agentWSConnections[machineCode] == session {
+			delete(a.agentWSConnections, machineCode)
+		}
+		a.agentWSMu.Unlock()
+	}()
+	// Keep the generation counter after disconnect to prevent an ABA reuse.
 
 	conn.SetReadLimit(agentWSMaxMessageBytes)
 	_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
