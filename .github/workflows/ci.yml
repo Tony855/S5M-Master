@@ -1,5 +1,7 @@
 name: S5M CI
 
+# Validation marker: exercise CI and image checks for the SmartDNS branch.
+
 on:
   push:
     branches: [dev, main, s5m-agent-smartdns, "fix/**"]
