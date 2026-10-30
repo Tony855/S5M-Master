@@ -1640,7 +1640,7 @@ func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		app.agentWSMu.Lock()
-		disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].disconnected
+		disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].Disconnected
 		app.agentWSMu.Unlock()
 		if disconnected {
 			break
@@ -1648,7 +1648,7 @@ func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) 
 		time.Sleep(10 * time.Millisecond)
 	}
 	app.agentWSMu.Lock()
-	disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].disconnected
+	disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].Disconnected
 	app.agentWSMu.Unlock()
 	if !disconnected {
 		t.Fatal("ACK must not complete reboot before the original connection disconnects")
@@ -1684,5 +1684,72 @@ func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) 
 	}
 	if _, ok := result["reconnected_at"].(float64); !ok {
 		t.Fatalf("reconnected_at missing from result: %#v", result)
+	}
+}
+
+
+func TestRestoreAgentRebootTrackingMarksControllerRestartAsUnverified(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	tracker := &agentRebootTracker{
+		CommandID: "reboot-command-1", BaselineGeneration: 7,
+		Acked: true, Disconnected: true, QueuedAt: time.Now().Unix(),
+		Status: "waiting_reconnect",
+	}
+	payload, err := json.Marshal(tracker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_reboot_tracking_" + code: string(payload),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.restoreAgentRebootTracking(); err != nil {
+		t.Fatalf("restore reboot tracking: %v", err)
+	}
+	app.agentWSMu.Lock()
+	restored := app.agentRebootTracking[code]
+	app.agentWSMu.Unlock()
+	if restored == nil || !restored.Interrupted || restored.Status != "verification_interrupted" {
+		t.Fatalf("controller restart must preserve but invalidate old connection evidence: %#v", restored)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted agentRebootTracker
+	if err := json.Unmarshal([]byte(settings["agent_reboot_tracking_"+code]), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Interrupted || persisted.Status != "verification_interrupted" {
+		t.Fatalf("interrupted state was not persisted: %#v", persisted)
+	}
+}
+
+func TestQueueOpenWrtRebootPersistsCommandAndTrackingTogether(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code: `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtReboot(code); err != nil {
+		t.Fatalf("queue reboot: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var command map[string]string
+	var tracker agentRebootTracker
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(settings["agent_reboot_tracking_"+code]), &tracker); err != nil {
+		t.Fatal(err)
+	}
+	if command["id"] == "" || tracker.CommandID != command["id"] || tracker.Status != "queued" {
+		t.Fatalf("command and durable tracker must be committed together: command=%#v tracker=%#v", command, tracker)
 	}
 }
