@@ -343,7 +343,11 @@
                       <span class="instance-update-label">OpenWrt 命令状态</span>
                       <span class="instance-summary-update" :class="item.pendingCommand ? 'is-pending' : (item.commandResult && item.commandResult.status === 'success' ? 'is-success' : (item.commandResult && item.commandResult.status === 'failed' ? 'is-failed' : 'is-unknown'))">
                         <template v-if="item.pendingCommand && item.pendingCommand.type === 'openwrt_service_action'">{{ item.pendingCommand.service === 'agent' ? 'Agent' : 'Mihomo' }} {{ ({start:'启动',stop:'停止',restart:'重启'})[item.pendingCommand.action] || '服务操作' }} · 等待 Agent 执行并回报</template>
-                        <template v-else-if="item.pendingCommand && item.pendingCommand.type === 'reboot_openwrt'">路由器重启命令已排队 · 等待设备离线并重新上线</template>
+                        <template v-else-if="item.pendingCommand && item.pendingCommand.type === 'reboot_openwrt'">
+                          <template v-if="item.pendingCommand.reboot_interrupted === 'true'">主控曾重启 · 原重连证据中断，未确认设备重启成功</template>
+                          <template v-else-if="item.pendingCommand.reboot_status === 'timeout'">重连确认超时 · 待执行命令仍保留，设备状态未确认</template>
+                          <template v-else>路由器重启命令已排队 · 等待设备离线并重新上线</template>
+                        </template>
                         <template v-else-if="item.commandResult && item.commandResult.type === 'reboot_openwrt' && item.commandResult.status === 'success'">
                           <template v-if="item.commandResult.reconnected">设备已重新连接 · 已收到新连接心跳</template>
                           <template v-else-if="item.commandResult.reboot_status === 'timeout'">重连确认超时 · 设备状态未确认</template>
