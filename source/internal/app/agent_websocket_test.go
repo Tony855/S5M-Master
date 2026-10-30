@@ -1513,7 +1513,7 @@ func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoun
 		t.Fatal("reboot must reject a future heartbeat timestamp")
 	}
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_lastseen_" + code:        strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1825,7 +1825,7 @@ func TestUnacknowledgedRebootTrackingResumesOnNewControllerSession(t *testing.T)
 	trackingPayload, _ := json.Marshal(tracker)
 	if err := app.store.UpdateSettings(map[string]string{
 		"agent_status_" + code:          `{"platform":"openwrt"}`,
-		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_lastseen_" + code:        strconv.FormatInt(time.Now().Unix(), 10),
 		"agent_command_" + code:         string(commandPayload),
 		"agent_reboot_tracking_" + code: string(trackingPayload),
 	}); err != nil {
