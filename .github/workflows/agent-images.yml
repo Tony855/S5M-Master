@@ -21,7 +21,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   IMAGE_NAME: ghcr.io/tony855/s5m-agent
@@ -30,6 +30,9 @@ jobs:
   build-and-publish:
     name: Build and publish multi-arch image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       release_version: ${{ steps.tags.outputs.release_version }}
     steps:
