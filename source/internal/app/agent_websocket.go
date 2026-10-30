@@ -1192,19 +1192,19 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	if isReconnectSensitive {
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
 			tracker.CommandID == commandID && tracker.Interrupted {
-				// A reboot/restart that had not yet been ACKed when the controller
-				// restarted can safely resume tracking from this newly authenticated
-				// session. ACKed operations cannot be reconstructed this way.
-				tracker.BaselineGeneration = a.agentWSGeneration[machineCode]
-				tracker.Acked = false
-				tracker.Disconnected = false
-				tracker.ReconnectGeneration = 0
-				tracker.Interrupted = false
-				tracker.Status = "queued"
-				if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
-					return fmt.Errorf("恢复待执行重启跟踪状态失败: %w", err)
-				}
+			// A reboot/restart that had not yet been ACKed when the controller
+			// restarted can safely resume tracking from this newly authenticated
+			// session. ACKed operations cannot be reconstructed this way.
+			tracker.BaselineGeneration = a.agentWSGeneration[machineCode]
+			tracker.Acked = false
+			tracker.Disconnected = false
+			tracker.ReconnectGeneration = 0
+			tracker.Interrupted = false
+			tracker.Status = "queued"
+			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
+				return fmt.Errorf("恢复待执行重启跟踪状态失败: %w", err)
 			}
+		}
 	}
 	if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.deliver", "id": requestID, "command": command}); err != nil {
 		return fmt.Errorf("发送待执行命令失败: %w", err)
