@@ -375,6 +375,20 @@
                         <template #default="scope">{{ (scope.row['ipv4-address'] || []).map(x => x.address + '/' + x.mask).join(', ') || '—' }}</template>
                       </el-table-column>
                     </el-table>
+                    <div v-if="item.openwrt.uci_readonly" style="margin-top:14px;">
+                      <div style="font-weight:600;margin-bottom:8px;">UCI 网络配置快照（只读 / 敏感字段已脱敏）</div>
+                      <el-collapse>
+                        <el-collapse-item v-if="item.openwrt.uci_readonly.network" title="网络接口配置 · network" name="network">
+                          <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;">{{ item.openwrt.uci_readonly.network }}</pre>
+                        </el-collapse-item>
+                        <el-collapse-item v-if="item.openwrt.uci_readonly.dhcp" title="DHCP / DNS 配置 · dhcp" name="dhcp">
+                          <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;">{{ item.openwrt.uci_readonly.dhcp }}</pre>
+                        </el-collapse-item>
+                        <el-collapse-item v-if="item.openwrt.uci_readonly.firewall" title="防火墙配置 · firewall" name="firewall">
+                          <pre style="white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;">{{ item.openwrt.uci_readonly.firewall }}</pre>
+                        </el-collapse-item>
+                      </el-collapse>
+                    </div>
                   </div>
                   <div v-else class="empty-state">Agent 已识别 OpenWrt，但暂时无法读取 ubus 状态。请检查 /sbin/ubus 和系统权限。</div>
                   <p class="section-hint" style="margin-top:10px;">当前阶段仅采集设备信息与网络接口状态，不会修改 UCI、WAN/LAN、DHCP、防火墙或路由。</p>
