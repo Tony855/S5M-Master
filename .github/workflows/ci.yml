@@ -1,5 +1,7 @@
 name: S5M CI
 
+# Validation marker: run CI for s5m-agent-smartdns after regression-check updates.
+
 on:
   push:
     branches: [dev, main, s5m-agent-smartdns, "fix/**"]
