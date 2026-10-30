@@ -12,7 +12,8 @@ import (
 )
 
 func TestMihomoUpdateTaskStatusCanBeRecoveredAfterReconnect(t *testing.T) {
-	task := &mihomoUpdateTask{ID: "mihomo-test-1", Status: "completed", ResultStatus: "updated", Version: "v1.20.0", Message: "updated", StartedAt: 100, FinishedAt: 110}\n\tapp := &App{mihomoUpdateTask: task, mihomoUpdateTasks: map[string]*mihomoUpdateTask{task.ID: task}, mihomoUpdateOrder: []string{task.ID}}
+	task := &mihomoUpdateTask{ID: "mihomo-test-1", Status: "completed", ResultStatus: "updated", Version: "v1.20.0", Message: "updated", StartedAt: 100, FinishedAt: 110}
+	app := &App{mihomoUpdateTask: task, mihomoUpdateTasks: map[string]*mihomoUpdateTask{task.ID: task}, mihomoUpdateOrder: []string{task.ID}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := browserEventsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
