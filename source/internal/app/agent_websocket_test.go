@@ -1783,7 +1783,6 @@ func TestQueueOpenWrtAgentRestartPersistsReconnectTracking(t *testing.T) {
 	}
 }
 
-
 func TestTimedOutRebootCannotBecomeSuccessfulFromLateDuplicateACK(t *testing.T) {
 	app, code, _ := websocketTestApp(t)
 	tracker := &agentRebootTracker{
