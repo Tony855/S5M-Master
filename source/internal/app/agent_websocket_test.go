@@ -1571,7 +1571,6 @@ func TestQueueOpenWrtServiceActionAllowlistAndAuthorization(t *testing.T) {
 	}
 }
 
-
 func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	if err := app.store.UpdateSettings(map[string]string{
