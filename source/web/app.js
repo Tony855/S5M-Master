@@ -1333,9 +1333,6 @@ createApp({
         configYaml.value = String(data.config_yaml || '');
         syncConfigQuickSettingsFromYaml();
         showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
-        const data = result.data || result;
-        configYaml.value = data.config_yaml || '';
-        showMsg('已通过实时通道加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
         if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
         configYaml.value = '';

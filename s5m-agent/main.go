@@ -1123,7 +1123,7 @@ type agentCommand struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
-	Config string `json:"config"`
+	Config  string `json:"config"`
 }
 
 // processAgentCommandWebSocket polls and acknowledges commands through the authenticated WebSocket protocol.

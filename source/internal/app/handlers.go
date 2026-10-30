@@ -2189,13 +2189,13 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type AgentInfo struct {
-		Authorized          bool              `json:"authorized"`
-		TokenConfigured     bool              `json:"token_configured"`
-		LastSeen            int64             `json:"last_seen"`
-		Status              map[string]any    `json:"status,omitempty"`
-		CommandResult       map[string]any    `json:"command_result,omitempty"`
-		PendingCommand      map[string]string `json:"pending_command,omitempty"`
-		DesiredConfigSHA256 string            `json:"desired_config_sha256,omitempty"`
+		Authorized                  bool              `json:"authorized"`
+		TokenConfigured             bool              `json:"token_configured"`
+		LastSeen                    int64             `json:"last_seen"`
+		Status                      map[string]any    `json:"status,omitempty"`
+		CommandResult               map[string]any    `json:"command_result,omitempty"`
+		PendingCommand              map[string]string `json:"pending_command,omitempty"`
+		DesiredConfigSHA256         string            `json:"desired_config_sha256,omitempty"`
 		DesiredSmartDNSConfigSHA256 string            `json:"desired_smartdns_config_sha256,omitempty"`
 	}
 	result := make(map[string]AgentInfo)
