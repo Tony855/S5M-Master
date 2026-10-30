@@ -139,6 +139,7 @@ jobs:
           sh -n routeros/services/mihomo/run
           sh -n routeros/services/agent/run
           sh -n openwrt/etc/init.d/s5m-agent
+          sh -n openwrt/etc/init.d/s5m-mihomo
       - name: Verify Agent Compose TUN capabilities match the default config
         working-directory: .
         shell: bash
