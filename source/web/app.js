@@ -1151,7 +1151,8 @@ createApp({
     const yamlSectionBounds = (lines, section) => {
       // Mihomo root sections (dns/tun) must be matched at column zero.
       // Indented keys with the same name must never control the quick toggles.
-      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?      if (start < 0) return null;
+      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line));
+      if (start < 0) return null;
       const sectionIndent = yamlIndent(lines[start]);
       let end = start + 1;
       while (end < lines.length) {
