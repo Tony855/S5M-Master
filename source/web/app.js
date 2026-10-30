@@ -1199,7 +1199,7 @@ createApp({
         const child = findYamlChild(lines, bounds, key);
         if (child.index >= 0) {
           const original = lines[child.index];
-          const inlineComment = original.match(/\\s+#.*$/);
+          const inlineComment = original.match(/\s+#.*$/);
           lines[child.index] = ' '.repeat(child.indent) + key + ': ' + value + (inlineComment ? inlineComment[0] : '');
         }
         else lines.splice(bounds.start + 1, 0, ' '.repeat(child.indent) + key + ': ' + value);
