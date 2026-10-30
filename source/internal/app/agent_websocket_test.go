@@ -180,12 +180,8 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on superseded connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read superseded connection response: %v", err)
-	}
-	if response["type"] != "error" || !strings.Contains(response["message"].(string), "取代") {
-		t.Fatalf("unexpected superseded connection response: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("superseded connection should close cleanly, got %v", err)
 	}
 
 	settings, err := app.store.GetSettings()
@@ -266,12 +262,8 @@ func TestAgentWebSocketGenerationDoesNotResetAfterDisconnect(t *testing.T) {
 	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on stale connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read stale connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("stale connection was re-authorized after reconnect: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("stale connection should close cleanly, got %v", err)
 	}
 }
 
