@@ -18,14 +18,14 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu         sync.Mutex
-	agentWSGeneration map[string]uint64
+	agentWSMu          sync.Mutex
+	agentWSGeneration  map[string]uint64
 	agentWSConnections map[string]*agentWSConnection
-	agentHeartbeatAt  map[string]int64
-	browserWSMu       sync.Mutex
-	browserWSClients  map[*browserEventClient]struct{}
-	browserTicketMu   sync.Mutex
-	browserTickets    map[string]browserWSTicket
+	agentHeartbeatAt   map[string]int64
+	browserWSMu        sync.Mutex
+	browserWSClients   map[*browserEventClient]struct{}
+	browserTicketMu    sync.Mutex
+	browserTickets     map[string]browserWSTicket
 }
 
 func New(cfg Config) (*App, error) {
