@@ -478,6 +478,9 @@ jobs:
           cache-to: type=gha,mode=max
   publish-github-release:
     name: Publish stable GitHub Release
+    concurrency:
+      group: s5m-agent-release-${{ needs.build-and-publish.outputs.release_version || github.ref }}
+      cancel-in-progress: false
     # Run the decision step after successful builds even for PR/dev runs, so
     # GitHub reports why a release was not created instead of silently skipping the job.
     if: always() && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success' && (needs.publish-container-image.result == 'success' || (github.event_name == 'pull_request' && needs.publish-container-image.result == 'skipped'))
@@ -486,6 +489,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout repository for release tag checks
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Reject an existing release tag on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && needs.build-and-publish.outputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          release_tag="s5m-agent-v${RELEASE_VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "::error title=Release tag already exists::${release_tag} already exists; refusing to overwrite an existing release."
+            exit 1
+          fi
+
       - name: Decide whether this run requested a stable release
         id: release_gate
         shell: bash
