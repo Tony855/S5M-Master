@@ -2255,6 +2255,17 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_command_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &pendingCommand)
 		}
+		if pendingCommand != nil && pendingCommand["type"] == "reboot_openwrt" {
+			if raw := settings["agent_reboot_tracking_"+code]; raw != "" {
+				var tracking agentRebootTracker
+				if json.Unmarshal([]byte(raw), &tracking) == nil && tracking.CommandID == pendingCommand["id"] {
+					pendingCommand["reboot_status"] = tracking.Status
+					if tracking.Interrupted {
+						pendingCommand["reboot_interrupted"] = "true"
+					}
+				}
+			}
+		}
 		info := AgentInfo{
 			Authorized: true, TokenConfigured: true, LastSeen: lastSeen, Status: status,
 			CommandResult: commandResult, PendingCommand: pendingCommand,
