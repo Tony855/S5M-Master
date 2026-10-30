@@ -666,7 +666,17 @@ createApp({
         proxyDialog.value = false;
         await loadProxies();
         showMsg('保存成功', 'success');
-      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
+      } catch (e) {
+        const message = e.message || '网络错误';
+        // Proxy persistence may succeed even when downstream node sync fails.
+        if (message.includes('同步失败') || message.includes('已保存') || message.includes('已更新')) {
+          proxyDialog.value = false;
+          await loadProxies();
+          showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
+        } else {
+          showMsg(message, 'error');
+        }
+      }
       savingProxy.value = false;
     };
 

@@ -48,21 +48,21 @@ type browserEventClient struct {
 }
 
 type browserControlMessage struct {
-	Type            string `json:"type"`
-	RequestID       string `json:"request_id"`
-	MachineCode     string `json:"machine_code"`
-	ProxyID         string `json:"proxy_id"`
+	Type            string          `json:"type"`
+	RequestID       string          `json:"request_id"`
+	MachineCode     string          `json:"machine_code"`
+	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
-	YAML            string `json:"yaml"`
-	Version         string `json:"version"`
-	TemplateVersion int    `json:"template_version"`
-	SHA256          string `json:"sha256"`
-	Config          string `json:"config"`
-	ConfigYAML      string `json:"config_yaml"`
-	Note            string `json:"note"`
-	Confirm         bool   `json:"confirm"`
-	PasswordOld     string `json:"old"`
-	PasswordNew     string `json:"new"`
+	YAML            string          `json:"yaml"`
+	Version         string          `json:"version"`
+	TemplateVersion int             `json:"template_version"`
+	SHA256          string          `json:"sha256"`
+	Config          string          `json:"config"`
+	ConfigYAML      string          `json:"config_yaml"`
+	Note            string          `json:"note"`
+	Confirm         bool            `json:"confirm"`
+	PasswordOld     string          `json:"old"`
+	PasswordNew     string          `json:"new"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -252,9 +252,13 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			}
 			req := httptest.NewRequest(method, path, strings.NewReader(string(message.ProxyPayload)))
 			req.Header.Set("Content-Type", "application/json")
-			if idText != "" { req.SetPathValue("id", idText) }
+			if idText != "" {
+				req.SetPathValue("id", idText)
+			}
 			handler := a.handleCreateProxy
-			if method == http.MethodPut { handler = a.handleUpdateProxy }
+			if method == http.MethodPut {
+				handler = a.handleUpdateProxy
+			}
 			a.runBrowserHTTPHandler(client, message.RequestID, handler, req)
 		case "mihomo.template.validate":
 			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
