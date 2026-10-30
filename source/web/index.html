@@ -345,8 +345,9 @@
                         <template v-if="item.pendingCommand && item.pendingCommand.type === 'openwrt_service_action'">{{ item.pendingCommand.service === 'agent' ? 'Agent' : 'Mihomo' }} {{ ({start:'启动',stop:'停止',restart:'重启'})[item.pendingCommand.action] || '服务操作' }} · 等待 Agent 执行并回报</template>
                         <template v-else-if="item.pendingCommand && item.pendingCommand.type === 'reboot_openwrt'">路由器重启命令已排队 · 等待设备离线并重新上线</template>
                         <template v-else-if="item.commandResult && item.commandResult.type === 'reboot_openwrt' && item.commandResult.status === 'success'">
-                          <template>重启已安排 · 等待 Agent 连接断开并通过新连接确认</template>
-                          {{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
+                          <template v-if="item.commandResult.reconnected">设备已重新连接 · 已收到新连接心跳</template>
+                          <template v-else>重启已安排 · 等待 Agent 连接断开并通过新连接确认</template>
+                          {{ (item.commandResult.reconnected_at || item.commandResult.updated_at) ? ' · ' + new Date(Number(item.commandResult.reconnected_at || item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
                         </template>
                         <template v-else-if="item.commandResult && item.commandResult.type === 'openwrt_service_action' && item.commandResult.service === 'agent' && item.commandResult.action === 'restart' && item.commandResult.status === 'success'">
                           <template>Agent 重启已安排 · 等待连接断开并通过新连接确认</template>
