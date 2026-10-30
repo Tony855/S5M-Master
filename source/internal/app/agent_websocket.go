@@ -200,6 +200,8 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.startMihomoUpdateTask(client, message.RequestID)
 		case "mihomo.update.status.get":
 			a.handleMihomoUpdateTaskStatus(client, message.RequestID, message.TaskID)
+		case "mihomo.update.latest.get":
+			a.handleLatestMihomoUpdateTaskStatus(client, message.RequestID)
 		case "mihomo.template.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
 		case "mihomo.template.nodes.get":

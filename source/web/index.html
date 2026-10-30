@@ -520,6 +520,7 @@
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
             <el-button :loading="mainMihomoStatus.loading" @click="loadMainMihomoStatus">刷新版本与状态</el-button>
             <el-button type="primary" :loading="updatingKernel" @click="updateKernel">更新主控 Mihomo 内核</el-button>
+            <el-button @click="recoverMihomoUpdateTask">查询最近更新任务</el-button>
           </div>
         </div>
       </div>

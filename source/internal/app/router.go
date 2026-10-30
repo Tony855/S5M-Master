@@ -28,6 +28,8 @@ type App struct {
 	browserTickets     map[string]browserWSTicket
 	mihomoUpdateMu     sync.Mutex
 	mihomoUpdateTask   *mihomoUpdateTask
+	mihomoUpdateTasks  map[string]*mihomoUpdateTask
+	mihomoUpdateOrder  []string
 }
 
 func New(cfg Config) (*App, error) {

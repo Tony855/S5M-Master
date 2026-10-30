@@ -482,6 +482,17 @@ createApp({
       }
     };
 
+    const recoverMihomoUpdateTask = async () => {
+      try {
+        const result = await sendBrowserWSControl({ type: 'mihomo.update.latest.get' });
+        const task = result.data || null;
+        if (!task) { showMsg('没有可恢复的 Mihomo 更新任务', 'info'); return; }
+        const statusText = task.status === 'running' || task.status === 'queued' ? '仍在执行' : task.status === 'completed' ? '已完成' : '失败';
+        const detail = task.error || task.message || task.version || '';
+        showMsg('最近一次主控 Mihomo 更新' + statusText + '（任务 ' + task.task_id + '）' + (detail ? '：' + detail : ''), task.status === 'failed' ? 'error' : 'info');
+      } catch (e) { showMsg(e.message || '查询最近更新任务失败', 'error'); }
+    };
+
     const updateKernel = async () => {
       try {
         await ElementPlus.ElMessageBox.confirm(
@@ -505,7 +516,7 @@ createApp({
           task = result.data || result;
           if (task.status === 'completed' || task.status === 'failed') break;
         }
-        if (!task || (task.status !== 'completed' && task.status !== 'failed')) throw new Error('更新仍在后台执行，任务 ID：' + taskID + '。重新连接后可查询任务状态。');
+        if (!task || (task.status !== 'completed' && task.status !== 'failed')) throw new Error('更新仍在后台执行，任务 ID：' + taskID + '。可使用“查询最近更新任务”恢复查看。');
         if (task.status === 'failed') throw new Error(task.error || '主控 Mihomo 更新失败');
         await loadMainMihomoStatus();
         const expectedVersion = String(task.version || '').trim();

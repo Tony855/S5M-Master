@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -86,5 +87,22 @@ func TestMihomoUpdateTaskSnapshotIncludesTerminalMetadata(t *testing.T) {
 	}
 	if decoded["status"] != "failed" || decoded["error"] != "rollback completed" || decoded["finished_at"] != float64(2) {
 		t.Fatalf("snapshot lost terminal metadata: %#v", decoded)
+	}
+}
+
+func TestMihomoUpdateTaskHistoryKeepsLatestTen(t *testing.T) {
+	app := &App{mihomoUpdateTasks: make(map[string]*mihomoUpdateTask)}
+	for i := 0; i < 12; i++ {
+		id := fmt.Sprintf("task-%d", i)
+		app.mihomoUpdateTasks[id] = &mihomoUpdateTask{ID:id, Status:"completed"}
+		app.mihomoUpdateOrder = append(app.mihomoUpdateOrder, id)
+		if len(app.mihomoUpdateOrder) > 10 {
+			oldest := app.mihomoUpdateOrder[0]
+			app.mihomoUpdateOrder = app.mihomoUpdateOrder[1:]
+			delete(app.mihomoUpdateTasks, oldest)
+		}
+	}
+	if len(app.mihomoUpdateTasks) != 10 || app.mihomoUpdateTasks["task-0"] != nil || app.mihomoUpdateTasks["task-11"] == nil {
+		t.Fatalf("unexpected bounded task history: %#v", app.mihomoUpdateOrder)
 	}
 }

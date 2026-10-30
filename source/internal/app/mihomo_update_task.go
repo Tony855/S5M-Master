@@ -41,6 +41,14 @@ func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string
 	id := fmt.Sprintf("mihomo-%x", time.Now().UnixNano())
 	task := &mihomoUpdateTask{ID: id, Status: "running", StartedAt: time.Now().Unix()}
 	a.mihomoUpdateTask = task
+	if a.mihomoUpdateTasks == nil { a.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask) }
+	a.mihomoUpdateTasks[id] = task
+	a.mihomoUpdateOrder = append(a.mihomoUpdateOrder, id)
+	for len(a.mihomoUpdateOrder) > 10 {
+		oldest := a.mihomoUpdateOrder[0]
+		a.mihomoUpdateOrder = a.mihomoUpdateOrder[1:]
+		delete(a.mihomoUpdateTasks, oldest)
+	}
 	startedSnapshot := task.snapshot()
 	a.mihomoUpdateMu.Unlock()
 	if err := client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": true, "data": startedSnapshot}); err != nil {
@@ -88,8 +96,8 @@ func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string
 func (a *App) handleMihomoUpdateTaskStatus(client *browserEventClient, requestID, taskID string) {
 	taskID = strings.TrimSpace(taskID)
 	a.mihomoUpdateMu.Lock()
-	task := a.mihomoUpdateTask
-	if task == nil || task.ID != taskID || taskID == "" {
+	task := a.mihomoUpdateTasks[taskID]
+	if task == nil || taskID == "" {
 		a.mihomoUpdateMu.Unlock()
 		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": false, "error": "更新任务不存在或已过期"})
 		return
@@ -97,4 +105,23 @@ func (a *App) handleMihomoUpdateTaskStatus(client *browserEventClient, requestID
 	snapshot := task.snapshot()
 	a.mihomoUpdateMu.Unlock()
 	_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": true, "data": snapshot})
+}
+
+func (a *App) handleLatestMihomoUpdateTaskStatus(client *browserEventClient, requestID string) {
+	a.mihomoUpdateMu.Lock()
+	if len(a.mihomoUpdateOrder) == 0 {
+		a.mihomoUpdateMu.Unlock()
+		_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":true,"data":nil})
+		return
+	}
+	id := a.mihomoUpdateOrder[len(a.mihomoUpdateOrder)-1]
+	task := a.mihomoUpdateTasks[id]
+	if task == nil {
+		a.mihomoUpdateMu.Unlock()
+		_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":false,"error":"最近更新任务记录不可用"})
+		return
+	}
+	snapshot := task.snapshot()
+	a.mihomoUpdateMu.Unlock()
+	_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":true,"data":snapshot})
 }
