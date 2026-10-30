@@ -85,12 +85,33 @@ jobs:
             fi
           fi
 
+          publish_latest="false"
+          if [[ -n "${release_version}" ]]; then
+            # Only the numerically highest stable version may move the mutable latest tag.
+            if ! remote_release_tags="$(git ls-remote --tags --refs origin 'refs/tags/s5m-agent-v*')"; then
+              echo "::error title=Release tag listing failed::Could not determine the highest published S5M Agent version."
+              exit 1
+            fi
+            highest_version="$(
+              printf '%s\n' "${remote_release_tags}" |
+                awk '{sub(/^refs\/tags\/s5m-agent-v/, "", $2); if ($2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $2}' |
+                sort -V | tail -n 1
+            )"
+            if [[ -z "${highest_version}" || "$(printf '%s\n' "${release_version}" "${highest_version}" | sort -V | tail -n 1)" == "${release_version}" ]]; then
+              publish_latest="true"
+            fi
+            echo "latest_tag_candidate=${publish_latest}" >> "$GITHUB_OUTPUT"
+          fi
+
           {
             echo "tags<<EOF"
             if [[ -n "${release_version}" ]]; then
-              # Stable releases alone move the versioned and latest tags.
               echo "${IMAGE_NAME}:v${release_version}"
-              echo "${IMAGE_NAME}:latest"
+              if [[ "${publish_latest}" == "true" ]]; then
+                echo "${IMAGE_NAME}:latest"
+              else
+                echo "Not moving latest: published stable version ${highest_version} is newer than ${release_version}."
+              fi
             elif [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "main" ]]; then
               # Keep ordinary main builds separate from development builds.
               echo "${IMAGE_NAME}:main"
@@ -712,7 +733,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.release_gate.outputs.name }}
           generate_release_notes: true
-          make_latest: true
+          make_latest: legacy
           prerelease: false
           draft: false
           # Re-running the same immutable tag replaces matching assets instead of duplicating them.
