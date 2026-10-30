@@ -135,6 +135,8 @@ jobs:
           sh -n cont-init.d/10-mihomo-config
           sh -n services/mihomo/run
           sh -n services/agent/run
+          grep -Fq 'COPY s5m-agent/smartdns_runtime.go ./smartdns_runtime.go' Dockerfile
+          grep -Fq 'COPY s5m-agent/smartdns_runtime.go ./smartdns_runtime.go' Dockerfile.routeros
           sh -n smartdns/cont-init.d/20-smartdns-config
           sh -n smartdns/services/smartdns/run
           sh -n smartdns/healthcheck.sh
