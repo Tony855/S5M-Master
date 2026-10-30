@@ -379,6 +379,12 @@
                       </span>
                     </div>
                     <p class="section-hint">状态来自设备本机 /proc 进程表，并随 Agent WebSocket 心跳更新；这里只判断进程是否存在，不代表 Mihomo API 或代理链路一定可用。</p>
+                    <div class="instance-actions" style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 12px;">
+                      <el-button size="small" type="success" :disabled="!item.online || !!openWrtServiceActionNode" :loading="openWrtServiceActionNode === item.code + ':mihomo'" @click="openWrtServiceAction(item,'mihomo','start')">启动 Mihomo</el-button>
+                      <el-button size="small" type="warning" :disabled="!item.online || !!openWrtServiceActionNode" :loading="openWrtServiceActionNode === item.code + ':mihomo'" @click="openWrtServiceAction(item,'mihomo','stop')">停止 Mihomo</el-button>
+                      <el-button size="small" :disabled="!item.online || !!openWrtServiceActionNode" :loading="openWrtServiceActionNode === item.code + ':mihomo'" @click="openWrtServiceAction(item,'mihomo','restart')">重启 Mihomo</el-button>
+                      <el-button size="small" type="primary" :disabled="!item.online || !!openWrtServiceActionNode" :loading="openWrtServiceActionNode === item.code + ':agent'" @click="openWrtServiceAction(item,'agent','restart')">重启 Agent</el-button>
+                    </div>
                     <div style="font-weight:600;margin:10px 0 6px;">网络接口（ubus 实时状态）</div>
                     <el-table :data="item.openwrt.interfaces || []" size="small" style="width:100%;">
                       <el-table-column prop="interface" label="接口" min-width="90" />
