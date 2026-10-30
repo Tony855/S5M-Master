@@ -116,7 +116,15 @@ func openWrtUCIShow(section string) (string, bool) {
 	if err := cmd.Run(); err != nil || stdout.Len() == 0 || stdout.Len() > 4<<10 {
 		return "", false
 	}
-	lines := strings.Split(stdout.String(), "\n")
+	value := redactOpenWrtUCIOutput(stdout.String())
+	if len(value) == 0 || len(value) > 4<<10 {
+		return "", false
+	}
+	return value, true
+}
+
+func redactOpenWrtUCIOutput(raw string) string {
+	lines := strings.Split(raw, "\n")
 	redacted := make([]string, 0, len(lines))
 	for _, line := range lines {
 		if len(line) > 1024 {
@@ -135,9 +143,5 @@ func openWrtUCIShow(section string) (string, bool) {
 		}
 		redacted = append(redacted, line)
 	}
-	value := strings.Join(redacted, "\n")
-	if len(value) == 0 || len(value) > 4<<10 {
-		return "", false
-	}
-	return value, true
+	return strings.Join(redacted, "\n")
 }
