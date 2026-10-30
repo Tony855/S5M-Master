@@ -367,6 +367,18 @@
                       <span>可用内存：<strong>{{ item.openwrt.system && item.openwrt.system.memory && item.openwrt.system.memory.free ? (Number(item.openwrt.system.memory.free) / 1048576).toFixed(0) + ' MB' : '—' }}</strong></span>
                       <span v-for="disk in (item.openwrt.disk || [])" :key="disk.mount">{{ disk.mount }} 使用率：<strong>{{ disk.used_percent }}</strong></span>
                     </div>
+                    <div style="font-weight:600;margin:12px 0 8px;">服务运行状态（/proc 进程检测）</div>
+                    <div class="instance-link-summary" style="margin-bottom:10px;">
+                      <span>S5M Agent：
+                        <el-tag size="small" :type="item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running ? 'success' : 'danger'">{{ item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running ? '运行中' : '未检测到进程' }}</el-tag>
+                        <strong v-if="item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running">PID {{ item.openwrt.services.agent.pid }}</strong>
+                      </span>
+                      <span>Mihomo：
+                        <el-tag size="small" :type="item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running ? 'success' : 'danger'">{{ item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running ? '运行中' : '未检测到进程' }}</el-tag>
+                        <strong v-if="item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running">PID {{ item.openwrt.services.mihomo.pid }}</strong>
+                      </span>
+                    </div>
+                    <p class="section-hint">状态来自设备本机 /proc 进程表，并随 Agent WebSocket 心跳更新；这里只判断进程是否存在，不代表 Mihomo API 或代理链路一定可用。</p>
                     <div style="font-weight:600;margin:10px 0 6px;">网络接口（ubus 实时状态）</div>
                     <el-table :data="item.openwrt.interfaces || []" size="small" style="width:100%;">
                       <el-table-column prop="interface" label="接口" min-width="90" />
