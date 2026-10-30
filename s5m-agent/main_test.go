@@ -1553,3 +1553,41 @@ func TestEnsureV2NetDirectRuleDeduplicatesExistingRules(t *testing.T) {
 		t.Fatalf("unexpected deduplicated rule order: %#v", rules)
 	}
 }
+
+func TestAgentSyncErrorsPersistAcrossWebSocketSessions(t *testing.T) {
+	clearAgentConfigSyncError()
+	setAgentRouteSyncError("")
+	t.Cleanup(func() {
+		clearAgentConfigSyncError()
+		setAgentRouteSyncError("")
+	})
+
+	configErr := errors.New("配置 SHA-256 不匹配")
+	if got := recordAgentConfigSyncFailure(configErr); !errors.Is(got, configErr) {
+		t.Fatalf("recordAgentConfigSyncFailure() = %v, want original error", got)
+	}
+	setAgentRouteSyncError("主控直连路由更新失败: DNS timeout")
+
+	// A new WebSocket session reads the same process-level error state.
+	configState, routeState := agentControlSyncErrors()
+	if !strings.Contains(configState, "配置 SHA-256 不匹配") {
+		t.Fatalf("config error was lost across reconnect: %q", configState)
+	}
+	if !strings.Contains(routeState, "DNS timeout") {
+		t.Fatalf("route error was lost across reconnect: %q", routeState)
+	}
+
+	clearAgentConfigSyncError()
+	configState, routeState = agentControlSyncErrors()
+	if configState != "" {
+		t.Fatalf("config error was not cleared after successful sync: %q", configState)
+	}
+	if routeState == "" {
+		t.Fatal("clearing config error must not clear independent route error")
+	}
+	setAgentRouteSyncError("")
+	configState, routeState = agentControlSyncErrors()
+	if configState != "" || routeState != "" {
+		t.Fatalf("sync errors remain after independent recovery: config=%q route=%q", configState, routeState)
+	}
+}
