@@ -759,6 +759,12 @@ html, body, #app {
 .instance-summary-secondary strong { color: var(--text); }
 .instance-summary-mihomo.is-running { color: #16a36a; }
 .instance-summary-mihomo.is-stopped { color: #d97706; }
+.instance-summary-update { flex-basis: 100%; overflow-wrap: anywhere; }
+.instance-summary-update.is-pending { color: #b45309; }
+.instance-summary-update.is-success { color: #15803d; }
+.instance-summary-update.is-failed { color: #b91c1c; }
+.instance-summary-update.is-unknown { color: #64748b; }
+.instance-summary-error { flex-basis: 100%; color: #b91c1c; overflow-wrap: anywhere; }
 .instance-summary-updated { margin-top: 5px; color: var(--sub); font-size: 11px; }
 .instance-details { margin-top: 8px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .instance-details > summary {
