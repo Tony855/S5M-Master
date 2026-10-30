@@ -2239,6 +2239,9 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 					tracking.QueuedAt > 0 && time.Since(time.Unix(tracking.QueuedAt, 0)) > 5*time.Minute {
 					tracking.Status = "timeout"
 					_ = a.saveAgentRebootTracker(code, &tracking)
+					if updatedTracking, marshalErr := json.Marshal(tracking); marshalErr == nil {
+						settings["agent_reboot_tracking_"+code] = string(updatedTracking)
+					}
 					if commandResult == nil {
 						commandResult = make(map[string]any)
 					}
