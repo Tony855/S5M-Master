@@ -1400,4 +1400,33 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 	if settings["agent_lastseen_"+code] == "" {
 		t.Fatal("heartbeat timestamp was not persisted with error status")
 	}
+
+	// A later healthy heartbeat must replace the stale error, not leave the
+	// previous failure visible indefinitely in the console.
+	recoveredStatus := map[string]any{
+		"mihomo_version": "v1.19.33", "mihomo_healthy": true,
+		"upload_total": float64(15), "download_total": float64(40),
+		"upload_speed": float64(2), "download_speed": float64(3),
+		"connections": float64(2), "config_sha256": strings.Repeat("b", 64),
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-config-recovered", "status": recoveredStatus}); err != nil {
+		t.Fatalf("send recovered heartbeat: %v", err)
+	}
+	ack = nil
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read recovered heartbeat ACK: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" || ack["id"] != "hb-config-recovered" || ack["ok"] != true {
+		t.Fatalf("unexpected recovered heartbeat ACK: %#v", ack)
+	}
+	settings, err = app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read recovered Agent settings: %v", err)
+	}
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode recovered Agent status: %v", err)
+	}
+	if got, _ := persisted["last_error"].(string); got != "" {
+		t.Fatalf("stale last_error remained after recovery: %q", got)
+	}
 }
