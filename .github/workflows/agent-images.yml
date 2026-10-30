@@ -1,5 +1,7 @@
 name: S5M Agent multi-arch images
 
+# CI validation: this workflow is exercised by PRs targeting s5m-agent-smartdns.
+
 on:
   push:
     branches: [main, dev, s5m-agent-smartdns]
