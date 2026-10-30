@@ -1,0 +1,159 @@
+name: S5M OpenWrt Firmware
+
+on:
+  push:
+    branches: [s5m-agent-openwrt]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OPENWRT_VERSION: "25.12.6"
+  MIHOMO_VERSION: "v1.19.31"
+
+jobs:
+  build-firmware:
+    name: OpenWrt \${{ matrix.target }}-\${{ matrix.subtarget }} (\${{ matrix.goarch }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86
+            subtarget: "64"
+            imagebuilder: x86-64
+            goarch: amd64
+            mihomo_asset: mihomo-linux-amd64-compatible
+            mihomo_sha: "04cf9f09671704f839ddbee2e93069dc831a4123a75281e725d1d96ab9ac1afc"
+          - target: armsr
+            subtarget: armv8
+            imagebuilder: armsr-armv8
+            goarch: arm64
+            mihomo_asset: mihomo-linux-arm64
+            mihomo_sha: "9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3 python3-setuptools rsync swig unzip zlib1g-dev zstd \
+            file curl
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.22.x"
+          cache: true
+          cache-dependency-path: s5m-agent/go.sum
+
+      - name: Test and compile S5M Agent
+        working-directory: s5m-agent
+        env:
+          GOOS: linux
+          GOARCH: \${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          go test ./...
+          go vet ./...
+          go build -trimpath -ldflags="-s -w" -o "$RUNNER_TEMP/s5m-agent" .
+          file "$RUNNER_TEMP/s5m-agent"
+          test -s "$RUNNER_TEMP/s5m-agent"
+
+      - name: Download and verify official Mihomo binary
+        env:
+          ASSET: \${{ matrix.mihomo_asset }}
+          EXPECTED_SHA256: \${{ matrix.mihomo_sha }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/MetaCubeX/mihomo/releases/download/\${MIHOMO_VERSION}/\${ASSET}-\${MIHOMO_VERSION}.gz"
+          curl --fail --show-error --location --retry 3 --retry-all-errors "$url" -o "$RUNNER_TEMP/mihomo.gz"
+          echo "\${EXPECTED_SHA256}  $RUNNER_TEMP/mihomo.gz" | sha256sum -c -
+          gzip -dc "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
+          chmod 0755 "$RUNNER_TEMP/mihomo"
+          "$RUNNER_TEMP/mihomo" -v
+
+      - name: Download OpenWrt ImageBuilder
+        run: |
+          set -euo pipefail
+          archive="openwrt-imagebuilder-\${OPENWRT_VERSION}-\${{ matrix.imagebuilder }}.Linux-x86_64.tar.zst"
+          url="https://downloads.openwrt.org/releases/\${OPENWRT_VERSION}/targets/\${{ matrix.target }}/\${{ matrix.subtarget }}/\${archive}"
+          curl --fail --show-error --location --retry 3 --retry-all-errors "$url" -o "$RUNNER_TEMP/imagebuilder.tar.zst"
+          mkdir -p "$RUNNER_TEMP/imagebuilder"
+          tar --zstd -xf "$RUNNER_TEMP/imagebuilder.tar.zst" -C "$RUNNER_TEMP/imagebuilder" --strip-components=1
+          echo "IMAGEBUILDER_DIR=$RUNNER_TEMP/imagebuilder" >> "$GITHUB_ENV"
+
+      - name: Validate profile and stage native S5M runtime
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make info | tee "$RUNNER_TEMP/imagebuilder-info.txt"
+          grep -Eq 'Profile: generic([[:space:]]|$)' "$RUNNER_TEMP/imagebuilder-info.txt"
+
+          install -D -m 0755 "$RUNNER_TEMP/s5m-agent" files/usr/bin/s5m-agent
+          install -D -m 0755 "$RUNNER_TEMP/mihomo" files/usr/bin/mihomo
+          install -D -m 0755 s5m-agent/openwrt/etc/init.d/s5m-agent files/etc/init.d/s5m-agent
+          install -D -m 0644 s5m-agent/openwrt/etc/config/s5m-agent files/etc/config/s5m-agent
+          install -D -m 0644 s5m-agent/index.html files/usr/share/s5m-agent/index.html
+          install -D -m 0644 s5m-agent/default-config.yaml files/usr/share/s5m-agent/default-config.yaml
+
+          mkdir -p files/etc/uci-defaults
+          cat > files/etc/uci-defaults/99-s5m-agent <<'EOF'
+          # Enable native S5M services without changing network configuration.
+          /etc/init.d/s5m-agent enable
+          exit 0
+          EOF
+          chmod 0755 files/etc/uci-defaults/99-s5m-agent
+
+          grep -Eq '^  enable: false$' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
+          grep -Fq 'START=95' files/etc/init.d/s5m-agent
+          ! grep -Eq 'uci (set|delete) network\\.|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+
+      - name: Build full OpenWrt image
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          make image \
+            PROFILE="generic" \
+            PACKAGES="kmod-tun ip-full ca-bundle ca-certificates" \
+            FILES="$IMAGEBUILDER_DIR/files"
+
+      - name: Verify firmware manifest and checksums
+        run: |
+          set -euo pipefail
+          cd "$IMAGEBUILDER_DIR"
+          manifest="$(find bin/targets -maxdepth 3 -type f -name '*.manifest' | head -n1)"
+          test -n "$manifest"
+          grep -q '^kmod-tun ' "$manifest"
+          grep -q '^firewall4 ' "$manifest"
+          grep -q '^dropbear ' "$manifest"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
+          test -n "$images"
+          mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
+          cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
+          cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
+          (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo "Target: \${{ matrix.target }}/\${{ matrix.subtarget }}"
+            echo "OpenWrt: $OPENWRT_VERSION"
+            echo "Mihomo: $MIHOMO_VERSION"
+            echo "Agent arch: \${{ matrix.goarch }}"
+            echo "Profile: generic"
+            echo "Images:"
+            printf '%s\\n' "$images"
+          } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
+
+      - name: Upload firmware artifacts (no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: s5m-openwrt-\${{ matrix.target }}-\${{ matrix.subtarget }}-\${{ github.sha }}
+          path: \${{ runner.temp }}/s5m-openwrt-output/
+          if-no-files-found: error
+          retention-days: 30
