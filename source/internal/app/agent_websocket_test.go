@@ -538,6 +538,36 @@ func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateAgentWSStatusAcceptsBoundedOpenWrtTelemetry(t *testing.T) {
+	base := map[string]any{
+		"mihomo_version": "v1.19.3", "mihomo_healthy": true,
+		"upload_total": float64(12), "download_total": float64(34),
+		"upload_speed": float64(1), "download_speed": float64(2),
+		"connections": float64(3), "config_sha256": strings.Repeat("a", 64), "last_error": "",
+	}
+	withOpenWrt := make(map[string]any, len(base)+2)
+	for key, value := range base { withOpenWrt[key] = value }
+	withOpenWrt["platform"] = "openwrt"
+	withOpenWrt["openwrt"] = map[string]any{"available": true, "interfaces": []any{}}
+	if err := validateAgentWSStatus(withOpenWrt); err != nil {
+		t.Fatalf("valid OpenWrt telemetry rejected: %v", err)
+	}
+
+	invalidPlatform := make(map[string]any, len(withOpenWrt))
+	for key, value := range withOpenWrt { invalidPlatform[key] = value }
+	invalidPlatform["platform"] = "unknown"
+	if err := validateAgentWSStatus(invalidPlatform); err == nil {
+		t.Fatal("unknown platform should be rejected")
+	}
+
+	oversized := make(map[string]any, len(withOpenWrt))
+	for key, value := range withOpenWrt { oversized[key] = value }
+	oversized["openwrt"] = map[string]any{"data": strings.Repeat("x", (8<<10)+1)}
+	if err := validateAgentWSStatus(oversized); err == nil {
+		t.Fatal("oversized OpenWrt telemetry should be rejected")
+	}
+}
+
 func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
