@@ -56,6 +56,47 @@ func TestAgentWebSocketRejectsStaleBindingGeneration(t *testing.T) {
 	}
 }
 
+func TestStaleAgentSessionCleanupDoesNotClearNewSession(t *testing.T) {
+	previousGeneration := agentBindingGeneration.Load()
+	previousConnected := agentConnected.Load()
+	oldConn := &websocket.Conn{}
+	newConn := &websocket.Conn{}
+	agentBindingGeneration.Store(previousGeneration + 1)
+	agentConnected.Store(false)
+	agentActiveWSMu.Lock()
+	agentActiveWSConn = oldConn
+	agentActiveWSMu.Unlock()
+	t.Cleanup(func() {
+		agentActiveWSMu.Lock()
+		agentActiveWSConn = nil
+		agentActiveWSMu.Unlock()
+		agentBindingGeneration.Store(previousGeneration)
+		agentConnected.Store(previousConnected)
+	})
+
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(newConn, generation) {
+		t.Fatal("new session should become active")
+	}
+	if !markAgentWebSocketConnected(newConn, generation) {
+		t.Fatal("new session should become connected")
+	}
+	clearAgentActiveWebSocket(oldConn)
+	if !agentConnected.Load() {
+		t.Fatal("stale session cleanup must not clear the new session connected state")
+	}
+	agentActiveWSMu.Lock()
+	active := agentActiveWSConn
+	agentActiveWSMu.Unlock()
+	if active != newConn {
+		t.Fatal("stale session cleanup must not replace the active websocket")
+	}
+	clearAgentActiveWebSocket(newConn)
+	if agentConnected.Load() {
+		t.Fatal("cleanup of the current session must clear connected state")
+	}
+}
+
 func TestAgentConnectedRequiresCurrentActiveWebSocket(t *testing.T) {
 	previousGeneration := agentBindingGeneration.Load()
 	previousConnected := agentConnected.Load()
