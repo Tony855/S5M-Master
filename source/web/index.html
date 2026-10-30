@@ -323,7 +323,7 @@
                     <template v-else>暂无更新记录</template>
                   </span>
                   <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
-                  <span v-if="item.lastError" class="instance-summary-error">Agent 错误：{{ item.lastError }}</span>
+                  <span v-if="item.runtimeMessage || item.lastError" class="instance-summary-error">Agent 状态/错误信息：{{ item.runtimeMessage || item.lastError }}</span>
                 </div>
               </div>
               <div class="instance-actions">
