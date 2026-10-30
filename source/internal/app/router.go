@@ -18,19 +18,19 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu          sync.Mutex
-	agentWSGeneration  map[string]uint64
-	agentWSConnections map[string]*agentWSConnection
-	agentHeartbeatAt   map[string]int64
+	agentWSMu           sync.Mutex
+	agentWSGeneration   map[string]uint64
+	agentWSConnections  map[string]*agentWSConnection
+	agentHeartbeatAt    map[string]int64
 	agentRebootTracking map[string]*agentRebootTracker
-	browserWSMu        sync.Mutex
-	browserWSClients   map[*browserEventClient]struct{}
-	browserTicketMu    sync.Mutex
-	browserTickets     map[string]browserWSTicket
-	mihomoUpdateMu     sync.Mutex
-	mihomoUpdateTask   *mihomoUpdateTask
-	mihomoUpdateTasks  map[string]*mihomoUpdateTask
-	mihomoUpdateOrder  []string
+	browserWSMu         sync.Mutex
+	browserWSClients    map[*browserEventClient]struct{}
+	browserTicketMu     sync.Mutex
+	browserTickets      map[string]browserWSTicket
+	mihomoUpdateMu      sync.Mutex
+	mihomoUpdateTask    *mihomoUpdateTask
+	mihomoUpdateTasks   map[string]*mihomoUpdateTask
+	mihomoUpdateOrder   []string
 }
 
 func New(cfg Config) (*App, error) {
