@@ -319,6 +319,22 @@ createApp({
             const code = String(message.machine_code);
             const status = message.status && typeof message.status === 'object' ? message.status : {};
             const receivedAt = Number(message.last_seen) || Math.floor(Date.now() / 1000);
+            // Keep the selected node's SmartDNS panel synchronized from the same
+            // authenticated heartbeat stream. Without this, a successful remote
+            // configure command leaves the UI showing stale runtime/hash values
+            // until the operator manually reloads the panel.
+            if (String(selectedConfigNode.value || '').trim() === code) {
+              const previousSmartDNS = smartDNSStatus.value || {};
+              smartDNSStatus.value = {
+                ...previousSmartDNS,
+                available: status.smartdns_available === true,
+                running: status.smartdns_running === true,
+                dns_healthy: status.smartdns_dns_healthy === true,
+                version: String(status.smartdns_version || ''),
+                reported_config_sha256: String(status.smartdns_config_sha256 || ''),
+                last_error: String(status.smartdns_last_error || '')
+              };
+            }
             // Live telemetry is authoritative while WebSocket is connected.
             // HTTP is only used for initial/reconnect snapshots, not polling.
             traffic.value = {
