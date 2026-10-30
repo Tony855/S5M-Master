@@ -164,3 +164,29 @@ func TestCreateAgentCommandWithTrackingIsAtomicOnPendingConflict(t *testing.T) {
 		t.Fatalf("conflicting transaction changed existing command/tracking: %#v", settings)
 	}
 }
+
+
+func TestDeleteAgentBindingAlsoRemovesRebootTracking(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "revoke-reboot.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	const code = "revoke_reboot_node"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + code:         "dedicated-token",
+		"agent_reboot_tracking_" + code: `{"command_id":"reboot-1","status":"waiting_reconnect"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteAgentBinding(code); err != nil {
+		t.Fatalf("DeleteAgentBinding: %v", err)
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := settings["agent_reboot_tracking_"+code]; ok {
+		t.Fatalf("reboot tracking survived Agent revocation: %#v", settings)
+	}
+}
