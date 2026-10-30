@@ -94,7 +94,7 @@ func TestMihomoUpdateTaskHistoryKeepsLatestTen(t *testing.T) {
 	app := &App{mihomoUpdateTasks: make(map[string]*mihomoUpdateTask)}
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("task-%d", i)
-		app.mihomoUpdateTasks[id] = &mihomoUpdateTask{ID:id, Status:"completed"}
+		app.mihomoUpdateTasks[id] = &mihomoUpdateTask{ID: id, Status: "completed"}
 		app.mihomoUpdateOrder = append(app.mihomoUpdateOrder, id)
 		if len(app.mihomoUpdateOrder) > 10 {
 			oldest := app.mihomoUpdateOrder[0]

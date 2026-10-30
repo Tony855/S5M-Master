@@ -41,7 +41,7 @@ func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string
 	id := fmt.Sprintf("mihomo-%x", time.Now().UnixNano())
 	task := &mihomoUpdateTask{ID: id, Status: "running", StartedAt: time.Now().Unix()}
 	a.mihomoUpdateTask = task
-	if a.mihomoUpdateTasks == nil { a.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask) }
+	if a.mihomoUpdateTasks == nil {\n\t\ta.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask)\n\t}
 	a.mihomoUpdateTasks[id] = task
 	a.mihomoUpdateOrder = append(a.mihomoUpdateOrder, id)
 	for len(a.mihomoUpdateOrder) > 10 {
@@ -111,17 +111,17 @@ func (a *App) handleLatestMihomoUpdateTaskStatus(client *browserEventClient, req
 	a.mihomoUpdateMu.Lock()
 	if len(a.mihomoUpdateOrder) == 0 {
 		a.mihomoUpdateMu.Unlock()
-		_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":true,"data":nil})
+		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": true, "data": nil})
 		return
 	}
 	id := a.mihomoUpdateOrder[len(a.mihomoUpdateOrder)-1]
 	task := a.mihomoUpdateTasks[id]
 	if task == nil {
 		a.mihomoUpdateMu.Unlock()
-		_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":false,"error":"最近更新任务记录不可用"})
+		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": false, "error": "最近更新任务记录不可用"})
 		return
 	}
 	snapshot := task.snapshot()
 	a.mihomoUpdateMu.Unlock()
-	_ = client.writeJSON(map[string]any{"type":"request.result","request_id":requestID,"ok":true,"data":snapshot})
+	_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": true, "data": snapshot})
 }

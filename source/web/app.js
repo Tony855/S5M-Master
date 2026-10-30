@@ -1414,7 +1414,7 @@ createApp({
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout, loadOverview,
-      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      updateKernel, recoverMihomoUpdateTask, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
       fmtBytes, fmtSpeed
