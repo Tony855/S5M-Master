@@ -686,6 +686,15 @@ func (a *App) queueOpenWrtReboot(machineCode string) error {
 	if !created {
 		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
 	}
+	a.agentWSMu.Lock()
+	if a.agentRebootTracking == nil {
+		a.agentRebootTracking = make(map[string]*agentRebootTracker)
+	}
+	a.agentRebootTracking[machineCode] = &agentRebootTracker{
+		commandID: command["id"], baselineGeneration: a.agentWSGeneration[machineCode],
+		queuedAt: time.Now().Unix(),
+	}
+	a.agentWSMu.Unlock()
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
 	return nil
 }
@@ -814,6 +823,10 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
+	if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
+		tracker.acked && tracker.disconnected && generation > tracker.baselineGeneration {
+		tracker.reconnectGeneration = generation
+	}
 	if a.agentWSConnections == nil {
 		a.agentWSConnections = make(map[string]*agentWSConnection)
 	}
@@ -827,6 +840,10 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSMu.Unlock()
 	defer func() {
 		a.agentWSMu.Lock()
+		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
+			tracker.acked && tracker.baselineGeneration == generation {
+			tracker.disconnected = true
+		}
 		if a.agentWSConnections[machineCode] == session {
 			delete(a.agentWSConnections, machineCode)
 		}
@@ -1083,6 +1100,15 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
 	}
+	a.agentWSMu.Lock()
+	if tracker := a.agentRebootTracking[machineCode]; tracker != nil && tracker.commandID == commandID {
+		if status == "success" {
+			tracker.acked = true
+		} else {
+			delete(a.agentRebootTracking, machineCode)
+		}
+	}
+	a.agentWSMu.Unlock()
 	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
