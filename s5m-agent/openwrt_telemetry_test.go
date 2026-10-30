@@ -49,9 +49,11 @@ func TestOpenWrtUCIOptionRedaction(t *testing.T) {
 func TestRedactOpenWrtLog(t *testing.T) {
 	input := "daemon.info service: started\n" +
 		"auth.notice login password=hunter2 token=abc123\n" +
-		"api: Authorization: Bearer abc.def.ghi\n"
+		"api: Authorization: Bearer abc.def.ghi\n" +
+		"vpn: password='quoted secret value' private_key=key-material\n" +
+		"auth: passwd:colon-secret\n"
 	got := redactOpenWrtLog(input)
-	for _, secret := range []string{"hunter2", "abc123", "abc.def.ghi"} {
+	for _, secret := range []string{"hunter2", "abc123", "abc.def.ghi", "quoted secret value", "key-material", "colon-secret"} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("log secret %q was not redacted: %s", secret, got)
 		}
