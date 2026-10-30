@@ -69,6 +69,19 @@ func mihomoHome() string {
 
 // normalizeCentralURLInput defaults bare hostnames and IP addresses to HTTPS.
 // Plain HTTP is only accepted when an operator explicitly opts in on a trusted network.
+// newAgentRegistrationHTTPClient deliberately refuses redirects. The
+// registration secret is in the POST body, so following a 307/308 redirect
+// could disclose it to a different origin even when Authorization headers are
+// stripped by net/http.
+func newAgentRegistrationHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 func normalizeCentralURLInput(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.ContainsAny(raw, "\r\n") {
@@ -2163,7 +2176,7 @@ func main() {
 				return
 			}
 			registerReq.Header.Set("Content-Type", "application/json")
-			resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(registerReq)
+			resp, err := newAgentRegistrationHTTPClient().Do(registerReq)
 			if err != nil {
 				http.Error(w, "连接主控端失败，请检查地址和网络", http.StatusBadGateway)
 				return
