@@ -1408,6 +1408,7 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 		"upload_total": float64(15), "download_total": float64(40),
 		"upload_speed": float64(2), "download_speed": float64(3),
 		"connections": float64(2), "config_sha256": strings.Repeat("b", 64),
+		"last_error": "",
 	}
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-config-recovered", "status": recoveredStatus}); err != nil {
 		t.Fatalf("send recovered heartbeat: %v", err)
