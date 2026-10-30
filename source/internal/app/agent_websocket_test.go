@@ -1570,3 +1570,120 @@ func TestQueueOpenWrtServiceActionAllowlistAndAuthorization(t *testing.T) {
 		t.Fatalf("unexpected queued service command: %#v", command)
 	}
 }
+
+
+func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code:   `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	dial := func() *websocket.Conn {
+		t.Helper()
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil {
+			t.Fatalf("dial Agent WebSocket: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		var welcome map[string]any
+		if err := conn.ReadJSON(&welcome); err != nil {
+			conn.Close()
+			t.Fatalf("read welcome: %v", err)
+		}
+		return conn
+	}
+	oldConn := dial()
+	if err := app.queueOpenWrtReboot(code); err != nil {
+		oldConn.Close()
+		t.Fatalf("queue reboot: %v", err)
+	}
+	if err := oldConn.WriteJSON(map[string]any{"type": "command.request", "id": "request-1"}); err != nil {
+		oldConn.Close()
+		t.Fatal(err)
+	}
+	var delivered map[string]any
+	if err := oldConn.ReadJSON(&delivered); err != nil {
+		oldConn.Close()
+		t.Fatalf("read delivered command: %v", err)
+	}
+	command, ok := delivered["command"].(map[string]any)
+	if !ok || command["type"] != "reboot_openwrt" {
+		oldConn.Close()
+		t.Fatalf("unexpected command delivery: %#v", delivered)
+	}
+	commandID, _ := command["id"].(string)
+	if commandID == "" {
+		oldConn.Close()
+		t.Fatal("delivered command has no ID")
+	}
+	if err := oldConn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": commandID, "command_status": "success", "message": "重启已安排",
+	}); err != nil {
+		oldConn.Close()
+		t.Fatal(err)
+	}
+	var ack map[string]any
+	if err := oldConn.ReadJSON(&ack); err != nil {
+		oldConn.Close()
+		t.Fatalf("read ACK confirmation: %v", err)
+	}
+	if ack["type"] != "command.acknowledged" {
+		oldConn.Close()
+		t.Fatalf("unexpected ACK response: %#v", ack)
+	}
+	oldConn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		app.agentWSMu.Lock()
+		disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].disconnected
+		app.agentWSMu.Unlock()
+		if disconnected {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	app.agentWSMu.Lock()
+	disconnected := app.agentRebootTracking[code] != nil && app.agentRebootTracking[code].disconnected
+	app.agentWSMu.Unlock()
+	if !disconnected {
+		t.Fatal("ACK must not complete reboot before the original connection disconnects")
+	}
+	newConn := dial()
+	defer newConn.Close()
+	status := map[string]any{
+		"platform": "openwrt", "mihomo_version": "v1.19.33", "mihomo_healthy": true,
+		"upload_total": float64(1), "download_total": float64(2),
+		"upload_speed": float64(0), "download_speed": float64(0), "connections": float64(0),
+		"config_sha256": "", "last_error": "",
+	}
+	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-reconnected", "status": status}); err != nil {
+		t.Fatalf("send new-connection heartbeat: %v", err)
+	}
+	var heartbeatAck map[string]any
+	if err := newConn.ReadJSON(&heartbeatAck); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
+	if heartbeatAck["type"] != "heartbeat.ack" {
+		t.Fatalf("unexpected heartbeat response: %#v", heartbeatAck)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode command result: %v", err)
+	}
+	if result["id"] != commandID || result["reconnected"] != true {
+		t.Fatalf("reboot result not marked reconnected after fresh heartbeat: %#v", result)
+	}
+	if _, ok := result["reconnected_at"].(float64); !ok {
+		t.Fatalf("reconnected_at missing from result: %#v", result)
+	}
+}
