@@ -518,6 +518,24 @@ func validateAgentWSStatus(status map[string]any) error {
 			return fmt.Errorf("config_sha256 必须为空或 64 位十六进制 SHA-256")
 		}
 	}
+	// OpenWrt details are optional for backward compatibility with existing
+	// Linux, Docker, and RouterOS Agents. Bound the nested payload before storage
+	// and browser fan-out to keep heartbeat frames small.
+	if platform, exists := status["platform"]; exists {
+		value, ok := platform.(string)
+		if !ok || (value != "openwrt" && value != "linux") || len(value) > 16 {
+			return fmt.Errorf("platform 字段无效")
+		}
+	}
+	if openwrt, exists := status["openwrt"]; exists {
+		if status["platform"] != "openwrt" {
+			return fmt.Errorf("openwrt telemetry requires platform=openwrt")
+		}
+		encoded, err := json.Marshal(openwrt)
+		if err != nil || len(encoded) > 8<<10 {
+			return fmt.Errorf("openwrt telemetry 超过 8 KiB 或格式无效")
+		}
+	}
 	lastError, ok := status["last_error"].(string)
 	if !ok || len(lastError) > agentWSMaxErrorBytes {
 		return fmt.Errorf("last_error 必须是长度不超过 %d 字节的字符串", agentWSMaxErrorBytes)
