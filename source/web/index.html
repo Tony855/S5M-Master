@@ -304,7 +304,7 @@
                 <div class="instance-identity">
                   <div class="instance-identity-top">
                     <div class="agent-code">{{ item.code }}</div>
-                    <el-button size="small" plain class="instance-copy-button" @click="safeCopy(item.code)">复制</el-button>
+                    <el-button size="small" plain class="instance-copy-button" @click="safeCopy(item.code)">复制机器码</el-button>
                   </div>
                 </div>
                 <div class="instance-statuses">
@@ -322,15 +322,24 @@
                   <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
                   <span>实时下载：<strong>{{ fmtSpeed(item.downloadSpeed || 0) }}</strong></span>
                   <span>最后上报：<strong>{{ item.updated_at || '暂无记录' }}</strong></span>
-                  <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown'))">
-                    Mihomo：{{ !item.online ? (item.runtimeReported ? '状态未知（Agent 离线）' : '状态未知') : (item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知')) }}{{ item.mihomoVersion ? (item.online ? ' · v' : ' · 最后上报 v') + item.mihomoVersion : '' }}
-                  </span>
-                  <span class="instance-summary-update" :class="item.pendingCommand && item.pendingCommand.type === 'update_mihomo' ? 'is-pending' : (item.commandResult && item.commandResult.type === 'update_mihomo' ? (item.commandResult.status === 'success' ? 'is-success' : (item.commandResult.status === 'failed' ? 'is-failed' : 'is-unknown')) : 'is-unknown')">
-                    Mihomo 更新：
-                    <template v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'">待 Agent 确认 · 目标版本 {{ item.pendingCommand.version || '未知' }}</template>
-                    <template v-else-if="item.commandResult && item.commandResult.type === 'update_mihomo'">{{ item.commandResult.status === 'success' ? '成功' : (item.commandResult.status === 'failed' ? '失败' : (item.commandResult.status || '状态未知')) }} · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}</template>
-                    <template v-else>暂无更新记录</template>
-                  </span>
+                  <div class="instance-mihomo-status">
+                    <div class="instance-mihomo-runtime">
+                      <strong class="instance-mihomo-label">Mihomo 运行状态</strong>
+                      <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown'))">
+                        {{ !item.online ? (item.runtimeReported ? '状态未知（Agent 离线）' : '状态未知') : (item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知')) }}
+                      </span>
+                      <strong class="instance-mihomo-version" v-if="item.mihomoVersion">{{ item.online ? 'v' : '最后上报 v' }}{{ item.mihomoVersion }}</strong>
+                      <span class="instance-mihomo-version is-unknown" v-else>版本未知</span>
+                    </div>
+                    <div class="instance-update-row">
+                      <span class="instance-update-label">更新状态</span>
+                      <span class="instance-summary-update" :class="item.pendingCommand && item.pendingCommand.type === 'update_mihomo' ? 'is-pending' : (item.commandResult && item.commandResult.type === 'update_mihomo' ? (item.commandResult.status === 'success' ? 'is-success' : (item.commandResult.status === 'failed' ? 'is-failed' : 'is-unknown')) : 'is-unknown')">
+                        <template v-if="item.pendingCommand && item.pendingCommand.type === 'update_mihomo'">正在更新 · 目标版本 {{ item.pendingCommand.version || '未知' }}</template>
+                        <template v-else-if="item.commandResult && item.commandResult.type === 'update_mihomo'">{{ item.commandResult.status === 'success' ? '更新成功' : (item.commandResult.status === 'failed' ? '更新失败' : (item.commandResult.status || '状态未知')) }} · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}</template>
+                        <template v-else>暂无更新记录</template>
+                      </span>
+                    </div>
+                  </div>
                   <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
                   <span v-if="item.runtimeMessage || item.lastError" class="instance-summary-error">Agent 状态/错误信息：{{ item.runtimeMessage || item.lastError }}</span>
                 </div>
