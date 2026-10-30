@@ -49,6 +49,39 @@ func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
 	}
 }
 
+func TestAtomicWriteFileReplacesFileWithSyncedPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller-config.yaml")
+	if err := os.WriteFile(path, []byte("secret: old\\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("secret: new\\ntun:\\n  enable: true\\n")
+	if err := atomicWriteFile(path, want, 0600); err != nil {
+		t.Fatalf("atomicWriteFile() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("file = %q, want %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "controller-config.yaml" {
+		t.Fatalf("unexpected temporary files after atomic write: %#v", entries)
+	}
+}
+
 func TestPersistControllerConfigAfterReloadOnlyCommitsAfterSuccess(t *testing.T) {
 	payload := []byte("mixed-port: 7890\nsecret: test-secret\n")
 	persisted := false
