@@ -15,7 +15,7 @@ RUN apk add --no-cache go git
 WORKDIR /src
 COPY s5m-agent/go.mod s5m-agent/go.sum ./
 RUN go mod download
-COPY s5m-agent/main.go ./main.go
+COPY s5m-agent/*.go ./
 RUN mkdir -p /out && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/s5m-agent .
 
 FROM alpine:${ALPINE_VERSION} AS mihomo-fetch
@@ -73,7 +73,7 @@ LABEL org.opencontainers.image.title="S5M Agent with SmartDNS" \
       org.opencontainers.image.description="S5M Agent, Mihomo and local SmartDNS resolver in one image" \
       org.opencontainers.image.source="https://github.com/Tony855/S5M-Master" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
-RUN apk add --no-cache ca-certificates tzdata libgcc libstdc++ libssl3 libcrypto3 zlib \
+RUN apk add --no-cache ca-certificates tzdata bind-tools libgcc libstdc++ libssl3 libcrypto3 zlib \
     && addgroup -S s5m && adduser -S -D -H -G s5m s5m \
     && mkdir -p /data /app /etc/smartdns
 COPY --from=s6-overlay-fetch /out/ /
@@ -86,12 +86,13 @@ COPY s5m-agent/index.html /app/index.html
 COPY s5m-agent/smartdns/healthcheck.sh /healthcheck.sh
 COPY s5m-agent/smartdns/default-config-smartdns.yaml /app/default-config.yaml
 COPY s5m-agent/smartdns/smartdns.conf /etc/smartdns/smartdns.conf
+COPY s5m-agent/smartdns/cont-init.d/20-smartdns-config /etc/cont-init.d/20-smartdns-config
 COPY s5m-agent/cont-init.d/ /etc/cont-init.d/
 COPY s5m-agent/services/ /etc/s6-overlay/s6-rc.d/
 COPY s5m-agent/smartdns/services/smartdns/ /etc/s6-overlay/s6-rc.d/smartdns/
 COPY s5m-agent/smartdns/services/mihomo/dependencies.d/smartdns /etc/s6-overlay/s6-rc.d/mihomo/dependencies.d/smartdns
 COPY s5m-agent/smartdns/services/user/contents.d/smartdns /etc/s6-overlay/s6-rc.d/user/contents.d/smartdns
-RUN chmod 0755 /healthcheck.sh /etc/cont-init.d/10-mihomo-config \
+RUN chmod 0755 /healthcheck.sh /etc/cont-init.d/10-mihomo-config /etc/cont-init.d/20-smartdns-config \
     /etc/s6-overlay/s6-rc.d/mihomo/run \
     /etc/s6-overlay/s6-rc.d/agent/run \
     /etc/s6-overlay/s6-rc.d/smartdns/run \
