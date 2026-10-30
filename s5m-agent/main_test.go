@@ -46,6 +46,22 @@ func TestAgentBindRequestsAreSerialized(t *testing.T) {
 	}
 }
 
+func TestAgentWebSocketRejectsStaleBindingGeneration(t *testing.T) {
+	previous := agentBindingGeneration.Load()
+	agentBindingGeneration.Store(previous + 1)
+	t.Cleanup(func() { agentBindingGeneration.Store(previous) })
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+	conn := &websocket.Conn{}
+	if setAgentActiveWebSocket(conn, previous) {
+		t.Fatal("websocket with stale binding generation must not become active")
+	}
+	if setAgentActiveWebSocket(conn, previous+1) {
+		t.Fatal("test websocket must not be registered without an active dial")
+	}
+}
+
 func TestCloseAgentWebSocketForRebind(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serverRead := make(chan error, 1)
@@ -66,7 +82,10 @@ func TestCloseAgentWebSocketForRebind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial test websocket: %v", err)
 	}
-	setAgentActiveWebSocket(conn)
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(conn, generation) {
+		t.Fatal("expected current binding generation to register websocket")
+	}
 	closeAgentActiveWebSocketForRebind()
 	clearAgentActiveWebSocket(conn)
 
