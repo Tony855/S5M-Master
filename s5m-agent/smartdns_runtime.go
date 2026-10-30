@@ -1,3 +1,4 @@
+// Validation-only marker: keep SmartDNS Agent runtime covered by branch PR checks.
 package main
 
 import (
