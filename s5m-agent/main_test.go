@@ -56,6 +56,57 @@ func TestAgentWebSocketRejectsStaleBindingGeneration(t *testing.T) {
 	}
 }
 
+func TestAgentConnectedRequiresCurrentActiveWebSocket(t *testing.T) {
+	previousGeneration := agentBindingGeneration.Load()
+	previousConnected := agentConnected.Load()
+	agentBindingGeneration.Store(previousGeneration + 1)
+	agentConnected.Store(false)
+	t.Cleanup(func() {
+		agentActiveWSMu.Lock()
+		agentActiveWSConn = nil
+		agentActiveWSMu.Unlock()
+		agentBindingGeneration.Store(previousGeneration)
+		agentConnected.Store(previousConnected)
+	})
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err == nil {
+			defer conn.Close()
+			_, _, _ = conn.ReadMessage()
+		}
+	}))
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	defer conn.Close()
+
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(conn, generation) {
+		t.Fatal("expected current websocket to become active")
+	}
+	if !markAgentWebSocketConnected(conn, generation) {
+		t.Fatal("expected active websocket to mark agent connected")
+	}
+	if !agentConnected.Load() {
+		t.Fatal("agentConnected must be true for the active session")
+	}
+	if markAgentWebSocketConnected(conn, generation-1) {
+		t.Fatal("stale binding generation must not mark agent connected")
+	}
+	if !agentConnected.Load() {
+		t.Fatal("rejected stale activation must not clear the current session state")
+	}
+	agentBindingGeneration.Add(1)
+	if markAgentWebSocketConnected(conn, generation) {
+		t.Fatal("rebound credentials must reject activation of the old socket")
+	}
+}
+
 func TestCloseAgentWebSocketForRebind(t *testing.T) {
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	serverRead := make(chan error, 1)
