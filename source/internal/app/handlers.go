@@ -1762,9 +1762,10 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	yml := ""
 	if nodeConfig != nil {
-		yml = strings.TrimSpace(nodeConfig.YAML)
+		// Preserve exact stored bytes so the optimistic compare matches the DB snapshot.
+		yml = nodeConfig.YAML
 	}
-	if yml == "" {
+	if strings.TrimSpace(yml) == "" {
 		yml, err = a.BuildConfigForMachine(machineCode)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
@@ -1792,7 +1793,7 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusInternalServerError, "重新读取并发更新后的节点配置失败")
 				return
 			}
-			yml = strings.TrimSpace(latest.YAML)
+			yml = latest.YAML
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
