@@ -129,7 +129,14 @@ func mihomoBinaryPath() string {
 }
 
 func mihomoConfigPath() string {
-	return mihomoHome() + "/config.yaml"
+	return filepath.Join(mihomoHome(), "config.yaml")
+}
+
+func agentWebIndexPath() string {
+	if path := strings.TrimSpace(os.Getenv("S5M_WEB_INDEX")); path != "" {
+		return filepath.Clean(path)
+	}
+	return "/app/index.html"
 }
 
 // 独立的重载函数，防止变量冲突
@@ -2206,7 +2213,7 @@ func main() {
 	// 启动 80 端口提供 Web 注册界面
 	go func() {
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, "/app/index.html")
+			http.ServeFile(w, r, agentWebIndexPath())
 		})
 
 		// ====== 提供前端页面的 API ======
