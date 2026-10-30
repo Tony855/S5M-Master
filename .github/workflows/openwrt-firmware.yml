@@ -108,7 +108,7 @@ jobs:
           install -D -m 0755 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/init.d/s5m-agent" files/etc/init.d/s5m-agent
           install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/config/s5m-agent" files/etc/config/s5m-agent
           install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/index.html" files/usr/share/s5m-agent/index.html
-          install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/default-config.yaml" files/usr/share/s5m-agent/default-config.yaml
+          install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/default-config.yaml" files/usr/share/s5m-agent/default-config.yaml
 
           mkdir -p files/etc/uci-defaults
           cat > files/etc/uci-defaults/99-s5m-agent <<'EOF'
