@@ -751,9 +751,12 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 	}
 	yml := ""
 	if nodeConfig != nil {
-		yml = strings.TrimSpace(nodeConfig.YAML)
+		// Preserve the exact persisted bytes for compare-and-swap and hashing.
+		// Trimming here makes the expected snapshot differ from the DB value when
+		// the YAML has a trailing newline, causing every normalization to conflict.
+		yml = nodeConfig.YAML
 	}
-	if yml == "" {
+	if strings.TrimSpace(yml) == "" {
 		yml, err = a.BuildConfigForMachine(machineCode)
 		if err != nil {
 			return err
@@ -781,7 +784,7 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 			if latest == nil || strings.TrimSpace(latest.YAML) == "" {
 				return fmt.Errorf("并发更新后节点配置不存在")
 			}
-			yml = strings.TrimSpace(latest.YAML)
+			yml = latest.YAML
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
