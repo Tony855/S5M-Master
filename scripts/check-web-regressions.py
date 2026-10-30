@@ -243,6 +243,8 @@ checks.update({
         "configTunEnabled" in html and "configDnsEnabled" in html
         and "configDnsNameservers" in html and "applyConfigQuickSettings" in html
         and "setYamlScalar" in app_js
+        and "yamlChildIndent" in app_js and "findYamlChild" in app_js
+        and "yamlIndent(line)" in app_js
     ),
     "node config save and read-back verification use WebSocket only": (
         "type: 'node.config.save'" in app_js and "type: 'node.config.get'" in app_js
