@@ -305,12 +305,9 @@
                 <el-button size="small" plain @click="safeCopy(item.code)">复制机器码</el-button>
                 <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
                 <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
+                <span class="instance-host-system">主机与系统：<strong>{{ item.hostname || '主机未知' }} · {{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</strong></span>
               </div>
               <div class="instance-summary">
-                <div class="instance-summary-primary">
-                  <span>{{ item.hostname || '主机未知' }}</span>
-                  <span>{{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</span>
-                </div>
                 <div class="instance-summary-secondary">
                   <span>连接数：<strong>{{ item.connections ?? '—' }}</strong></span>
                   <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
