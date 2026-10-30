@@ -140,6 +140,11 @@ jobs:
           sh -n routeros/services/agent/run
           sh -n openwrt/etc/init.d/s5m-agent
           sh -n openwrt/etc/init.d/s5m-mihomo
+          ! grep -Fq 'procd_open_instance mihomo' openwrt/etc/init.d/s5m-agent
+          grep -Fq 'procd_open_instance main' openwrt/etc/init.d/s5m-mihomo
+          grep -Fq 'procd_running s5m-mihomo main' openwrt/etc/init.d/s5m-agent
+          grep -Fq 'openwrt_service_action' main.go
+          grep -Fq 'validateOpenWrtServiceAction' main.go
       - name: Verify Agent Compose TUN capabilities match the default config
         working-directory: .
         shell: bash
