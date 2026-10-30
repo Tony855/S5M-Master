@@ -10,7 +10,7 @@ permissions:
 
 env:
   OPENWRT_VERSION: "25.12.6"
-  MIHOMO_VERSION: "v1.19.31"
+  MIHOMO_VERSION: "v1.19.33"
 
 jobs:
   build-firmware:
@@ -26,14 +26,14 @@ jobs:
             imagebuilder_sha: "a792e29bd2233cda67a0823030bfb53c0b61fbb3836b2063e88adf89730d563b"
             goarch: amd64
             mihomo_asset: mihomo-linux-amd64-compatible
-            mihomo_sha: "04cf9f09671704f839ddbee2e93069dc831a4123a75281e725d1d96ab9ac1afc"
+            mihomo_sha: "386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6"
           - target: armsr
             subtarget: armv8
             imagebuilder: armsr-armv8
             imagebuilder_sha: "3d0128148395314c510fe7adfc5996cecec51f3011ea2acc560a9c21772301cf"
             goarch: arm64
             mihomo_asset: mihomo-linux-arm64
-            mihomo_sha: "9e0f11afbf38426b8bd88fdc594678f8161c57eccb4e1b77acb12b493904f1d4"
+            mihomo_sha: "ba408b317080ee265c46cb923a50018c1b82cbd708551cdd46a1e3e307396187"
 
     steps:
       - name: Checkout
