@@ -1843,7 +1843,7 @@ func controllerWebSocketResponseError(operation, message string) error {
 	return fmt.Errorf("主控端%s失败: %s", operation, message)
 }
 
-func runAgentWebSocketSession(cfg Config) error {
+func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
 		return fmt.Errorf("主控地址无效")
@@ -1868,7 +1868,13 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		return fmt.Errorf("WebSocket 连接失败：%w", err)
 	}
-	setAgentActiveWebSocket(conn)
+	if !setAgentActiveWebSocket(conn, bindingGeneration) {
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Agent binding changed during connect"),
+			time.Now().Add(time.Second))
+		_ = conn.Close()
+		return fmt.Errorf("绑定凭证已更新，取消旧 WebSocket 会话")
+	}
 	defer clearAgentActiveWebSocket(conn)
 	defer conn.Close()
 	conn.SetReadLimit(3 << 20)
@@ -2101,11 +2107,16 @@ func lockAgentBind() func() {
 // rereads agent.json and authenticates with the newly committed token.
 var agentActiveWSMu sync.Mutex
 var agentActiveWSConn *websocket.Conn
+var agentBindingGeneration atomic.Uint64
 
-func setAgentActiveWebSocket(conn *websocket.Conn) {
+func setAgentActiveWebSocket(conn *websocket.Conn, expectedGeneration uint64) bool {
 	agentActiveWSMu.Lock()
+	defer agentActiveWSMu.Unlock()
+	if agentBindingGeneration.Load() != expectedGeneration {
+		return false
+	}
 	agentActiveWSConn = conn
-	agentActiveWSMu.Unlock()
+	return true
 }
 
 func clearAgentActiveWebSocket(conn *websocket.Conn) {
@@ -2262,6 +2273,7 @@ func main() {
 			}
 			// Only after the new token is durably committed do we close the old
 			// session. Failed registration or disk writes leave it untouched.
+			agentBindingGeneration.Add(1)
 			closeAgentActiveWebSocketForRebind()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "绑定成功"})
@@ -2279,6 +2291,7 @@ func main() {
 	// HTTP 仅用于主控连通性探测和首次注册；绝不通过 HTTP 回退传输状态/配置/命令。
 	backoff := 2 * time.Second
 	for {
+		bindingGeneration := agentBindingGeneration.Load()
 		data, readErr := os.ReadFile(filepath.Join(mihomoHome(), "agent.json"))
 		if readErr != nil || len(data) == 0 {
 			time.Sleep(5 * time.Second)
@@ -2299,8 +2312,13 @@ func main() {
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
+		// A bind may complete while the HTTP probe is running. Never start a
+		// session using credentials read before the latest successful bind.
+		if agentBindingGeneration.Load() != bindingGeneration {
+			continue
+		}
 		sessionStarted := time.Now()
-		if err := runAgentWebSocketSession(cfg); err != nil {
+		if err := runAgentWebSocketSession(cfg, bindingGeneration); err != nil {
 			fmt.Printf("Agent WebSocket 会话断开: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 		}
 		// A session that stayed healthy for at least two minutes resets the
