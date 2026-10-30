@@ -1208,6 +1208,8 @@ func processAgentCommandWebSocket(cfg Config) error {
 	switch cmd.Type {
 	case "update_mihomo":
 		message, runErr = updateMihomoKernel(cmd)
+	case "reboot_openwrt":
+		message, runErr = scheduleOpenWrtReboot()
 	default:
 		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 	}
@@ -1243,6 +1245,38 @@ func processAgentCommandWebSocket(cfg Config) error {
 	}
 	fmt.Printf("Agent 命令 %s 执行成功: %s\n", cmd.ID, message)
 	return nil
+}
+
+
+// scheduleOpenWrtReboot acknowledges first, then invokes the fixed OpenWrt
+// reboot binary after a short delay so the command ACK can reach the controller.
+var openWrtRebootMu sync.Mutex
+var openWrtRebootScheduled bool
+
+func scheduleOpenWrtReboot() (string, error) {
+	if _, err := os.Stat("/etc/openwrt_release"); err != nil {
+		return "", fmt.Errorf("当前设备不是 OpenWrt，拒绝执行路由器重启")
+	}
+	if _, err := os.Stat("/sbin/reboot"); err != nil {
+		return "", fmt.Errorf("未找到 OpenWrt reboot 程序")
+	}
+	openWrtRebootMu.Lock()
+	if openWrtRebootScheduled {
+		openWrtRebootMu.Unlock()
+		return "", fmt.Errorf("路由器重启任务已经安排，请勿重复提交")
+	}
+	openWrtRebootScheduled = true
+	openWrtRebootMu.Unlock()
+	go func() {
+		time.Sleep(3 * time.Second)
+		if err := exec.Command("/sbin/reboot").Run(); err != nil {
+			fmt.Printf("openwrt_reboot: failed: %s\\n", err.Error())
+			openWrtRebootMu.Lock()
+			openWrtRebootScheduled = false
+			openWrtRebootMu.Unlock()
+		}
+	}()
+	return "OpenWrt 路由器重启已安排，设备即将离线并重新启动", nil
 }
 
 func processAgentCommand(cfg Config) error {
