@@ -219,7 +219,7 @@ checks.update({
         "type: 'proxy.delete'" in app_js
         and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js
         and 'case "proxy.delete":' in browser_ws_source
-        and 'ProxyID         string `json:"proxy_id"`' in browser_ws_source
+        and 'ProxyID         string          `json:"proxy_id"`' in browser_ws_source
         and 'req.SetPathValue("id", strconv.FormatInt(id, 10))' in browser_ws_source
         and "a.handleDeleteProxy" in browser_ws_source
         and "Revalidate the administrator session for every browser RPC" in browser_ws_source
