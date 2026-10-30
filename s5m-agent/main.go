@@ -1908,33 +1908,23 @@ func runAgentWebSocketSession(cfg Config) error {
 				break
 			}
 			if changed {
-				if reloadErr := reloadMihomo(); reloadErr != nil {
-					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
-					fmt.Printf("Mihomo 配置重载失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(reloadErr.Error())))
+				if commitErr := persistControllerConfigAfterReload(
+					[]byte(configResponse.YAML), reloadMihomo, writeControllerConfig,
+				); commitErr != nil {
+					lastConfigSyncError = "Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error()
+					fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
+						return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
 					}
 					if retryErr := reloadMihomo(); retryErr != nil {
 						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
 					}
 				} else {
-					if commitErr := persistControllerConfigAfterReload(
-						[]byte(configResponse.YAML), reloadMihomo, writeControllerConfig,
-					); commitErr != nil {
-						lastConfigSyncError = "Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error()
-						fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
-						if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-							return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
-						}
-						if retryErr := reloadMihomo(); retryErr != nil {
-							return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
-						}
-					} else {
-						lastConfigSyncError = ""
-						_ = os.Remove(mihomoConfigPath() + ".previous")
-						fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
-					}
+					lastConfigSyncError = ""
+					_ = os.Remove(mihomoConfigPath() + ".previous")
+					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
 				}
+
 			} else {
 				lastConfigSyncError = ""
 			}
