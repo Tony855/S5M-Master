@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCompactOpenWrtInterfacesFiltersUnknownFields(t *testing.T) {
 	input := map[string]any{"interface": []any{
