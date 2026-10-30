@@ -306,7 +306,7 @@ jobs:
           retention-days: 90
 
   build-arm64-archive:
-    name: Build ARM64 RouterOS archive
+    name: Build ARM64 Linux archive
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -526,6 +526,52 @@ jobs:
           tags: ${{ needs.build-and-publish.outputs.image_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify GHCR manifest architectures and tag consistency
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAGS: ${{ needs.build-and-publish.outputs.image_tags }}
+        run: |
+          set -euo pipefail
+          sha_tag="${IMAGE_NAME}:sha-${GITHUB_SHA}"
+          docker buildx imagetools inspect "${sha_tag}" --raw > /tmp/s5m-agent-manifest.json
+
+          python3 - /tmp/s5m-agent-manifest.json <<'PY'
+          import json, pathlib, sys
+          manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          media_type = manifest.get("mediaType", "")
+          if media_type not in {
+              "application/vnd.oci.image.index.v1+json",
+              "application/vnd.docker.distribution.manifest.list.v2+json",
+          }:
+              raise SystemExit(f"Expected a multi-platform image index, got mediaType={media_type!r}")
+          platforms = {
+              (item.get("platform") or {}).get("os", "") + "/" +
+              (item.get("platform") or {}).get("architecture", "")
+              for item in manifest.get("manifests", [])
+          }
+          required = {"linux/amd64", "linux/arm64"}
+          missing = required - platforms
+          if missing:
+              raise SystemExit(f"GHCR manifest is missing required platforms: {sorted(missing)}; found {sorted(platforms)}")
+          print("Verified GHCR platforms: " + ", ".join(sorted(required)))
+          PY
+
+          expected_digest="$(docker buildx imagetools inspect "${sha_tag}" | awk '/^Digest:/ {print $2; exit}')"
+          [[ -n "${expected_digest}" ]] || {
+            echo "::error title=Image digest unavailable::Could not read digest for ${sha_tag}."
+            exit 1
+          }
+          while IFS= read -r image_tag; do
+            [[ -n "${image_tag}" ]] || continue
+            actual_digest="$(docker buildx imagetools inspect "${image_tag}" | awk '/^Digest:/ {print $2; exit}')"
+            [[ -n "${actual_digest}" && "${actual_digest}" == "${expected_digest}" ]] || {
+              echo "::error title=Image tag digest mismatch::${image_tag} does not resolve to the commit image digest."
+              exit 1
+            }
+          done <<< "${IMAGE_TAGS}"
+          echo "Verified every published tag resolves to ${expected_digest}."
   publish-github-release:
     name: Publish stable GitHub Release
     # Run the decision step after successful builds even for PR/dev runs, so
