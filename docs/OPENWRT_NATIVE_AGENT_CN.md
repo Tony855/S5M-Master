@@ -35,6 +35,9 @@ OpenWrt target/subtarget 与 Go GOARCH/GOARM 的映射必须通过设备的 `ubu
 计划提供：
 - OpenWrt package Makefile，生成 ipk（兼容 apk 的 OpenWrt 版本另行验证）。
 - procd init 脚本：分别管理 Agent 与 Mihomo，提供 respawn、stdout/stderr 日志和 enable/disable。
+- 服务控制：Mihomo 使用独立的 `/etc/init.d/s5m-mihomo`，Agent 使用 `/etc/init.d/s5m-agent`；主控通过 Agent WebSocket 下发白名单操作。Mihomo 支持 start/stop/restart，Agent 仅支持 restart，避免远程停止后失去管理通道。
+- 旧版迁移：Agent init 脚本使用一次性标记检查旧版复合服务；若 Mihomo 尚未由独立 procd 服务托管，则启用并启动新服务，不覆盖现有 YAML。
+- 操作保护：仅接受固定服务名与动作，不拼接 shell 命令；要求 OpenWrt 平台、授权 Agent、有效心跳和管理员二次确认；每个 Agent 同时只允许一个待执行命令。
 - UCI 默认配置：主控 URL、Agent 监听地址/端口、Mihomo API、代理监听端口及 TUN 开关。
 - 安装/升级/卸载脚本：升级保留授权、机器码、节点 YAML 和 Mihomo 数据；卸载默认保留数据，明确确认后才允许清理。
 - 构建矩阵：先 x86_64、aarch64；对每个架构生成包、SHA-256、版本元数据和 CI smoke test。
