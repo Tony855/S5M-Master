@@ -1868,6 +1868,8 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		return fmt.Errorf("WebSocket 连接失败：%w", err)
 	}
+	setAgentActiveWebSocket(conn)
+	defer clearAgentActiveWebSocket(conn)
 	defer conn.Close()
 	conn.SetReadLimit(3 << 20)
 	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
@@ -2094,6 +2096,40 @@ func lockAgentBind() func() {
 	return agentBindMu.Unlock
 }
 
+// Track the single active control-plane socket so a successful rebind can
+// terminate the old authenticated session immediately. The reconnect loop then
+// rereads agent.json and authenticates with the newly committed token.
+var agentActiveWSMu sync.Mutex
+var agentActiveWSConn *websocket.Conn
+
+func setAgentActiveWebSocket(conn *websocket.Conn) {
+	agentActiveWSMu.Lock()
+	agentActiveWSConn = conn
+	agentActiveWSMu.Unlock()
+}
+
+func clearAgentActiveWebSocket(conn *websocket.Conn) {
+	agentActiveWSMu.Lock()
+	if agentActiveWSConn == conn {
+		agentActiveWSConn = nil
+	}
+	agentActiveWSMu.Unlock()
+}
+
+func closeAgentActiveWebSocketForRebind() {
+	agentActiveWSMu.Lock()
+	conn := agentActiveWSConn
+	agentActiveWSConn = nil
+	agentActiveWSMu.Unlock()
+	if conn == nil {
+		return
+	}
+	_ = conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Agent credentials rebound"),
+		time.Now().Add(time.Second))
+	_ = conn.Close()
+}
+
 var agentConnected atomic.Bool
 
 func agentConfigHandler(w http.ResponseWriter, r *http.Request) {
@@ -2224,6 +2260,9 @@ func main() {
 				http.Error(w, "保存绑定配置失败", http.StatusInternalServerError)
 				return
 			}
+			// Only after the new token is durably committed do we close the old
+			// session. Failed registration or disk writes leave it untouched.
+			closeAgentActiveWebSocketForRebind()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "绑定成功"})
 		})
