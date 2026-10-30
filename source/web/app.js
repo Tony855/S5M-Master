@@ -1147,91 +1147,113 @@ createApp({
       finally { applyingTemplate.value = false; }
     };
 
-    const yamlIndent = line => (String(line || '').match(/^\\s*/) || [''])[0].length;
+    const yamlIndent = line => {
+      const match = String(line || '').match(/^ */);
+      return match ? match[0].length : 0;
+    };
     const yamlSectionBounds = (lines, section) => {
-      // Mihomo root sections (dns/tun) must be matched at column zero.
-      // Indented keys with the same name must never control the quick toggles.
       const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line));
       if (start < 0) return null;
       const sectionIndent = yamlIndent(lines[start]);
       let end = start + 1;
       while (end < lines.length) {
         const line = lines[end];
-        if (line.trim() && !/^\\s*#/.test(line) && yamlIndent(line) <= sectionIndent) break;
+        if (line.trim() && !/^\s*#/.test(line) && yamlIndent(line) <= sectionIndent) break;
         end++;
       }
       return { start, end, sectionIndent };
     };
+    const assertUniqueYamlSections = (lines, sections) => {
+      for (const section of sections) {
+        const count = lines.filter(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line)).length;
+        if (count > 1) throw new Error('YAML 存在重复的顶层 ' + section + ' 配置块；请先重新加载原始 YAML 并检查');
+      }
+    };
     const yamlChildIndent = (lines, bounds) => {
       for (let i = bounds.start + 1; i < bounds.end; i++) {
-        if (lines[i].trim() && !/^\\s*#/.test(lines[i])) return yamlIndent(lines[i]);
+        if (lines[i].trim() && !/^\s*#/.test(lines[i])) return yamlIndent(lines[i]);
       }
       return bounds.sectionIndent + 2;
     };
+    const findYamlChild = (lines, bounds, key) => {
+      const index = lines.findIndex((line, i) =>
+        i > bounds.start && i < bounds.end &&
+        yamlIndent(line) > bounds.sectionIndent &&
+        line.trim().startsWith(key + ':')
+      );
+      return { index, indent: index >= 0 ? yamlIndent(lines[index]) : yamlChildIndent(lines, bounds) };
+    };
     const setYamlScalar = (yaml, section, key, value) => {
-      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      const lines = String(yaml || '').split(/\r?\n/);
+      const bounds = yamlSectionBounds(lines, section);
       if (!bounds) {
         if (lines.length && lines[lines.length - 1].trim()) lines.push('');
         lines.push(section + ':', '  ' + key + ': ' + value);
       } else {
-        const indent = yamlChildIndent(lines, bounds);
-        const re = new RegExp('^\\s*' + key + ':');
-        const index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && yamlIndent(line) === indent && re.test(line.trim()));
-        if (index >= 0) lines[index] = ' '.repeat(indent) + key + ': ' + value;
-        else lines.splice(bounds.start + 1, 0, ' '.repeat(indent) + key + ': ' + value);
+        const child = findYamlChild(lines, bounds, key);
+        if (child.index >= 0) lines[child.index] = ' '.repeat(child.indent) + key + ': ' + value;
+        else lines.splice(bounds.start + 1, 0, ' '.repeat(child.indent) + key + ': ' + value);
       }
-      return lines.join('\\n');
+      return lines.join('\n');
     };
     const readYamlScalar = (yaml, section, key) => {
-      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      const lines = String(yaml || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, section);
       if (!bounds) return '';
-      const indent = yamlChildIndent(lines, bounds);
-      const line = lines.find((value, i) => i > bounds.start && i < bounds.end && yamlIndent(value) === indent && value.trim().startsWith(key + ':'));
-      return line ? line.trim().slice(key.length + 1).split('#')[0].trim().replace(/^['"]|['"]$/g, '') : '';
-    };
-    const findYamlChild = (lines, bounds, key) => {
-      const indent = yamlChildIndent(lines, bounds);
-      const index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && yamlIndent(line) === indent && line.trim().startsWith(key + ':'));
-      return { index, indent };
+      const child = findYamlChild(lines, bounds, key);
+      return child.index >= 0
+        ? lines[child.index].trim().slice(key.length + 1).split('#')[0].trim().replace(/^['"]|['"]$/g, '')
+        : '';
     };
     const syncConfigQuickSettingsFromYaml = () => {
       const isYamlEnabled = value => /^(?:true|yes|on)$/i.test(String(value || '').trim().replace(/^['"]|['"]$/g, ''));
       configTunEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'tun', 'enable'));
       configDnsEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'dns', 'enable'));
-      const lines = String(configYaml.value || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const lines = String(configYaml.value || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, 'dns');
       if (!bounds) { configDnsNameservers.value = ''; return; }
       const child = findYamlChild(lines, bounds, 'nameserver');
       if (child.index < 0) { configDnsNameservers.value = ''; return; }
       const values = [];
       for (let i = child.index + 1; i < bounds.end; i++) {
         const line = lines[i];
-        if (!line.trim() || /^\\s*#/.test(line)) continue;
+        if (!line.trim() || /^\s*#/.test(line)) continue;
         if (yamlIndent(line) <= child.indent) break;
-        const match = line.trim().match(/^-[ \\t]*(.*)$/);
+        const match = line.trim().match(/^-[ \t]*(.*)$/);
         if (match) values.push(match[1].replace(/^['"]|['"]$/g, '').trim());
       }
-      configDnsNameservers.value = values.join('\\n');
+      configDnsNameservers.value = values.join('\n');
     };
     const applyConfigQuickSettings = () => {
       if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
-      let yaml = setYamlScalar(configYaml.value, 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
-      yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
-      const lines = yaml.split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
-      const values = String(configDnsNameservers.value || '').split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
-      if (bounds) {
-        const child = findYamlChild(lines, bounds, 'nameserver');
-        let index = child.index;
-        if (index < 0) { lines.splice(bounds.end, 0, ' '.repeat(child.indent) + 'nameserver:'); index = bounds.end; }
-        const keyIndent = yamlIndent(lines[index]);
-        let end = index + 1;
-        while (end < lines.length && (!lines[end].trim() || /^\\s*#/.test(lines[end]) || yamlIndent(lines[end]) > keyIndent)) end++;
-        const listIndent = keyIndent + 2;
-        lines.splice(index + 1, end - index - 1, ...values.map(v => ' '.repeat(listIndent) + '- ' + v));
-      } else {
-        lines.push('dns:', '  enable: ' + (configDnsEnabled.value ? 'true' : 'false'), '  nameserver:', ...values.map(v => '    - ' + v));
+      try {
+        let lines = String(configYaml.value || '').split(/\r?\n/);
+        assertUniqueYamlSections(lines, ['tun', 'dns']);
+        let yaml = setYamlScalar(lines.join('\n'), 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
+        yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
+        lines = yaml.split(/\r?\n/);
+        const bounds = yamlSectionBounds(lines, 'dns');
+        const values = String(configDnsNameservers.value || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+        if (bounds) {
+          const child = findYamlChild(lines, bounds, 'nameserver');
+          let index = child.index;
+          if (index < 0) {
+            lines.splice(bounds.end, 0, ' '.repeat(child.indent) + 'nameserver:');
+            index = bounds.end;
+          }
+          const keyIndent = yamlIndent(lines[index]);
+          let end = index + 1;
+          while (end < lines.length && (!lines[end].trim() || /^\s*#/.test(lines[end]) || yamlIndent(lines[end]) > keyIndent)) end++;
+          const listIndent = keyIndent + 2;
+          lines.splice(index + 1, end - index - 1, ...values.map(value => ' '.repeat(listIndent) + '- ' + JSON.stringify(value)));
+        } else {
+          lines.push('dns:', '  enable: ' + (configDnsEnabled.value ? 'true' : 'false'), '  nameserver:',
+            ...values.map(value => '    - ' + JSON.stringify(value)));
+        }
+        configYaml.value = lines.join('\n').replace(/\n*$/, '\n');
+        syncConfigQuickSettingsFromYaml();
+        showMsg('快捷设置已更新 YAML（尚未保存），请检查后保存', 'success');
+      } catch (error) {
+        showMsg('快捷设置未写入：' + (error.message || String(error)), 'error');
       }
-      configYaml.value = lines.join('\\n');
-      showMsg('快捷设置已写入当前 YAML，请检查后保存', 'success');
     };
 
     const loadNodeConfig = async () => {
