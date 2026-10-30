@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+# Validation-only: ensure the dedicated SmartDNS branch tests standard and RouterOS Agent image builds.
 ARG ALPINE_VERSION=3.24
 ARG MIHOMO_VERSION=v1.19.31
 ARG S6_OVERLAY_VERSION=3.2.3.2
