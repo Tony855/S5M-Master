@@ -1,83 +1,83 @@
-# S5M OpenWrt 原生 Agent 集成方案
+# S5M OpenWrt 原生 Agent 与固件交付说明
 
-## 目标
+## 当前交付范围
 
-在 OpenWrt 路由器系统中原生运行 S5M Agent 与 Mihomo，不依赖 Docker、RouterOS Container 或 s6-overlay。Agent 继续使用现有 S5M 主控注册、Token 授权、心跳、WebSocket 控制通道、节点 YAML 同步和诊断协议。
+本分支交付的是 **OpenWrt 完整固件镜像**，不是独立 IPK/APK 软件包。固件由 OpenWrt ImageBuilder 生成，包含 S5M Agent、Mihomo、procd 服务脚本和默认配置。
 
 本分支只承载 OpenWrt 适配，不直接修改 main、dev、S5M-SmartDNS 或 RouterOS 专用实现。
 
-## 运行架构
+## 运行架构与已实现功能
 
-- OpenWrt init：使用 procd 管理独立的 s5m-agent 与 mihomo 服务，支持开机启动、崩溃重启、日志和服务状态。
-- 配置管理：优先使用 UCI 配置文件管理 OpenWrt 服务参数；Agent 的授权数据与节点 Mihomo YAML 独立存放，避免 UCI reload 覆盖主控下发配置。
-- 持久化目录：默认使用 /etc/s5m-agent 保存设备授权与配置；/usr/bin/s5m-agent 和 /usr/bin/mihomo 保存可执行文件。需要可写 overlay 或 extroot；安装前检查剩余空间。
-- 网络：不自动改写 LAN/WAN、默认路由、DNS、DHCP 或防火墙规则。首次安装只提供 Agent Web 注册入口；代理端口由用户显式启用和配置。
-- TUN：当前 OpenWrt 固件专用默认 YAML 实际启用 TUN（auto-route/auto-redirect 开启、strict-route 关闭），与共享容器默认配置相互隔离。该默认值可能影响部分设备的 SSH/LAN 管理路径；部署前必须核实设备型号、管理网段和回滚方式。若未完成该设备的专项验证，应先在 Mihomo YAML 中将 `tun.enable` 设为 `false`，确认后再启用。不得由 Agent 自动修改 OpenWrt 的 WAN/LAN、默认路由、DHCP 或防火墙。
-- API：Mihomo controller 只绑定 127.0.0.1；禁止默认暴露 controller API 到 LAN/WAN。
+- Agent 与 Mihomo 分别由独立 procd 服务管理，支持开机启动、崩溃 respawn、启动/停止/重启和系统日志。
+- Agent 使用现有 S5M 主控注册、专属 Token 授权、心跳、WebSocket 命令通道、节点 YAML 同步和诊断协议。
+- Agent 与 Mihomo 数据默认保存在 `/etc/s5m-agent`。procd 通过 `MIHOMO_HOME` 指定数据目录、`MIHOMO_BINARY` 指定 Mihomo 二进制、`S5M_WEB_INDEX` 指定注册页面；未设置时保留容器/其他平台原有默认路径。
+- 机器码优先读取 `/etc/machine-id`；系统机器标识不可用时，在 `MIHOMO_HOME/machine-id` 原子持久化备用机器码。
+- Mihomo API 默认只绑定 `127.0.0.1:8088`，不向 LAN/WAN 暴露控制接口。
+- 主控 OpenWrt 面板提供设备型号、系统运行时间、内存、磁盘、网络接口、Agent/Mihomo 进程状态、PID、系统日志和脱敏后的 UCI network/dhcp/firewall 只读快照。
+- 系统日志只读取最近 80 行，发送前进行敏感字段脱敏并限制遥测包大小。
+- 远程操作只接受固定白名单：Mihomo start/stop/restart、Agent restart、OpenWrt router reboot。操作要求授权设备、有效心跳和管理员确认；不执行调用方提供的任意 shell 命令。
+- 路由器重启和 Agent 重启均有服务端持久化跟踪：命令 ACK 不是重启成功；必须观察旧 WebSocket 断开、新连接认证和新连接有效心跳。超时显示未确认。主控进程重启会把旧连接证据标记为中断，不会误报成功。
+- Mihomo 内核更新执行版本格式和 SHA-256 校验、原子替换、重启、API 健康验证及失败回滚；OpenWrt 使用独立 procd Mihomo 服务。
 
-## 首批支持目标
+## 构建目标
 
-先完成并验证以下通用目标，再按实际设备扩展：
-
-| OpenWrt target | Go 架构 | 说明 |
+| OpenWrt target | Go 架构 | 交付说明 |
 | --- | --- | --- |
-| x86_64 | amd64 | 首批目标 |
-| aarch64_generic | arm64 | 首批目标 |
-| aarch64_cortex-a53 | arm64 | 首批目标 |
-| aarch64_cortex-a72 | arm64 | 首批目标 |
-| mipsel / mips_24kc | mips / mipsle | 暂不承诺 Mihomo 官方二进制可用 |
-| arm_cortex-a7 | arm | 暂不承诺 Mihomo 官方二进制可用 |
+| x86/64 | amd64 | ImageBuilder generic 固件 |
+| armsr/armv8 | arm64 | ImageBuilder generic ARMv8 固件，不代表兼容所有 ARM 路由器 |
 
-OpenWrt target/subtarget 与 Go GOARCH/GOARM 的映射必须通过设备的 `ubus call system board`、`opkg print-architecture` 或 `apk --print-arch` 结果确定，不能只根据 CPU 型号推断。首批发布只包含经过构建和运行测试的架构。
+ARMv8 generic 镜像不是特定消费级路由器的板级固件。Wi-Fi、交换芯片、PHY、LED、按键、存储布局和 bootloader 均可能不同。不得仅凭 CPU 架构判断设备兼容性。
 
-## 包与服务设计
+MIPS、ARMv7 等其他架构当前不属于本分支首批固件构建目标；不得假定 Mihomo 官方二进制或当前构建流程支持它们。
 
-计划提供：
-- OpenWrt package Makefile，生成 ipk（兼容 apk 的 OpenWrt 版本另行验证）。
-- procd init 脚本：分别管理 Agent 与 Mihomo，提供 respawn、stdout/stderr 日志和 enable/disable。
-- 服务控制：Mihomo 使用独立的 `/etc/init.d/s5m-mihomo`，Agent 使用 `/etc/init.d/s5m-agent`；主控通过 Agent WebSocket 下发白名单操作。Mihomo 支持 start/stop/restart，Agent 仅支持 restart，避免远程停止后失去管理通道。
-- 内核更新：Agent 更新 Mihomo 二进制后，在 OpenWrt 上通过 `/etc/init.d/s5m-mihomo restart` 请求 procd 重启，并等待本机 API 返回目标版本；其他 s6 部署仍使用原来的 s6-svc 路径。
-- 旧版迁移：Agent init 脚本使用一次性标记检查旧版复合服务；若 Mihomo 尚未由独立 procd 服务托管，则启用并启动新服务，不覆盖现有 YAML。
-- 操作保护：仅接受固定服务名与动作，不拼接 shell 命令；要求 OpenWrt 平台、授权 Agent、有效心跳和管理员二次确认；每个 Agent 同时只允许一个待执行命令。
-- UCI 默认配置：主控 URL、Agent 监听地址/端口、Mihomo API、代理监听端口及 TUN 开关。
-- 安装/升级/卸载脚本：升级保留授权、机器码、节点 YAML 和 Mihomo 数据；卸载默认保留数据，明确确认后才允许清理。
-- 构建矩阵：先 x86_64、aarch64；对每个架构生成包、SHA-256、版本元数据和 CI smoke test。
+## 网络与 TUN 安全说明
 
-## 必须完成的代码适配
+- 固件默认配置当前将 Mihomo TUN 设置为启用，包含 auto-route、auto-redirect；strict-route 关闭，并排除常见私网、CGNAT、loopback 和 link-local 网段。
+- 该配置并不能保证所有设备的 SSH、LAN 管理和 WAN 路由都不受影响。首次部署前应通过本地控制台或可靠回滚通道操作；若未在目标设备验证管理链路，先将 `tun.enable` 设为 `false` 再部署。
+- Agent 不自动修改 OpenWrt WAN/LAN、默认路由、DNS、DHCP、防火墙规则或 SSH 配置。
+- UCI network/dhcp/firewall 页面目前为只读快照；不提供远程网络配置写入，避免误操作导致路由器失联。
+- 默认代理监听配置和规则由用户管理的 Mihomo YAML 决定；Agent 不自动开放防火墙端口。
 
-1. 将 Agent 当前硬编码的 /data 持久化路径抽象为 S5M_DATA_DIR，并保持容器环境默认值 /data，确保现有 RouterOS 与 Docker 行为不变。
-2. 让 Agent 的机器码、注册配置、运行配置和 Mihomo 更新路径全部使用统一数据目录。
-3. 为 OpenWrt 提供明确的 Mihomo 二进制路径配置；禁止更新流程覆盖系统其他路径。
-4. 把容器专用启动、健康检查和文件路径逻辑与 OpenWrt procd 运行方式隔离。
-5. 增加单元测试，验证自定义数据目录、目录权限、机器码持久化、配置升级保留和内核回滚。
-6. 增加 OpenWrt package 构建和静态检查；CI 通过不等同于真实路由器验证。
+## 构建与 CI
 
-## 安全与兼容性要求
+`.github/workflows/openwrt-firmware.yml` 当前构建两个目标：
+- x86/64 amd64
+- armsr/armv8 arm64
 
-- 不使用 host 网络、Docker 或容器能力。
-- Agent 注册必须使用 HTTPS；明文 HTTP 仅允许沿用现有显式内网 opt-in 安全开关。
-- Token、密码和 Mihomo secret 不得写入普通日志。
-- 默认不开放代理端口；不自动修改防火墙。
-- 不自动启用 TUN，不自动添加全局策略路由，不允许升级过程改变 SSH 管理路径。
-- 不覆盖用户现有 Mihomo 配置；写入前备份，校验失败必须回滚。
-- 设备空间不足、架构不支持或依赖缺失时必须安全失败，不破坏现有网络。
+工作流会编译并测试 Agent、校验 Mihomo 官方压缩包 SHA-256、校验 ImageBuilder SHA-256、组装固件、检查固件清单并生成 SHA256SUMS。构建产物作为 GitHub Actions artifact 上传，不自动创建 Release，也不自动合并分支。
 
-## 验收标准
+**CI 成功只证明构建和自动化检查通过，不等于真实路由器兼容性或网络稳定性已经验证。**
 
-- [ ] x86_64 OpenWrt 包构建成功并在真实设备安装。
-- [ ] aarch64 OpenWrt 包构建成功并在真实设备安装。
-- [ ] procd 能独立启动、停止、重启 Agent 与 Mihomo，重启路由器后自动恢复。
-- [ ] 主控注册、授权、心跳、WebSocket 和节点 YAML 同步正常。
-- [ ] 设备重启、软件升级后机器码、Token 和配置保持不变。
-- [ ] Mihomo 内核更新具备 SHA-256 校验、运行验证和失败回滚。
-- [ ] 不修改默认路由、WAN/LAN、DNS、DHCP、防火墙和 SSH 管理链路。
-- [ ] TUN 默认关闭；仅在真实设备专项验证后启用。
-- [ ] 卸载不会误删持久化数据。
+本分支当前不生成独立 IPK/APK 包；若未来需要在现有 OpenWrt 系统上单独安装/升级 Agent，应另行实现并验证 OpenWrt package Makefile、依赖、升级脚本和卸载保留策略。当前完整固件交付不依赖该包流程。
 
-## 开发顺序
+## 安装前检查
 
-阶段 1：Agent 数据目录与二进制路径抽象、单元测试。
-阶段 2：OpenWrt procd 服务、UCI 配置和 package Makefile。
-阶段 3：x86_64/aarch64 构建、包校验和 CI。
-阶段 4：真实设备注册、心跳、配置同步、内核升级与回滚。
-阶段 5：按设备型号验证 TUN、DNS 和代理接入；通过后再考虑正式发布。
+1. 确认设备的准确型号、OpenWrt target/subtarget、闪存布局和恢复方式。
+2. 确认设备有可写 overlay/extroot 空间，能保存 `/etc/s5m-agent`。
+3. 备份当前配置和固件，确认串口/恢复模式或其他可靠救援通道。
+4. 先验证 LAN、WAN、DNS、SSH，再决定是否启用 TUN。
+5. 注册 Agent 时使用 HTTPS 主控地址；仅可信内网且显式设置安全开关时才允许 HTTP。
+6. 不要把 armsr/armv8 generic 镜像直接刷入未确认兼容的消费级路由器。
+
+## 当前验收状态
+
+| 验收项 | 当前状态 |
+| --- | --- |
+| x86/64 固件自动构建 | CI 构建通过；仍需真实设备刷机验证 |
+| armsr/armv8 固件自动构建 | CI 构建通过；仍需真实设备刷机验证 |
+| Agent/Mihomo 独立 procd 脚本与静态检查 | 已实现并纳入 CI |
+| Agent 注册、Token 授权、心跳、WebSocket 命令处理 | 有自动化测试；仍需真实设备联调 |
+| OpenWrt 遥测、日志和只读 UCI 快照 | 已实现并有单元测试 |
+| Mihomo 更新 SHA-256、健康检查与回滚 | 已实现并有自动化测试；仍需设备升级回归 |
+| 路由器/Agent 重启的断线、新连接、心跳确认 | 已实现持久化状态和回归测试；仍需真实设备重启测试 |
+| 主控重启后的跟踪恢复 | 恢复为“验证中断”，不误报成功；有自动化测试 |
+| TUN、DNS、SSH 管理链路 | 未完成各具体硬件的专项实测 |
+| 独立 IPK/APK 包 | 当前不在完整固件交付范围内 |
+
+## 明确不在当前范围内
+
+- 远程写入 UCI、修改 WAN/LAN、DHCP、DNS、防火墙、默认路由或 SSH。
+- LuCI 管理页面。
+- MIPS/ARMv7 等未纳入构建矩阵的架构。
+- 独立 IPK/APK 包安装流程。
+- 未经真实硬件验证的通用 ARM 路由器兼容性承诺。
