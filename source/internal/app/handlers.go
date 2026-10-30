@@ -2231,6 +2231,26 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_command_result_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &commandResult)
 		}
+		if raw := settings["agent_reboot_tracking_"+code]; raw != "" {
+			var tracking agentRebootTracker
+			if json.Unmarshal([]byte(raw), &tracking) == nil && tracking.CommandID != "" {
+				if tracking.Status != "reconnected" && tracking.Status != "timeout" &&
+					tracking.Status != "failed" && !tracking.Interrupted &&
+					tracking.QueuedAt > 0 && time.Since(time.Unix(tracking.QueuedAt, 0)) > 5*time.Minute {
+					tracking.Status = "timeout"
+					_ = a.saveAgentRebootTracker(code, &tracking)
+					if commandResult == nil {
+						commandResult = make(map[string]any)
+					}
+					commandResult["reboot_status"] = "timeout"
+				} else if commandResult != nil && commandResult["id"] == tracking.CommandID {
+					commandResult["reboot_status"] = tracking.Status
+					if tracking.Interrupted {
+						commandResult["reboot_interrupted"] = true
+					}
+				}
+			}
+		}
 		var pendingCommand map[string]string
 		if raw := settings["agent_command_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &pendingCommand)
