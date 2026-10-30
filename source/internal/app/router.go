@@ -20,6 +20,7 @@ type App struct {
 
 	agentWSMu         sync.Mutex
 	agentWSGeneration map[string]uint64
+	agentWSConnections map[string]*agentWSConnection
 	agentHeartbeatAt  map[string]int64
 	browserWSMu       sync.Mutex
 	browserWSClients  map[*browserEventClient]struct{}
