@@ -1604,11 +1604,26 @@ func newMihomoRestartRequest(secret string) (*http.Request, error) {
 // /usr/local/bin/mihomo. Do not take the service down through s6-rc: the Agent
 // declares a dependency on Mihomo, so a dependency-aware down operation may also
 // stop the Agent while it is processing this command and prevent its ACK.
+func mihomoRestartCommand(openWrt bool) (string, []string) {
+	if openWrt {
+		return "/etc/init.d/s5m-mihomo", []string{"restart"}
+	}
+	return "s6-svc", []string{"-r", "/run/service/mihomo"}
+}
+
 func restartMihomo(secret string) error {
 	_ = secret // Retained in the signature for compatibility with update flow.
-	output, err := exec.Command("s6-svc", "-r", "/run/service/mihomo").CombinedOutput()
+	openWrt := false
+	if _, err := os.Stat("/etc/openwrt_release"); err == nil {
+		openWrt = true
+	}
+	command, args := mihomoRestartCommand(openWrt)
+	output, err := exec.Command(command, args...).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("请求 s6 重启 Mihomo 服务失败: %v: %s", err, strings.TrimSpace(string(output)))
+		if openWrt {
+			return fmt.Errorf("请求 procd 重启 Mihomo 服务失败: %v: %s", err, safeMihomoValidationDiagnostic(output))
+		}
+		return fmt.Errorf("请求 s6 重启 Mihomo 服务失败: %v: %s", err, safeMihomoValidationDiagnostic(output))
 	}
 	return nil
 }
