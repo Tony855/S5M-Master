@@ -506,7 +506,7 @@ func (s *Store) SaveNodeConfig(machineCode, yamlText string) error {
 	return err
 }
 
- // SaveNodeConfigIfUnchanged performs an optimistic write. It updates an existing
+// SaveNodeConfigIfUnchanged performs an optimistic write. It updates an existing
  // row only when the YAML still matches the caller's snapshot; an absent row may
  // be initialized only when expectedYAML is empty. This prevents background
  // normalization from overwriting a newer manual edit.
