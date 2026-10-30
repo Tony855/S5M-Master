@@ -11,12 +11,40 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+func TestAgentBindRequestsAreSerialized(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			unlock := lockAgentBind()
+			defer unlock()
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			active.Add(-1)
+		}()
+	}
+	wg.Wait()
+	if got := maximum.Load(); got != 1 {
+		t.Fatalf("maximum concurrent bind operations = %d, want 1", got)
+	}
+}
 
 func TestAgentRegistrationClientDoesNotFollowRedirectWithSecretBody(t *testing.T) {
 	var redirectTargetHits atomic.Int32
