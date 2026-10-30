@@ -1846,16 +1846,27 @@ func runAgentWebSocketSession(cfg Config) error {
 		heartbeatInterval = 30 * time.Second
 	}
 	var lastConfigSyncError string
+	var lastRouteSyncError string
 
 	for {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
 		// cycle, without changing the hash of the controller-provided YAML.
 		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
+			lastRouteSyncError = "主控直连路由更新失败: " + routeErr.Error()
 			fmt.Printf("刷新主控直连排除地址失败: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
+		} else {
+			lastRouteSyncError = ""
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
-		applyAgentControlError(status, lastConfigSyncError)
+		controlError := lastConfigSyncError
+		if lastRouteSyncError != "" {
+			if controlError != "" {
+				controlError += "; "
+			}
+			controlError += lastRouteSyncError
+		}
+		applyAgentControlError(status, controlError)
 		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]any{
 			"type": "heartbeat", "id": heartbeatID, "status": status,
