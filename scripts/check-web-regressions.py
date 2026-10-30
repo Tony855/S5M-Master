@@ -31,6 +31,7 @@ checks = {
     "browser realtime WebSocket validates same-origin and current enabled admin account": "browserEventsUpgrader" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "strings.EqualFold(parsed.Host, r.Host)" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and 'u.Role != "admin"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "Agent heartbeats and command ACKs publish browser events only after persistence": '"type": "agent.status.updated"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and '"type": "agent.command.updated"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "a.publishBrowserEvent" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "browser realtime client requests a ticket, reconnects, and locally expires stale Agent status": "api('/api/v1/events/ticket', { method: 'POST' })" in app_js and "new WebSocket(" in app_js and "browserEventsRetryTimer" in app_js and "age >= 90" in app_js and "realtimeStatus" in html,
+    "node configuration read, save, and read-back verification use the primary WebSocket RPC channel": "sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" in app_js and "type: 'node.config.save'" in app_js and "const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" in app_js and 'case "node.config.get":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and 'case "node.config.save":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=" not in app_js,
     "Agent online state rejects future heartbeat timestamps without container runtime API": "const ageSeconds = now - last;" in app_js and "const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;" in app_js and "/api/v1/container/" not in app_js and "dockerTask" not in app_js and "routerOSCommand" not in app_js,
     "container-management routes, handlers, and Agent task polling remain removed": not Path("source/internal/app/container_handlers.go").exists() and not Path("source/internal/app/container_auth.go").exists() and "/api/v1/container/" not in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "processContainerTask" not in Path("s5m-agent/main.go").read_text(encoding="utf-8") and "reportContainerStatus" not in Path("s5m-agent/main.go").read_text(encoding="utf-8"),
     "mobile instance grid rule is not duplicated": Path("source/web/app.css").read_text(encoding="utf-8").count(".instance-list{grid-template-columns:minmax(0,1fr)}") == 1,
@@ -375,6 +376,19 @@ checks["administrator password change uses authenticated WebSocket RPC, not HTTP
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
+
+checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes runtime status"] = (
+    "type: 'agent.smartdns.get'" in app_js
+    and "type: 'agent.smartdns.configure'" in app_js
+    and "saveSmartDNSConfig" in app_js
+    and "期望配置 SHA-256" in Path("source/web/index.html").read_text(encoding="utf-8")
+    and "Agent SmartDNS 配置与运行状态" in Path("source/web/index.html").read_text(encoding="utf-8")
+    and 'case "agent.smartdns.get":' in browser_ws_source
+    and 'case "agent.smartdns.configure":' in browser_ws_source
+    and "hashSmartDNSConfig(config)" in browser_ws_source
+    and '"command_result":         commandResult' in browser_ws_source
+    and "smartDNSStatus.command_result.status" in Path("source/web/index.html").read_text(encoding="utf-8")
+)
 
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js

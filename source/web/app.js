@@ -52,6 +52,11 @@ createApp({
     const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    const smartDNSConfig = ref('');
+    const smartDNSStatus = ref(null);
+    const loadingSmartDNS = ref(false);
+    const savingSmartDNS = ref(false);
+    const smartDNSQueued = ref(false);
     let nodeConfigLoadGeneration = 0;
     const templateYaml = ref('');
     const templateNote = ref('');
@@ -1276,6 +1281,45 @@ createApp({
       }
     };
 
+    const loadSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      if (!code || loadingSmartDNS.value) return;
+      loadingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.get', machine_code: code });
+        if (result.ok === false) throw new Error(result.error || '读取 SmartDNS 状态失败');
+        smartDNSConfig.value = String(result.config || '');
+        smartDNSStatus.value = result;
+        smartDNSQueued.value = false;
+      } catch (e) {
+        showMsg(e.message || '读取 SmartDNS 状态失败', 'error');
+      } finally {
+        loadingSmartDNS.value = false;
+      }
+    };
+
+    const saveSmartDNSConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const config = String(smartDNSConfig.value || '');
+      if (!code) { showMsg('请先选择节点机器码', 'warning'); return; }
+      if (!config.trim()) { showMsg('SmartDNS 配置不能为空', 'warning'); return; }
+      if (savingSmartDNS.value) return;
+      savingSmartDNS.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'agent.smartdns.configure', machine_code: code, config });
+        if (result.ok === false) throw new Error(result.error || 'SmartDNS 配置提交失败');
+        smartDNSQueued.value = true;
+        showMsg(result.message || 'SmartDNS 配置已排队，等待 Agent 执行并回报', 'success');
+        await loadSmartDNSConfig();
+        smartDNSQueued.value = true;
+      } catch (e) {
+        showMsg(e.message || 'SmartDNS 配置提交失败', 'error');
+      } finally {
+        savingSmartDNS.value = false;
+      }
+    };
+
+
     const loadNodeConfig = async () => {
       const code = String(selectedConfigNode.value || '').trim();
       const generation = ++nodeConfigLoadGeneration;
@@ -1289,6 +1333,9 @@ createApp({
         configYaml.value = String(data.config_yaml || '');
         syncConfigQuickSettingsFromYaml();
         showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+        const data = result.data || result;
+        configYaml.value = data.config_yaml || '';
+        showMsg('已通过实时通道加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
         if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
         configYaml.value = '';
