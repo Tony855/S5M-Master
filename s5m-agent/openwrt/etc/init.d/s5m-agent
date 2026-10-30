@@ -4,6 +4,7 @@ STOP=10
 USE_PROCD=1
 S5M_HOME="/etc/s5m-agent"
 AGENT_BIN="/usr/bin/s5m-agent"
+MIHOMO_BIN="/usr/bin/mihomo"
 WEB_INDEX="/usr/share/s5m-agent/index.html"
 
 load_config() {
