@@ -766,9 +766,22 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 		return normalizeErr
 	}
 	if normalized != yml {
-		yml = normalized
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			return err
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(machineCode, yml, normalized)
+		if saveErr != nil {
+			return saveErr
+		}
+		if updated {
+			yml = normalized
+		} else {
+			// A concurrent operator save is newer than this normalization snapshot.
+			latest, readErr := a.store.GetNodeConfig(machineCode)
+			if readErr != nil {
+				return readErr
+			}
+			if latest == nil || strings.TrimSpace(latest.YAML) == "" {
+				return fmt.Errorf("并发更新后节点配置不存在")
+			}
+			yml = strings.TrimSpace(latest.YAML)
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
