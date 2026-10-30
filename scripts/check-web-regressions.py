@@ -170,6 +170,8 @@ checks.update(instance_card_checks)
 
 
 checks.update({
+    "desktop proxy list displays the persisted source IP CIDR": 'prop="source_cidr" label="源 IP (CIDR)"' in html,
+    "mobile proxy cards display the persisted source IP CIDR with legacy fallback": 'proxy-mobile-label">源 IP (CIDR)' in html and "item.source_cidr || \\'0.0.0.0/0\\'" in html,
     "desktop proxy association label handles global sentinel before generic machine code": (
         'v-if="scope.row.machine_code === \'__GLOBAL__\'"' in html
         and html.index('v-if="scope.row.machine_code === \'__GLOBAL__\'"')
