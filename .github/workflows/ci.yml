@@ -4,7 +4,7 @@ on:
   push:
     branches: [dev, main, "fix/**"]
   pull_request:
-    branches: [dev, main]
+    branches: [dev, main, S5M-SmartDNS]
   workflow_dispatch:
 
 permissions:
