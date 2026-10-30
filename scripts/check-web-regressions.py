@@ -435,6 +435,13 @@ checks["OpenWrt reboot UI distinguishes queued, disconnected, reconnecting, inte
     and "等待首条有效心跳" in instance_card_section
 )
 
+checks["OpenWrt Agent service restart uses the same verified reconnect lifecycle as router reboot"] = (
+    "item.pendingCommand.service === 'agent' && item.pendingCommand.action === 'restart'" in instance_card_section
+    and "item.commandResult.type === 'openwrt_service_action'" in instance_card_section
+    and "Agent 已重新连接 · 已收到新连接心跳" in instance_card_section
+    and "Agent 重连确认超时" in instance_card_section
+)
+
 checks["Agent binding updates and revocations invalidate in-flight snapshots and force an authoritative list reload"] = (
     "let agentBindingRevision = 0;" in app_js
     and app_js.count("agentBindingRevision++;") >= 2
