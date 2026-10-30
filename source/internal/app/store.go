@@ -236,10 +236,18 @@ func (s *Store) AckAgentCommand(machineCode, commandID, status, message string, 
 	}
 	var pending map[string]string
 	if raw != "" && json.Unmarshal([]byte(raw), &pending) == nil && pending["id"] == commandID {
-		result, marshalErr := json.Marshal(map[string]any{
+		resultFields := map[string]any{
 			"id": commandID, "type": pending["type"], "status": status,
 			"message": message, "updated_at": updatedAt,
-		})
+		}
+		// Retain only the safe OpenWrt action metadata needed to distinguish
+		// Agent restart from Mihomo actions after the pending command is cleared.
+		for _, key := range []string{"service", "action"} {
+			if value := pending[key]; value != "" {
+				resultFields[key] = value
+			}
+		}
+		result, marshalErr := json.Marshal(resultFields)
 		if marshalErr != nil {
 			return false, false, marshalErr
 		}
