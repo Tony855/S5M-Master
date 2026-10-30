@@ -675,7 +675,7 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		// configuration below always retains the operator's original setting.
 		if isGeoIPDownloadFailure(validationOutput) && disableGeoIPFallbackForValidation(nextCfg) {
 			validationOnly, marshalErr := yaml.Marshal(nextCfg)
-			if marshalErr == nil && os.WriteFile(tmpPath, validationOnly, 0600) == nil {
+			if marshalErr == nil && atomicWriteFile(tmpPath, validationOnly, 0600) == nil {
 				validationOutput, validationErr = exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
 				if validationErr == nil {
 					// Restore the exact original normalized config before committing it.
