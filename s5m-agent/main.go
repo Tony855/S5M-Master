@@ -1922,7 +1922,7 @@ func runAgentWebSocketSession(cfg Config) error {
 						[]byte(configResponse.YAML), reloadMihomo, writeControllerConfig,
 					); commitErr != nil {
 						lastConfigSyncError = "Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error()
-						fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
+						fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
 						if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 							return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
 						}
