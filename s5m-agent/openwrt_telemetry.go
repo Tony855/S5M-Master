@@ -6,12 +6,18 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
 const openWrtTelemetryMaxBytes = 8 << 10
+
+var (
+	openWrtLogSecretPattern = regexp.MustCompile("(?i)\\b(password|passwd|token|secret|private_key)\\s*[:=]\\s*(\"[^\"]*\"|'[^']*'|[^\\s,;]+)")
+	openWrtLogBearerPattern = regexp.MustCompile("(?i)(authorization\\s*:\\s*bearer\\s+)[^\\s,;]+")
+)
 
 // collectOpenWrtTelemetry is deliberately read-only. It invokes only fixed ubus
 // methods (no shell, UCI writes, network changes, or caller-supplied arguments).
@@ -199,17 +205,8 @@ func collectOpenWrtSystemLogs() (string, bool) {
 func redactOpenWrtLog(raw string) string {
 	lines := strings.Split(raw, "\n")
 	for i, line := range lines {
-		lower := strings.ToLower(line)
-		for _, marker := range []string{"password=", "passwd=", "token=", "secret=", "authorization: bearer ", "private_key="} {
-			if index := strings.Index(lower, marker); index >= 0 {
-				end := strings.IndexAny(line[index+len(marker):], " \\t,;")
-				if end < 0 {
-					end = len(line) - index - len(marker)
-				}
-				line = line[:index+len(marker)] + "[REDACTED]" + line[index+len(marker)+end:]
-				lower = strings.ToLower(line)
-			}
-		}
+		line = openWrtLogSecretPattern.ReplaceAllString(line, "$1=[REDACTED]")
+		line = openWrtLogBearerPattern.ReplaceAllString(line, "$1[REDACTED]")
 		lines[i] = line
 	}
 	return strings.Join(lines, "\n")
