@@ -506,6 +506,25 @@ func (s *Store) SaveNodeConfig(machineCode, yamlText string) error {
 	return err
 }
 
+ // SaveNodeConfigIfUnchanged performs an optimistic write. It updates an existing
+ // row only when the YAML still matches the caller's snapshot; an absent row may
+ // be initialized only when expectedYAML is empty. This prevents background
+ // normalization from overwriting a newer manual edit.
+func (s *Store) SaveNodeConfigIfUnchanged(machineCode, expectedYAML, yamlText string) (bool, error) {
+	result, err := s.db.Exec(`INSERT INTO node_configs(machine_code,yaml_text,updated_at) VALUES(?,?,?)
+		ON CONFLICT(machine_code) DO UPDATE SET yaml_text=excluded.yaml_text, updated_at=excluded.updated_at
+		WHERE node_configs.yaml_text=?`,
+		machineCode, yamlText, time.Now().Format(time.RFC3339), expectedYAML)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
 // SaveNodeConfigIfEmpty 只初始化不存在或内容为空的节点配置。
 // 已存在的非空 YAML 不会被自动同步覆盖。
 // SaveNodeConfigs atomically replaces a batch of node configurations.
