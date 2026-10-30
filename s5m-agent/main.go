@@ -1328,7 +1328,7 @@ func runOpenWrtServiceAction(service, action string) (string, error) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			if err := exec.CommandContext(ctx, initScript, "restart").Run(); err != nil {
-				fmt.Printf("openwrt_agent_restart: failed: %s\\n", err.Error())
+				fmt.Printf("openwrt_agent_restart: failed: %s\n", err.Error())
 				openWrtAgentRestartMu.Lock()
 				openWrtAgentRestartScheduled = false
 				openWrtAgentRestartMu.Unlock()
