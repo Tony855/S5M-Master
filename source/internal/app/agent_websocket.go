@@ -208,6 +208,16 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetNodeTemplateStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template/nodes", nil))
 		case "system.logs.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
+		case "openwrt.router.reboot":
+			if !message.Confirm {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "必须明确确认后才能重启路由器"})
+				continue
+			}
+			if err := a.queueOpenWrtReboot(message.MachineCode); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "路由器重启命令已排队"})
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
 		case "agent.binding.generate":
@@ -573,6 +583,42 @@ func (a *App) queueAgentMihomoUpdate(machineCode, version, sha256sum string) err
 		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
 	}
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "version": version, "at": time.Now().Unix()})
+	return nil
+}
+
+func (a *App) queueOpenWrtReboot(machineCode string) error {
+	machineCode = strings.TrimSpace(machineCode)
+	if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(machineCode) {
+		return fmt.Errorf("机器码格式无效")
+	}
+	settings, err := a.store.GetSettings()
+	if err != nil {
+		return fmt.Errorf("读取 Agent 状态失败")
+	}
+	token := settings["agent_machine_"+machineCode]
+	if token == "" || token == settings["agent_token"] {
+		return fmt.Errorf("目标 Agent 未授权")
+	}
+	var status map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+machineCode]), &status); err != nil {
+		return fmt.Errorf("无法确认目标设备平台")
+	}
+	if status["platform"] != "openwrt" {
+		return fmt.Errorf("目标设备不是 OpenWrt，拒绝执行路由器重启")
+	}
+	command := map[string]string{"id": fmt.Sprintf("%d", time.Now().UnixNano()), "type": "reboot_openwrt"}
+	payload, err := json.Marshal(command)
+	if err != nil {
+		return fmt.Errorf("生成路由器重启命令失败")
+	}
+	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
+	if err != nil {
+		return fmt.Errorf("保存路由器重启命令失败")
+	}
+	if !created {
+		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+	}
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
 	return nil
 }
 
