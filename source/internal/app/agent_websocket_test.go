@@ -1355,12 +1355,18 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token)
 	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
-	if err != nil { t.Fatalf("dial authenticated WebSocket: %v", err) }
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
 	defer conn.Close()
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var welcome map[string]any
-	if err := conn.ReadJSON(&welcome); err != nil { t.Fatalf("read welcome: %v", err) }
-	if welcome["type"] != "welcome" { t.Fatalf("unexpected welcome: %#v", welcome) }
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if welcome["type"] != "welcome" {
+		t.Fatalf("unexpected welcome: %#v", welcome)
+	}
 
 	const reportedError = "Agent 配置同步失败: Mihomo reload rejected config"
 	status := map[string]any{
@@ -1374,12 +1380,16 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
-	if err := conn.ReadJSON(&ack); err != nil { t.Fatalf("read heartbeat ACK: %v", err) }
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
 	if ack["type"] != "heartbeat.ack" || ack["id"] != "hb-config-error" || ack["ok"] != true {
 		t.Fatalf("unexpected heartbeat ACK: %#v", ack)
 	}
 	settings, err := app.store.GetSettings()
-	if err != nil { t.Fatalf("read persisted Agent settings: %v", err) }
+	if err != nil {
+		t.Fatalf("read persisted Agent settings: %v", err)
+	}
 	var persisted map[string]any
 	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
 		t.Fatalf("decode persisted Agent status: %v", err)
@@ -1387,5 +1397,7 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 	if got, _ := persisted["last_error"].(string); got != reportedError {
 		t.Fatalf("persisted last_error = %q, want %q", got, reportedError)
 	}
-	if settings["agent_lastseen_"+code] == "" { t.Fatal("heartbeat timestamp was not persisted with error status") }
+	if settings["agent_lastseen_"+code] == "" {
+		t.Fatal("heartbeat timestamp was not persisted with error status")
+	}
 }
