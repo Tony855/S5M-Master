@@ -362,6 +362,9 @@
                       <span>主机名：<strong>{{ item.openwrt.board && item.openwrt.board.hostname || item.hostname || '未知' }}</strong></span>
                       <span>运行时间：<strong>{{ item.openwrt.system && item.openwrt.system.uptime != null ? item.openwrt.system.uptime + ' 秒' : '—' }}</strong></span>
                       <span>CPU 架构：<strong>{{ item.arch || '未知' }}</strong></span>
+                      <span>内存总量：<strong>{{ item.openwrt.system && item.openwrt.system.memory && item.openwrt.system.memory.total ? (Number(item.openwrt.system.memory.total) / 1048576).toFixed(0) + ' MB' : '—' }}</strong></span>
+                      <span>可用内存：<strong>{{ item.openwrt.system && item.openwrt.system.memory && item.openwrt.system.memory.free ? (Number(item.openwrt.system.memory.free) / 1048576).toFixed(0) + ' MB' : '—' }}</strong></span>
+                      <span v-for="disk in (item.openwrt.disk || [])" :key="disk.mount">{{ disk.mount }} 使用率：<strong>{{ disk.used_percent }}</strong></span>
                     </div>
                     <div style="font-weight:600;margin:10px 0 6px;">网络接口（ubus 实时状态）</div>
                     <el-table :data="item.openwrt.interfaces || []" size="small" style="width:100%;">
