@@ -940,12 +940,17 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	// Capture the pending command type before the atomic ACK removes it. The
 	// browser needs this discriminator to update the matching feature panel.
 	commandType := ""
-	if settings, err := a.store.GetSettings(); err == nil {
-		var pending map[string]any
-		if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) == nil &&
-			fmt.Sprint(pending["id"]) == commandID {
-			commandType, _ = pending["type"].(string)
-		}
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		return fmt.Errorf("读取待确认命令类型失败: %w", settingsErr)
+	}
+	var pending map[string]any
+	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) == nil &&
+		fmt.Sprint(pending["id"]) == commandID {
+		commandType, _ = pending["type"].(string)
+	}
+	if commandType == "" {
+		return fmt.Errorf("待确认命令类型不存在或命令 ID 不匹配")
 	}
 	// Treat Agent-provided command output as untrusted: redact credentials and
 	// local filesystem paths before persisting it or publishing it to the UI.
