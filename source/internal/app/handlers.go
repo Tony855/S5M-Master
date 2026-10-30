@@ -2245,8 +2245,12 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 			info.DesiredConfigSHA256 = fmt.Sprintf("%x", sum[:])
 		}
 		smartDNSConfig := settings["agent_smartdns_config_"+code]
-		if strings.TrimSpace(smartDNSConfig) == "" && status["smartdns_available"] == true { smartDNSConfig = defaultAgentSmartDNSConfig }
-		if strings.TrimSpace(smartDNSConfig) != "" { info.DesiredSmartDNSConfigSHA256 = hashSmartDNSConfig(smartDNSConfig) }
+		if strings.TrimSpace(smartDNSConfig) == "" && status["smartdns_available"] == true {
+			smartDNSConfig = defaultAgentSmartDNSConfig
+		}
+		if strings.TrimSpace(smartDNSConfig) != "" {
+			info.DesiredSmartDNSConfigSHA256 = hashSmartDNSConfig(smartDNSConfig)
+		}
 		result[code] = info
 	}
 
