@@ -389,6 +389,18 @@ func (a *App) publishBrowserEvent(event map[string]any) {
 	}
 }
 
+func closeAgentWebSocket(conn *websocket.Conn, reason string) {
+	if conn == nil {
+		return
+	}
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason),
+		time.Now().Add(time.Second),
+	)
+	_ = conn.Close()
+}
+
 type agentWSConnection struct {
 	conn *websocket.Conn
 }
@@ -568,7 +580,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Actively close the previous socket, rather than merely waiting for its
 	// next heartbeat/request to notice the generation change.
 	if previous := a.agentWSConnections[machineCode]; previous != nil && previous.conn != nil {
-		_ = previous.conn.Close()
+		closeAgentWebSocket(previous.conn, "Agent connection superseded")
 	}
 	session := &agentWSConnection{conn: conn}
 	a.agentWSConnections[machineCode] = session
