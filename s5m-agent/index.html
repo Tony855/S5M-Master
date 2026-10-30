@@ -93,7 +93,7 @@
       const data = await res.json();
       const btn = document.getElementById('btn');
       if (data.config_readable === false) {
-        btn.innerText = data.has_token ? '重新绑定' : '一键绑定设备';
+        btn.innerText = data.has_token ? '重新绑定' : '绑定设备';
         setStatus('error', '设备绑定状态暂不可用，请稍后重试或联系管理员');
       } else if (data.config_valid === false) {
         btn.innerText = '重试绑定';
@@ -103,7 +103,7 @@
         setStatus('', data.config_exists ? '未检测到有效绑定<密钥>，请重新绑定' : '设备尚未绑定');
       } else if (data.connected) {
         btn.innerText = '重新绑定';
-        setStatus('active', '节点设备已绑定，已连接');
+        setStatus('active', '✅节点设备已绑定成功，连接正常');
       } else {
         btn.innerText = '重新绑定';
         setStatus('', '已保存绑定信息，正在连接主控端…');
