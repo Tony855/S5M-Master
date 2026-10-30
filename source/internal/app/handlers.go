@@ -1690,6 +1690,12 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, validationError)
 		return
 	}
+	// Serialize registration with dedicated-token allocation and revocation.
+	// Otherwise a registration racing with deletion could receive a freshly
+	// minted JWT for a credential that was revoked while the request was in flight.
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 注册配置失败")
@@ -1756,9 +1762,10 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	yml := ""
 	if nodeConfig != nil {
-		yml = strings.TrimSpace(nodeConfig.YAML)
+		// Preserve exact stored bytes so the optimistic compare matches the DB snapshot.
+		yml = nodeConfig.YAML
 	}
-	if yml == "" {
+	if strings.TrimSpace(yml) == "" {
 		yml, err = a.BuildConfigForMachine(machineCode)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
@@ -1772,10 +1779,21 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if normalized != yml {
-		yml = normalized
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(machineCode, yml, normalized)
+		if saveErr != nil {
 			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
+		}
+		if updated {
+			yml = normalized
+		} else {
+			// Do not send a stale config after a concurrent manual save.
+			latest, readErr := a.store.GetNodeConfig(machineCode)
+			if readErr != nil || latest == nil {
+				writeErr(w, http.StatusInternalServerError, "重新读取并发更新后的节点配置失败")
+				return
+			}
+			yml = latest.YAML
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
@@ -2127,8 +2145,11 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
-	// cannot restore status after the binding has been deleted.
+	// Serialize revocation with token allocation as well as heartbeat persistence.
+	// Without the shared token lock, a concurrent generator could insert a new
+	// credential after this delete commits, effectively resurrecting the binding.
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
 	a.agentWSMu.Lock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {
 		a.agentWSMu.Unlock()
@@ -2142,6 +2163,14 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// before it can persist another heartbeat.
 	a.agentWSGeneration[code]++
 	delete(a.agentHeartbeatAt, code)
+	// Close the live socket immediately so a revoked idle Agent cannot remain
+	// connected until its next heartbeat timeout.
+	if session := a.agentWSConnections[code]; session != nil {
+		delete(a.agentWSConnections, code)
+		if session.conn != nil {
+			closeAgentWebSocket(session.conn, "Agent authorization revoked")
+		}
+	}
 	a.agentWSMu.Unlock()
 
 	// Publish only after revocation is committed and the Agent heartbeat lock is released.
@@ -2407,12 +2436,22 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if normalized != cfg.YAML {
-		if saveErr := a.store.SaveNodeConfig(code, normalized); saveErr != nil {
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(code, cfg.YAML, normalized)
+		if saveErr != nil {
 			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
 		}
-		// Keep any existing template/independent binding metadata intact; only refresh its config hash.
-		cfg.YAML = normalized
+		if updated {
+			// Keep any existing template/independent binding metadata intact; only refresh its config hash.
+			cfg.YAML = normalized
+		} else {
+			// A manual save won the race. Return the latest YAML instead of the stale snapshot.
+			cfg, err = a.store.GetNodeConfig(code)
+			if err != nil || cfg == nil {
+				writeErr(w, http.StatusInternalServerError, "重新读取并发更新后的节点配置失败")
+				return
+			}
+		}
 	}
 	writeJSON(w, 200, cfg)
 }
@@ -2449,8 +2488,12 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cfg map[string]any
-	if err := yaml.Unmarshal([]byte(in.YAML), &cfg); err != nil || len(cfg) == 0 {
-		writeErr(w, 400, "Mihomo YAML 格式错误或配置为空")
+	if err := yaml.Unmarshal([]byte(in.YAML), &cfg); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("Mihomo YAML 解析失败：%v", err))
+		return
+	}
+	if len(cfg) == 0 {
+		writeErr(w, http.StatusBadRequest, "Mihomo YAML 配置为空：至少需要一个顶层配置项")
 		return
 	}
 	secret, _ := cfg["secret"].(string)
