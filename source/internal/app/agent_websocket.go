@@ -52,6 +52,8 @@ type browserControlMessage struct {
 	RequestID       string `json:"request_id"`
 	MachineCode     string `json:"machine_code"`
 	ProxyID         string `json:"proxy_id"`
+	ProxyPayload    json.RawMessage `json:"proxy"`
+	YAML            string `json:"yaml"`
 	Version         string `json:"version"`
 	TemplateVersion int    `json:"template_version"`
 	SHA256          string `json:"sha256"`
@@ -233,6 +235,37 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "proxy.save":
+			idText := strings.TrimSpace(message.ProxyID)
+			method, path := http.MethodPost, "/api/v1/proxies"
+			if idText != "" {
+				id, err := strconv.ParseInt(idText, 10, 64)
+				if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+					_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+					continue
+				}
+				method, path = http.MethodPut, "/api/v1/proxies/"+idText
+			}
+			if len(message.ProxyPayload) == 0 || len(message.ProxyPayload) > 1<<20 || !json.Valid(message.ProxyPayload) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理数据无效或超过 1 MiB"})
+				continue
+			}
+			req := httptest.NewRequest(method, path, strings.NewReader(string(message.ProxyPayload)))
+			req.Header.Set("Content-Type", "application/json")
+			if idText != "" { req.SetPathValue("id", idText) }
+			handler := a.handleCreateProxy
+			if method == http.MethodPut { handler = a.handleUpdateProxy }
+			a.runBrowserHTTPHandler(client, message.RequestID, handler, req)
+		case "mihomo.template.validate":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/validate", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleValidateMihomoTemplate, req)
+		case "mihomo.template.save":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/mihomo/template", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleSaveMihomoTemplateDraft, req)
 		case "proxy.delete":
 			idText := strings.TrimSpace(message.ProxyID)
 			id, err := strconv.ParseInt(idText, 10, 64)

@@ -494,9 +494,8 @@ createApp({
       }
       updatingKernel.value = true;
       try {
-        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.update' });
+        const d = result.data || result;
         await loadMainMihomoStatus();
         const expectedVersion = String(d.version || '').trim();
         const actualVersion = String(mainMihomoStatus.value.version || '').trim();
@@ -654,27 +653,18 @@ createApp({
         if (proxyForm.username) extra.username = proxyForm.username;
         if (proxyForm.password) extra.password = proxyForm.password;
 
-        const res = await api(url, {
-          method: isEdit ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await sendBrowserWSControl({
+          type: 'proxy.save',
+          proxy_id: isEdit ? String(proxyForm.id) : '',
+          proxy: {
             name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
-          })
-        });
-        if (res.ok) {
-          proxyDialog.value = false; loadProxies(); showMsg('保存成功', 'success');
-        } else {
-          const message = await parseErr(res);
-          if (String(message).includes('同步失败') || String(message).includes('已保存') || String(message).includes('已更新')) {
-            proxyDialog.value = false;
-            await loadProxies();
-            showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
-          } else {
-            showMsg(message, 'error');
           }
-        }
+        });
+        proxyDialog.value = false;
+        await loadProxies();
+        showMsg('保存成功', 'success');
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       savingProxy.value = false;
     };
@@ -1036,12 +1026,8 @@ createApp({
       if (validatingTemplate.value) return;
       validatingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/validate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error([data.error || data.message || 'Mihomo 内核校验失败', data.detail].filter(Boolean).join('：'));
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.validate', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || 'Mihomo 内核校验通过', 'success');
       } catch (e) { showMsg(e.message || 'Mihomo 内核校验失败', 'error'); }
       finally { validatingTemplate.value = false; }
@@ -1052,12 +1038,8 @@ createApp({
       if (savingTemplate.value) return;
       savingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '保存模板草稿失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.save', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || '模板草稿已保存', 'success');
         await loadMihomoTemplate();
       } catch (e) { showMsg(e.message || '保存模板草稿失败', 'error'); }
