@@ -95,7 +95,7 @@ jobs:
           set -euo pipefail
           cd "$IMAGEBUILDER_DIR"
           make info | tee "$RUNNER_TEMP/imagebuilder-info.txt"
-          grep -Eq 'Profile: generic([[:space:]]|$)' "$RUNNER_TEMP/imagebuilder-info.txt"
+          grep -Eq '^generic:' "$RUNNER_TEMP/imagebuilder-info.txt"
 
           install -D -m 0755 "$RUNNER_TEMP/s5m-agent" files/usr/bin/s5m-agent
           install -D -m 0755 "$RUNNER_TEMP/mihomo" files/usr/bin/mihomo
@@ -115,7 +115,7 @@ jobs:
           grep -Eq '^  enable: false$' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'external-controller: 127.0.0.1:8088' files/usr/share/s5m-agent/default-config.yaml
           grep -Fq 'START=95' files/etc/init.d/s5m-agent
-          ! grep -Eq 'uci (set|delete) network\\.|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
+          ! grep -Eq 'uci .*network|ip route (add|del)|ifconfig ' files/etc/uci-defaults/99-s5m-agent
 
       - name: Build full OpenWrt image
         run: |
@@ -148,7 +148,7 @@ jobs:
             echo "Agent arch: ${{ matrix.goarch }}"
             echo "Profile: generic"
             echo "Images:"
-            printf '%s\\n' "$images"
+            echo "$images"
           } > "$RUNNER_TEMP/s5m-openwrt-output/BUILD-INFO.txt"
 
       - name: Upload firmware artifacts (no Release)
