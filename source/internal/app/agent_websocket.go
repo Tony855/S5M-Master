@@ -486,6 +486,7 @@ type agentWSConnection struct {
 // It is intentionally conservative: missing lifecycle evidence never means success.
 type agentRebootTracker struct {
 	CommandID           string `json:"command_id"`
+	CommandType         string `json:"command_type,omitempty"`
 	BaselineGeneration  uint64 `json:"baseline_generation"`
 	Acked               bool   `json:"acked"`
 	Disconnected        bool   `json:"disconnected"`
@@ -552,6 +553,7 @@ func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebo
 	result["reconnected"] = true
 	result["reconnected_at"] = at
 	result["reboot_status"] = "reconnected"
+	result["reconnect_status"] = "reconnected"
 	payload, err := json.Marshal(result)
 	if err != nil {
 		return err
@@ -789,12 +791,40 @@ func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) err
 	if err != nil {
 		return fmt.Errorf("生成 OpenWrt 服务命令失败")
 	}
-	created, err := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
-	if err != nil {
-		return fmt.Errorf("保存 OpenWrt 服务命令失败")
-	}
-	if !created {
-		return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+	if service == "agent" && action == "restart" {
+		a.agentWSMu.Lock()
+		if a.agentRebootTracking == nil {
+			a.agentRebootTracking = make(map[string]*agentRebootTracker)
+		}
+		tracker := &agentRebootTracker{
+			CommandID: command["id"], CommandType: command["type"],
+			BaselineGeneration: a.agentWSGeneration[machineCode],
+			QueuedAt: time.Now().Unix(), Status: "queued",
+		}
+		trackingPayload, marshalErr := json.Marshal(tracker)
+		if marshalErr != nil {
+			a.agentWSMu.Unlock()
+			return fmt.Errorf("生成 Agent 重启跟踪记录失败")
+		}
+		created, createErr := a.store.CreateAgentCommandWithTracking(machineCode, string(payload), string(trackingPayload))
+		if createErr != nil {
+			a.agentWSMu.Unlock()
+			return fmt.Errorf("保存 Agent 重启命令失败")
+		}
+		if !created {
+			a.agentWSMu.Unlock()
+			return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+		}
+		a.agentRebootTracking[machineCode] = tracker
+		a.agentWSMu.Unlock()
+	} else {
+		created, createErr := a.store.CreateSettingIfAbsent("agent_command_"+machineCode, string(payload))
+		if createErr != nil {
+			return fmt.Errorf("保存 OpenWrt 服务命令失败")
+		}
+		if !created {
+			return fmt.Errorf("该 Agent 已有待执行命令，请等待完成后重试")
+		}
 	}
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.queued", "machine_code": machineCode, "command_id": command["id"], "command_type": command["type"], "at": time.Now().Unix()})
 	return nil
