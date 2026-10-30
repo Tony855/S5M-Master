@@ -45,3 +45,18 @@ func TestOpenWrtUCIOptionRedaction(t *testing.T) {
 		t.Fatalf("non-sensitive UCI values should remain visible: %s", got)
 	}
 }
+
+func TestRedactOpenWrtLog(t *testing.T) {
+	input := "daemon.info service: started\n" +
+		"auth.notice login password=hunter2 token=abc123\n" +
+		"api: Authorization: Bearer abc.def.ghi\n"
+	got := redactOpenWrtLog(input)
+	for _, secret := range []string{"hunter2", "abc123", "abc.def.ghi"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("log secret %q was not redacted: %s", secret, got)
+		}
+	}
+	if !strings.Contains(got, "service: started") {
+		t.Fatalf("ordinary log content should remain: %s", got)
+	}
+}
