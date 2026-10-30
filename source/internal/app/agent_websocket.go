@@ -48,19 +48,23 @@ type browserEventClient struct {
 }
 
 type browserControlMessage struct {
-	Type            string `json:"type"`
-	RequestID       string `json:"request_id"`
-	MachineCode     string `json:"machine_code"`
-	ProxyID         string `json:"proxy_id"`
-	Version         string `json:"version"`
-	TemplateVersion int    `json:"template_version"`
-	SHA256          string `json:"sha256"`
-	Config          string `json:"config"`
-	ConfigYAML      string `json:"config_yaml"`
-	Note            string `json:"note"`
-	Confirm         bool   `json:"confirm"`
-	PasswordOld     string `json:"old"`
-	PasswordNew     string `json:"new"`
+	Type            string          `json:"type"`
+	RequestID       string          `json:"request_id"`
+	TaskID          string          `json:"task_id"`
+	MachineCode     string          `json:"machine_code"`
+	ProxyID         string          `json:"proxy_id"`
+	ProxyPayload    json.RawMessage `json:"proxy"`
+	YAML            string          `json:"yaml"`
+	ImportContent   string          `json:"content"`
+	Version         string          `json:"version"`
+	TemplateVersion int             `json:"template_version"`
+	SHA256          string          `json:"sha256"`
+	Config          string          `json:"config"`
+	ConfigYAML      string          `json:"config_yaml"`
+	Note            string          `json:"note"`
+	Confirm         bool            `json:"confirm"`
+	PasswordOld     string          `json:"old"`
+	PasswordNew     string          `json:"new"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -192,6 +196,12 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
 		case "mihomo.status.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMihomoStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/status", nil))
+		case "mihomo.update.start":
+			a.startMihomoUpdateTask(client, message.RequestID)
+		case "mihomo.update.status.get":
+			a.handleMihomoUpdateTaskStatus(client, message.RequestID, message.TaskID)
+		case "mihomo.update.latest.get":
+			a.handleLatestMihomoUpdateTaskStatus(client, message.RequestID)
 		case "mihomo.template.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
 		case "mihomo.template.nodes.get":
@@ -233,6 +243,50 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "proxy.save":
+			idText := strings.TrimSpace(message.ProxyID)
+			method, path := http.MethodPost, "/api/v1/proxies"
+			if idText != "" {
+				id, err := strconv.ParseInt(idText, 10, 64)
+				if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+					_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+					continue
+				}
+				method, path = http.MethodPut, "/api/v1/proxies/"+idText
+			}
+			if len(message.ProxyPayload) == 0 || len(message.ProxyPayload) > 1<<20 || !json.Valid(message.ProxyPayload) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理数据无效或超过 1 MiB"})
+				continue
+			}
+			req := httptest.NewRequest(method, path, strings.NewReader(string(message.ProxyPayload)))
+			req.Header.Set("Content-Type", "application/json")
+			if idText != "" {
+				req.SetPathValue("id", idText)
+			}
+			handler := a.handleCreateProxy
+			if method == http.MethodPut {
+				handler = a.handleUpdateProxy
+			}
+			a.runBrowserHTTPHandler(client, message.RequestID, handler, req)
+		case "proxies.import":
+			if len(message.ImportContent) > 1<<20 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理导入请求超过 1 MiB 限制"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]string{"content": message.ImportContent})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleImportProxies, req)
+		case "mihomo.template.validate":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/validate", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleValidateMihomoTemplate, req)
+		case "mihomo.template.save":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/mihomo/template", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleSaveMihomoTemplateDraft, req)
 		case "proxy.delete":
 			idText := strings.TrimSpace(message.ProxyID)
 			id, err := strconv.ParseInt(idText, 10, 64)

@@ -26,6 +26,10 @@ type App struct {
 	browserWSClients   map[*browserEventClient]struct{}
 	browserTicketMu    sync.Mutex
 	browserTickets     map[string]browserWSTicket
+	mihomoUpdateMu     sync.Mutex
+	mihomoUpdateTask   *mihomoUpdateTask
+	mihomoUpdateTasks  map[string]*mihomoUpdateTask
+	mihomoUpdateOrder  []string
 }
 
 func New(cfg Config) (*App, error) {

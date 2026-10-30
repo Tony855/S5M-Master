@@ -482,6 +482,17 @@ createApp({
       }
     };
 
+    const recoverMihomoUpdateTask = async () => {
+      try {
+        const result = await sendBrowserWSControl({ type: 'mihomo.update.latest.get' });
+        const task = result.data || null;
+        if (!task) { showMsg('没有可恢复的 Mihomo 更新任务', 'info'); return; }
+        const statusText = task.status === 'running' || task.status === 'queued' ? '仍在执行' : task.status === 'completed' ? '已完成' : '失败';
+        const detail = task.error || task.message || task.version || '';
+        showMsg('最近一次主控 Mihomo 更新' + statusText + '（任务 ' + task.task_id + '）' + (detail ? '：' + detail : ''), task.status === 'failed' ? 'error' : 'info');
+      } catch (e) { showMsg(e.message || '查询最近更新任务失败', 'error'); }
+    };
+
     const updateKernel = async () => {
       try {
         await ElementPlus.ElMessageBox.confirm(
@@ -494,19 +505,25 @@ createApp({
       }
       updatingKernel.value = true;
       try {
-        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
+        const started = await sendBrowserWSControl({ type: 'mihomo.update.start' });
+        const taskID = String((started.data || started).task_id || '');
+        if (!taskID) throw new Error('更新任务未返回有效任务 ID');
+        const deadline = Date.now() + 5 * 60 * 1000;
+        let task;
+        while (Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const result = await sendBrowserWSControl({ type: 'mihomo.update.status.get', task_id: taskID });
+          task = result.data || result;
+          if (task.status === 'completed' || task.status === 'failed') break;
+        }
+        if (!task || (task.status !== 'completed' && task.status !== 'failed')) throw new Error('更新仍在后台执行，任务 ID：' + taskID + '。可使用“查询最近更新任务”恢复查看。');
+        if (task.status === 'failed') throw new Error(task.error || '主控 Mihomo 更新失败');
         await loadMainMihomoStatus();
-        const expectedVersion = String(d.version || '').trim();
+        const expectedVersion = String(task.version || '').trim();
         const actualVersion = String(mainMihomoStatus.value.version || '').trim();
-        if (!mainMihomoStatus.value.online) {
-          throw new Error('更新请求已返回，但刷新状态显示主控 Mihomo 未正常运行；请查看状态诊断和服务日志。');
-        }
-        if (expectedVersion && actualVersion !== expectedVersion) {
-          throw new Error('版本确认不一致：更新接口返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
-        }
-        showMsg(d.message || 'Mihomo 运行版本已确认', d.status === 'latest' ? 'info' : 'success');
+        if (!mainMihomoStatus.value.online) throw new Error('更新任务已完成，但主控 Mihomo 当前未正常运行，请查看服务日志。');
+        if (expectedVersion && actualVersion !== expectedVersion) throw new Error('版本确认不一致：任务返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
+        showMsg(task.message || 'Mihomo 运行版本已确认', task.result_status === 'latest' ? 'info' : 'success');
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
@@ -654,28 +671,29 @@ createApp({
         if (proxyForm.username) extra.username = proxyForm.username;
         if (proxyForm.password) extra.password = proxyForm.password;
 
-        const res = await api(url, {
-          method: isEdit ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await sendBrowserWSControl({
+          type: 'proxy.save',
+          proxy_id: isEdit ? String(proxyForm.id) : '',
+          proxy: {
             name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
-          })
-        });
-        if (res.ok) {
-          proxyDialog.value = false; loadProxies(); showMsg('保存成功', 'success');
-        } else {
-          const message = await parseErr(res);
-          if (String(message).includes('同步失败') || String(message).includes('已保存') || String(message).includes('已更新')) {
-            proxyDialog.value = false;
-            await loadProxies();
-            showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
-          } else {
-            showMsg(message, 'error');
           }
+        });
+        proxyDialog.value = false;
+        await loadProxies();
+        showMsg('保存成功', 'success');
+      } catch (e) {
+        const message = e.message || '网络错误';
+        // Proxy persistence may succeed even when downstream node sync fails.
+        if (message.includes('同步失败') || message.includes('已保存') || message.includes('已更新')) {
+          proxyDialog.value = false;
+          await loadProxies();
+          showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
+        } else {
+          showMsg(message, 'error');
         }
-      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
+      }
       savingProxy.value = false;
     };
 
@@ -805,15 +823,10 @@ createApp({
       if (importing.value) return;
       importing.value = true;
       try {
-        // 后端 handleImportProxies 的请求结构是 { content: "多行文本" }。
-        // 不发送前端自行解析的 { proxies: [...] }，避免接口结构不匹配。
-        const res = await api('/api/v1/proxies/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        // Import is text/JSON content rather than a binary upload, so it uses the
+        // authenticated WebSocket control channel like other proxy mutations.
+        const result = await sendBrowserWSControl({ type: 'proxies.import', content });
+        const data = result.data || result;
         const success = Number(data.success) || 0;
         const fail = Number(data.fail) || 0;
         if (data.sync_failed) {
@@ -1036,12 +1049,8 @@ createApp({
       if (validatingTemplate.value) return;
       validatingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/validate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error([data.error || data.message || 'Mihomo 内核校验失败', data.detail].filter(Boolean).join('：'));
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.validate', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || 'Mihomo 内核校验通过', 'success');
       } catch (e) { showMsg(e.message || 'Mihomo 内核校验失败', 'error'); }
       finally { validatingTemplate.value = false; }
@@ -1052,12 +1061,8 @@ createApp({
       if (savingTemplate.value) return;
       savingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '保存模板草稿失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.save', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || '模板草稿已保存', 'success');
         await loadMihomoTemplate();
       } catch (e) { showMsg(e.message || '保存模板草稿失败', 'error'); }
@@ -1409,7 +1414,7 @@ createApp({
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout, loadOverview,
-      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      updateKernel, recoverMihomoUpdateTask, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
       fmtBytes, fmtSpeed

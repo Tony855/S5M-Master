@@ -53,12 +53,12 @@ checks = {
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "row.mode] || row.mode || 'return'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'return'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
-    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in ui and "同步失败" in ui,
+    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in app_js and "同步失败" in app_js,
     "proxy deletion sync failure refreshes list and offers retry": "if (message.includes('代理已删除'))" in app_js and "await loadProxies();" in app_js and "立即重试同步所有节点" in app_js,
     "bulk proxy import synchronizes authorized node configs and exposes partial failure": "if successCount > 0" in import_handler and "syncAuthorizedNodeConfigs()" in import_handler and '"sync_failed": syncFailed' in import_handler and "data.sync_failed" in app_js and "代理导入已完成" in app_js,
     "JSON proxy import inherits the top-level protocol without silently defaulting to SOCKS5": "parsedJSON.protocol || parsedJSON.type || parsedJSON.scheme" in app_js and "item.type || item.protocol || item.scheme || inheritedProtocol || ''" in app_js and "item.type || item.protocol || 'socks5'" not in app_js,
     "JSON proxy import preserves direct VMess links and protocol-specific VMess/SS options": "item.uri || item.url || item.link || item.proxy || item.vmess_link || item.vmessLink" in app_js and "if (type === 'vmess')" in app_js and "if (type === 'ss')" in app_js,
-    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "type: 'system.logs.get'" in app_js and "/api/v1/logs" not in app_js and "/api/v1/mihomo/update" in app_js and ("type: 'mihomo.status.get'" in app_js or "/api/v1/mihomo/status" in app_js),
+    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "type: 'system.logs.get'" in app_js and "/api/v1/logs" not in app_js and "type: 'mihomo.update.start'" in app_js and "type: 'mihomo.update.status.get'" in app_js and "mihomo.update.latest.get" in app_js and "recoverMihomoUpdateTask" in app_js and "/api/v1/mihomo/update" not in app_js and ("type: 'mihomo.status.get'" in app_js or "/api/v1/mihomo/status" in app_js),
     "master Mihomo update is distinguished from Agent updates and requires confirmation": "主控服务器 Mihomo 内核" in html and "当前 Mihomo 版本" in html and "systemd 服务状态" in html and "不会更新各个 Agent 节点" in html and "确认更新主控 Mihomo" in app_js and "ElementPlus.ElMessageBox.confirm" in app_js[app_js.index("const updateKernel ="):app_js.index("const loadSystemLogs")],
     "master Mihomo status distinguishes disk binary, systemd service, and live API version": '"api_version"' in handlers and '"api_online"' in handlers and '"version_mismatch"' in handlers and "runningMihomoAPIVersion" in handlers and "运行中 API 版本" in html and "mainMihomoStatus.api_error" in html,
     "system operations page is reachable through page navigation allowlist": "const PAGES = ['dashboard','proxies','instances','config','system']" in app_js and "if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }" in app_js,
@@ -212,11 +212,14 @@ checks.update({
         and "立即重试同步所有节点" in app_js
         and "type: 'proxy.delete'" in app_js
     ),
+    "proxy create and update use authenticated WebSocket RPC while preserving partial-sync recovery": "type: 'proxy.save'" in app_js and "proxy_id: isEdit ? String(proxyForm.id) : ''" in app_js and "代理数据已保存，但节点配置同步失败" in app_js,
+    "Mihomo template validate and draft save use authenticated WebSocket RPC": "type: 'mihomo.template.validate'" in app_js and "type: 'mihomo.template.save'" in app_js and "/api/v1/mihomo/template/validate" not in app_js and "/api/v1/mihomo/template'" not in app_js,
+    "proxy import text payload uses authenticated WebSocket RPC with 1 MiB server bound": "type: 'proxies.import'" in app_js and "/api/v1/proxies/import" not in app_js and 'case "proxies.import":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "len(message.ImportContent) > 1<<20" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "Proxy deletion uses authenticated WebSocket RPC with validated numeric ID": (
         "type: 'proxy.delete'" in app_js
         and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js
         and 'case "proxy.delete":' in browser_ws_source
-        and 'ProxyID         string `json:"proxy_id"`' in browser_ws_source
+        and 'ProxyID         string          `json:"proxy_id"`' in browser_ws_source
         and 'req.SetPathValue("id", strconv.FormatInt(id, 10))' in browser_ws_source
         and "a.handleDeleteProxy" in browser_ws_source
         and "Revalidate the administrator session for every browser RPC" in browser_ws_source
@@ -317,7 +320,7 @@ checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP f
 checks["Mihomo template publish/apply/rollback/delete mutations use explicit authenticated WebSocket RPC"] = (
     "type: 'mihomo.template.publish'" in app_js
     and "type: 'mihomo.template.apply'" in app_js
-    and 'TemplateVersion int    `json:"template_version"`' in browser_ws_source
+    and 'TemplateVersion int             `json:"template_version"`' in browser_ws_source
     and '"version": message.TemplateVersion' in browser_ws_source
     and "template_version: version" in app_js
     and "type: 'mihomo.template.rollback'" in app_js
@@ -365,8 +368,8 @@ checks["administrator password change uses authenticated WebSocket RPC, not HTTP
     "type: 'auth.password.change'" in app_js
     and "api('/api/v1/auth/password'" not in app_js
     and 'case "auth.password.change":' in browser_ws_source
-    and 'PasswordOld     string `json:"old"`' in browser_ws_source
-    and 'PasswordNew     string `json:"new"`' in browser_ws_source
+    and 'PasswordOld     string          `json:"old"`' in browser_ws_source
+    and 'PasswordNew     string          `json:"new"`' in browser_ws_source
     and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
     and "a.handlePassword" in browser_ws_source
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
