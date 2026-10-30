@@ -1753,7 +1753,6 @@ func TestQueueOpenWrtRebootPersistsCommandAndTrackingTogether(t *testing.T) {
 	}
 }
 
-
 func TestQueueOpenWrtAgentRestartPersistsReconnectTracking(t *testing.T) {
 	app, code, _ := websocketTestApp(t)
 	if err := app.store.UpdateSettings(map[string]string{
