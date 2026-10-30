@@ -1535,3 +1535,38 @@ func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoun
 		t.Fatalf("unexpected queued command: %#v", command)
 	}
 }
+
+func TestQueueOpenWrtServiceActionAllowlistAndAuthorization(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	if err := app.queueOpenWrtServiceAction(code, "mihomo", "restart"); err == nil {
+		t.Fatal("service action must reject a node without OpenWrt status")
+	}
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code:   `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range [][2]string{{"unknown", "restart"}, {"mihomo", "shell"}, {"agent", "stop"}, {"agent", "start"}} {
+		if err := app.queueOpenWrtServiceAction(code, input[0], input[1]); err == nil {
+			t.Fatalf("expected service/action %q/%q to be rejected", input[0], input[1])
+		}
+	}
+	if err := app.queueOpenWrtServiceAction(code, "mihomo", "stop"); err != nil {
+		t.Fatalf("queue Mihomo stop: %v", err)
+	}
+	if err := app.queueOpenWrtServiceAction(code, "mihomo", "start"); err == nil {
+		t.Fatal("must reject a second pending command")
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var command map[string]string
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil {
+		t.Fatal(err)
+	}
+	if command["type"] != "openwrt_service_action" || command["service"] != "mihomo" || command["action"] != "stop" || command["id"] == "" {
+		t.Fatalf("unexpected queued service command: %#v", command)
+	}
+}
