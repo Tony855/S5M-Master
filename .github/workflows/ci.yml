@@ -2,7 +2,7 @@ name: S5M CI
 
 on:
   push:
-    branches: [dev, main, "fix/**"]
+    branches: [dev, main, S5M-SmartDNS, "fix/**"]
   pull_request:
     branches: [dev, main, S5M-SmartDNS]
   workflow_dispatch:
