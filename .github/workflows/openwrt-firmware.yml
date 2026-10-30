@@ -14,7 +14,7 @@ env:
 
 jobs:
   build-firmware:
-    name: OpenWrt \${{ matrix.target }}-\${{ matrix.subtarget }} (\${{ matrix.goarch }})
+    name: OpenWrt ${{ matrix.target }}-${{ matrix.subtarget }} (${{ matrix.goarch }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -57,8 +57,6 @@ jobs:
       - name: Test and compile S5M Agent
         working-directory: s5m-agent
         env:
-          GOOS: linux
-          GOARCH: \${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
@@ -70,13 +68,13 @@ jobs:
 
       - name: Download and verify official Mihomo binary
         env:
-          ASSET: \${{ matrix.mihomo_asset }}
-          EXPECTED_SHA256: \${{ matrix.mihomo_sha }}
+          ASSET: ${{ matrix.mihomo_asset }}
+          EXPECTED_SHA256: ${{ matrix.mihomo_sha }}
         run: |
           set -euo pipefail
-          url="https://github.com/MetaCubeX/mihomo/releases/download/\${MIHOMO_VERSION}/\${ASSET}-\${MIHOMO_VERSION}.gz"
+          url="https://github.com/MetaCubeX/mihomo/releases/download/${MIHOMO_VERSION}/${ASSET}-${MIHOMO_VERSION}.gz"
           curl --fail --show-error --location --retry 3 --retry-all-errors "$url" -o "$RUNNER_TEMP/mihomo.gz"
-          echo "\${EXPECTED_SHA256}  $RUNNER_TEMP/mihomo.gz" | sha256sum -c -
+          echo "${EXPECTED_SHA256}  $RUNNER_TEMP/mihomo.gz" | sha256sum -c -
           gzip -dc "$RUNNER_TEMP/mihomo.gz" > "$RUNNER_TEMP/mihomo"
           chmod 0755 "$RUNNER_TEMP/mihomo"
           "$RUNNER_TEMP/mihomo" -v
@@ -84,8 +82,8 @@ jobs:
       - name: Download OpenWrt ImageBuilder
         run: |
           set -euo pipefail
-          archive="openwrt-imagebuilder-\${OPENWRT_VERSION}-\${{ matrix.imagebuilder }}.Linux-x86_64.tar.zst"
-          url="https://downloads.openwrt.org/releases/\${OPENWRT_VERSION}/targets/\${{ matrix.target }}/\${{ matrix.subtarget }}/\${archive}"
+          archive="openwrt-imagebuilder-${OPENWRT_VERSION}-${{ matrix.imagebuilder }}.Linux-x86_64.tar.zst"
+          url="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${{ matrix.target }}/${{ matrix.subtarget }}/${archive}"
           curl --fail --show-error --location --retry 3 --retry-all-errors "$url" -o "$RUNNER_TEMP/imagebuilder.tar.zst"
           echo "${{ matrix.imagebuilder_sha }}  $RUNNER_TEMP/imagebuilder.tar.zst" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/imagebuilder"
@@ -101,10 +99,10 @@ jobs:
 
           install -D -m 0755 "$RUNNER_TEMP/s5m-agent" files/usr/bin/s5m-agent
           install -D -m 0755 "$RUNNER_TEMP/mihomo" files/usr/bin/mihomo
-          install -D -m 0755 s5m-agent/openwrt/etc/init.d/s5m-agent ${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/init.d/s5m-agent
-          install -D -m 0644 s5m-agent/openwrt/etc/config/s5m-agent ${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/config/s5m-agent
-          install -D -m 0644 s5m-agent/index.html ${GITHUB_WORKSPACE}/s5m-agent/index.html
-          install -D -m 0644 s5m-agent/default-config.yaml ${GITHUB_WORKSPACE}/s5m-agent/default-config.yaml
+          install -D -m 0755 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/init.d/s5m-agent" files/etc/init.d/s5m-agent
+          install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/openwrt/etc/config/s5m-agent" files/etc/config/s5m-agent
+          install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/index.html" files/usr/share/s5m-agent/index.html
+          install -D -m 0644 "${GITHUB_WORKSPACE}/s5m-agent/default-config.yaml" files/usr/share/s5m-agent/default-config.yaml
 
           mkdir -p files/etc/uci-defaults
           cat > files/etc/uci-defaults/99-s5m-agent <<'EOF'
@@ -144,10 +142,10 @@ jobs:
           cp "$manifest" "$RUNNER_TEMP/s5m-openwrt-output/"
           (cd "$RUNNER_TEMP/s5m-openwrt-output" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
           {
-            echo "Target: \${{ matrix.target }}/\${{ matrix.subtarget }}"
+            echo "Target: ${{ matrix.target }}/${{ matrix.subtarget }}"
             echo "OpenWrt: $OPENWRT_VERSION"
             echo "Mihomo: $MIHOMO_VERSION"
-            echo "Agent arch: \${{ matrix.goarch }}"
+            echo "Agent arch: ${{ matrix.goarch }}"
             echo "Profile: generic"
             echo "Images:"
             printf '%s\\n' "$images"
@@ -156,7 +154,7 @@ jobs:
       - name: Upload firmware artifacts (no Release)
         uses: actions/upload-artifact@v4
         with:
-          name: s5m-openwrt-\${{ matrix.target }}-\${{ matrix.subtarget }}-\${{ github.sha }}
-          path: \${{ runner.temp }}/s5m-openwrt-output/
+          name: s5m-openwrt-${{ matrix.target }}-${{ matrix.subtarget }}-${{ github.sha }}
+          path: ${{ runner.temp }}/s5m-openwrt-output/
           if-no-files-found: error
           retention-days: 30
