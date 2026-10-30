@@ -2127,8 +2127,11 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "机器码和密钥不能为空")
 		return
 	}
-	// Serialize revocation with heartbeat persistence so a concurrent heartbeat
-	// cannot restore status after the binding has been deleted.
+	// Serialize revocation with token allocation as well as heartbeat persistence.
+	// Without the shared token lock, a concurrent generator could insert a new
+	// credential after this delete commits, effectively resurrecting the binding.
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
 	a.agentWSMu.Lock()
 	if err := a.store.DeleteAgentBinding(code); err != nil {
 		a.agentWSMu.Unlock()
