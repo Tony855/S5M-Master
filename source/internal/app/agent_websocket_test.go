@@ -699,12 +699,8 @@ func TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation(t *tes
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-revoked", "status": status}); err != nil {
 		t.Fatalf("send heartbeat after revocation: %v", err)
 	}
-	var response map[string]any
-	if err := conn.ReadJSON(&response); err != nil {
-		t.Fatalf("read revoked connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("revoked WebSocket should be rejected, got %#v", response)
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("revoked WebSocket should close cleanly, got %v", err)
 	}
 
 	settings, err := app.store.GetSettings()
@@ -963,12 +959,8 @@ func TestAgentWebSocketCannotReadConfigAfterAuthorizationRevocation(t *testing.T
 	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-after-revoke"}); err != nil {
 		t.Fatalf("send config request after revocation: %v", err)
 	}
-	var response map[string]any
-	if err := conn.ReadJSON(&response); err != nil {
-		t.Fatalf("read revoked connection response: %v", err)
-	}
-	if response["type"] != "error" || strings.Contains(fmt.Sprint(response["yaml"]), "retained-secret") {
-		t.Fatalf("revoked Agent must not receive config: %#v", response)
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("revoked Agent connection should close before config delivery, got %v", err)
 	}
 }
 
@@ -1005,15 +997,8 @@ func TestAgentWebSocketSupersededConnectionCannotReadPendingCommand(t *testing.T
 	if err := oldConn.WriteJSON(map[string]any{"type": "command.request", "id": "old-connection"}); err != nil {
 		t.Fatalf("send command request on superseded connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read superseded connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("superseded connection must not read pending command, got %#v", response)
-	}
-	if strings.Contains(fmt.Sprint(response["command"]), "cmd-current") {
-		t.Fatalf("superseded connection received command payload: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("superseded connection should close before command delivery, got %v", err)
 	}
 }
 
