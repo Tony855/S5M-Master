@@ -474,7 +474,7 @@ jobs:
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-      - name: Recheck stable release tag before GHCR push
+      - name: Verify stable release tag before GHCR push
         if: needs.build-and-publish.outputs.release_version != ''
         shell: bash
         env:
@@ -482,12 +482,31 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="s5m-agent-v${RELEASE_VERSION}"
-          if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
-            echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to push release image."
-            exit 1
-          fi
-          if [[ -n "${existing_tag_refs}" ]]; then
-            echo "::error title=Release tag already exists::${release_tag} already exists; refusing to push or overwrite its image."
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # A tag-triggered release must use the commit that the pushed tag resolves to.
+            if ! tag_commit="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"; then
+              echo "::error title=Tag verification failed::Could not resolve ${GITHUB_REF} to a commit."
+              exit 1
+            fi
+            if [[ "${tag_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "::error title=Tag commit mismatch::${release_tag} resolves to ${tag_commit}, but this workflow checked out ${GITHUB_SHA}."
+              exit 1
+            fi
+            echo "Verified tag ${release_tag} points to workflow commit ${GITHUB_SHA}."
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # A manually requested version must be unused before its image is published.
+            if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+              echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to push release image."
+              exit 1
+            fi
+            if [[ -n "${existing_tag_refs}" ]]; then
+              echo "::error title=Release tag already exists::${release_tag} already exists; refusing to push or overwrite its image."
+              exit 1
+            fi
+            echo "Verified ${release_tag} is unused for this manual release."
+          else
+            echo "::error title=Unexpected release trigger::Stable release version was set for unsupported event ${GITHUB_EVENT_NAME}."
             exit 1
           fi
 
