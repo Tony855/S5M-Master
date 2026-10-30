@@ -5,9 +5,14 @@ on:
     branches: [main, dev, s5m-agent-smartdns]
     tags: ["s5m-agent-v*"]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, s5m-agent-smartdns]
     paths:
       - "s5m-agent/**"
+      - "source/**"
+      - "docker/smartdns/**"
+      - ".github/workflows/s5m-agent-smartdns.yml"
+      - ".github/workflows/smartdns-image.yml"
+      - "docs/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/agent-images.yml"
