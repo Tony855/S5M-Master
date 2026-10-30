@@ -160,10 +160,54 @@ jobs:
           context: .
           file: s5m-agent/Dockerfile.smartdns
           platforms: linux/arm64
+          load: true
           push: false
           tags: s5m-agent-smartdns:arm64-test
           build-args: |
             SMARTDNS_REF=${{ env.SMARTDNS_REF }}
+
+      - name: Run ARM64 container startup and DNS smoke test
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="s5m-agent-smartdns-arm64-test"
+          data_dir="$(mktemp -d)"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            sudo rm -rf "$data_dir"
+          }
+          trap cleanup EXIT
+
+          docker run -d --name "$container" --restart no \
+            -p 127.0.0.1::80/tcp \
+            -p 127.0.0.1::7890/tcp \
+            -v "$data_dir:/data" \
+            s5m-agent-smartdns:arm64-test >/dev/null
+
+          for attempt in $(seq 1 60); do
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            if [[ "$state" != "running" ]]; then docker logs "$container" >&2; exit 1; fi
+            if [[ "$health" == "healthy" ]]; then break; fi
+            sleep 2
+          done
+
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          docker exec "$container" /healthcheck.sh
+          docker exec "$container" pidof mihomo >/dev/null
+          docker exec "$container" pidof smartdns >/dev/null
+
+          agent_port="$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          proxy_port="$(docker port "$container" 7890/tcp | awk -F: 'NR==1 {print $NF}')"
+          [[ -n "$agent_port" && -n "$proxy_port" ]]
+          curl --fail --silent --show-error --max-time 5 "http://127.0.0.1:${agent_port}/api/config" >/dev/null
+          nc -z -w 2 127.0.0.1 "$proxy_port"
+
+          if docker port "$container" 8088/tcp 2>/dev/null | grep -q .; then
+            echo "Mihomo controller API 8088 must not be published" >&2
+            exit 1
+          fi
 
   publish:
     name: Publish multi-arch image to GHCR
