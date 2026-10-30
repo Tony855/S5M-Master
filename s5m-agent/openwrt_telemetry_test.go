@@ -30,26 +30,18 @@ func TestPickOpenWrtFieldsAllowlist(t *testing.T) {
 }
 
 func TestOpenWrtUCIOptionRedaction(t *testing.T) {
-	input := []string{
-		"network.wan.proto='dhcp'",
-		"network.wan.password='sensitive'",
-		"network.wan.private_key='private'",
-		"firewall.@rule[0].name='allow-ssh'",
-	}
-	for i, line := range input {
-		left, _, _ := strings.Cut(line, "=")
-		option := strings.ToLower(left[strings.LastIndex(left, ".")+1:])
-		for _, sensitive := range []string{"password", "passwd", "secret", "token", "key", "psk", "private_key", "auth"} {
-			if option == sensitive || strings.Contains(option, sensitive) {
-				input[i] = left + "='[REDACTED]'"
-				break
-			}
+	input := "network.wan.proto='dhcp'\n" +
+		"network.wan.password='sensitive'\n" +
+		"network.wan.private_key='private'\n" +
+		"network.wan.username='operator'\n" +
+		"firewall.@rule[0].name='allow-ssh'\n"
+	got := redactOpenWrtUCIOutput(input)
+	for _, secret := range []string{"sensitive", "private'", "operator'"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sensitive UCI value %q was not redacted: %s", secret, got)
 		}
 	}
-	if strings.Contains(strings.Join(input, "\n"), "sensitive") || strings.Contains(strings.Join(input, "\n"), "private'") {
-		t.Fatal("sensitive UCI values were not redacted")
-	}
-	if !strings.Contains(strings.Join(input, "\n"), "allow-ssh") {
-		t.Fatal("non-sensitive UCI value should remain visible")
+	if !strings.Contains(got, "proto='dhcp'") || !strings.Contains(got, "allow-ssh") {
+		t.Fatalf("non-sensitive UCI values should remain visible: %s", got)
 	}
 }
