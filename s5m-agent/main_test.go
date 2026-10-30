@@ -1850,3 +1850,15 @@ func TestSafeMihomoValidationDiagnosticRedactsQuotedCredentialsAndBearerTokens(t
 		t.Fatalf("expected credential values and bearer token to be redacted: %q", got)
 	}
 }
+
+
+func TestAgentWebIndexPathOverride(t *testing.T) {
+	t.Setenv("S5M_WEB_INDEX", "/usr/share/s5m-agent/index.html")
+	if got, want := agentWebIndexPath(), "/usr/share/s5m-agent/index.html"; got != want {
+		t.Fatalf("agentWebIndexPath() = %q, want %q", got, want)
+	}
+	t.Setenv("S5M_WEB_INDEX", " ")
+	if got, want := agentWebIndexPath(), "/app/index.html"; got != want {
+		t.Fatalf("agentWebIndexPath() = %q, want default %q", got, want)
+	}
+}
