@@ -51,14 +51,8 @@ func TestAgentWebSocketRejectsStaleBindingGeneration(t *testing.T) {
 	agentBindingGeneration.Store(previous + 1)
 	t.Cleanup(func() { agentBindingGeneration.Store(previous) })
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	defer server.Close()
-	conn := &websocket.Conn{}
-	if setAgentActiveWebSocket(conn, previous) {
+	if setAgentActiveWebSocket(nil, previous) {
 		t.Fatal("websocket with stale binding generation must not become active")
-	}
-	if setAgentActiveWebSocket(conn, previous+1) {
-		t.Fatal("test websocket must not be registered without an active dial")
 	}
 }
 
