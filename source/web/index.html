@@ -372,8 +372,8 @@
             <el-button @click="loadNodeConfig" :disabled="!selectedConfigNode">重新加载 YAML</el-button>
           </div>
           <div class="instance-link-summary" style="align-items:center;gap:14px;margin:10px 0;">
-            <label style="display:flex;align-items:center;gap:8px;">TUN <el-switch v-model="configTunEnabled" /></label>
-            <label style="display:flex;align-items:center;gap:8px;">DNS <el-switch v-model="configDnsEnabled" /></label>
+            <label style="display:flex;align-items:center;gap:8px;">TUN <el-switch v-model="configTunEnabled" @change="applyConfigQuickSettings" /></label>
+            <label style="display:flex;align-items:center;gap:8px;">DNS <el-switch v-model="configDnsEnabled" @change="applyConfigQuickSettings" /></label>
             <el-input v-model="configDnsNameservers" type="textarea" :rows="2" placeholder="DNS nameserver，每行一个地址" style="min-width:240px;flex:1;" />
             <el-button size="small" @click="applyConfigQuickSettings" :disabled="!selectedConfigNode">应用快捷设置到 YAML</el-button>
           </div>
