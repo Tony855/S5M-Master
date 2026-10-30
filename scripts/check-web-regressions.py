@@ -170,6 +170,11 @@ checks.update(instance_card_checks)
 
 
 checks.update({
+    "Mihomo DNS/TUN quick toggles read only top-level YAML sections and normalize boolean values": (
+        "const start = lines.findIndex(line => new RegExp('^' + section" in app_js
+        and "const isYamlEnabled = value => /^(?:true|yes|on)$/i.test" in app_js
+        and "configDnsEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'dns', 'enable'))" in app_js
+    ),
     "desktop proxy list displays the persisted source IP CIDR": 'prop="source_cidr" label="源 IP (CIDR)"' in html,
     "mobile proxy cards display the persisted source IP CIDR with legacy fallback": 'proxy-mobile-label">源 IP (CIDR)' in html and "item.source_cidr ||" in html,
     "desktop proxy association label handles global sentinel before generic machine code": (
