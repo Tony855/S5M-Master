@@ -331,8 +331,11 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Validate ARM64 image contents
+      - name: Validate ARM64 image contents and architecture
+        shell: bash
         run: |
+          set -euo pipefail
+          docker image inspect s5m-agent:arm64-test --format '{{.Os}}/{{.Architecture}}' | grep -Fx 'linux/arm64'
           docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /init && test -x /etc/cont-init.d/10-mihomo-config && test -x /etc/s6-overlay/s6-rc.d/mihomo/run && test -x /etc/s6-overlay/s6-rc.d/agent/run && /usr/local/bin/mihomo -v'
 
       - name: Export ARM64 archive
