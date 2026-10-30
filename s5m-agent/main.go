@@ -2085,6 +2085,15 @@ func runAgentWebSocketSession(cfg Config) error {
 	}
 }
 
+// Serialize the complete registration exchange and credential commit. Concurrent
+// bind requests must not interleave controller registrations and local token writes.
+var agentBindMu sync.Mutex
+
+func lockAgentBind() func() {
+	agentBindMu.Lock()
+	return agentBindMu.Unlock
+}
+
 var agentConnected atomic.Bool
 
 func agentConfigHandler(w http.ResponseWriter, r *http.Request) {
@@ -2146,6 +2155,11 @@ func main() {
 				http.Error(w, "仅允许 POST", http.StatusMethodNotAllowed)
 				return
 			}
+			// Hold the lock through remote registration and the atomic local commit:
+			// otherwise overlapping requests can leave the controller and agent.json
+			// referring to different registration tokens.
+			unlockBind := lockAgentBind()
+			defer unlockBind()
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 			var in struct {
 				CentralURL string `json:"central_url"`
