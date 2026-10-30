@@ -1813,7 +1813,6 @@ func TestTimedOutRebootCannotBecomeSuccessfulFromLateDuplicateACK(t *testing.T) 
 	}
 }
 
-
 func TestUnacknowledgedRebootTrackingResumesOnNewControllerSession(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	tracker := &agentRebootTracker{
