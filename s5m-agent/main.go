@@ -218,6 +218,15 @@ func configHashSource() ([]byte, error) {
 
 // controllerConfigHash follows the WebSocket contract: hash exact payload bytes.
 // Do not trim whitespace or re-serialize YAML before hashing.
+// controllerConfigNeedsApply reports whether the exact controller payload has
+// been committed as the last successfully reloaded configuration. A mismatch
+// requires a reload even when config.yaml already contains identical YAML:
+// the Agent may have restarted after the file rename but before Mihomo reload.
+func controllerConfigNeedsApply(config []byte) bool {
+	current, err := os.ReadFile(controllerConfigPath())
+	return err != nil || len(current) == 0 || string(current) != string(config)
+}
+
 func controllerConfigHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
@@ -337,28 +346,7 @@ func writeManagedRouteCIDRs(values []string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(mihomoHome(), ".controller-routes-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, managedRouteCIDRsPath())
+	return atomicWriteFile(managedRouteCIDRsPath(), data, 0600)
 }
 
 // ensureV2NetDirectRule keeps the S5M controller domain family out of proxy-node routing.
@@ -556,12 +544,13 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 		return false, err
 	}
 	// Keep a rollback copy until Mihomo confirms the reload succeeded.
-	if err := os.WriteFile(path+".previous", data, 0600); err != nil {
+	if err := atomicWriteFile(path+".previous", data, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := atomicWriteFile(path, normalized, 0600); err != nil {
 		return false, err
 	}
+	_ = os.Remove(tmpPath)
 	if err := writeManagedRouteCIDRs(cidrs); err != nil {
 		return true, fmt.Errorf("已更新 TUN 排除地址，但保存动态地址记录失败: %w", err)
 	}
@@ -644,19 +633,16 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if string(oldNorm) == string(newNorm) {
-		if strings.TrimSpace(centralURL) != "" {
-			if len(managedCentralCIDRs) > 0 {
-				if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
-					return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
-				}
-			}
-			// Commit the source hash last so a metadata write failure cannot
-			// make the controller believe an unapplied config is already active.
-			if err := writeControllerConfig(agentYml); err != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
+		if strings.TrimSpace(centralURL) != "" && len(managedCentralCIDRs) > 0 {
+			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
+				return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
 			}
 		}
-		return false, nil
+		// The on-disk runtime YAML can already match after an interrupted
+		// apply. Do not advance the controller hash here: force the caller
+		// through reload + hash commit so a restarted Agent cannot report
+		// an unapplied config as successful.
+		return controllerConfigNeedsApply(agentYml), nil
 	}
 	if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败")
