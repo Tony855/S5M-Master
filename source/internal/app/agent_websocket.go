@@ -949,6 +949,16 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 		fmt.Sprint(pending["id"]) == commandID {
 		commandType, _ = pending["type"].(string)
 	}
+	// The store deliberately accepts idempotent duplicate ACKs after the
+	// pending command has been removed. Recover the original type from that
+	// persisted result so a reconnect/retry still produces the same UI event.
+	if commandType == "" {
+		var previous map[string]any
+		if json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &previous) == nil &&
+			fmt.Sprint(previous["id"]) == commandID {
+			commandType, _ = previous["type"].(string)
+		}
+	}
 	if commandType == "" {
 		return fmt.Errorf("待确认命令类型不存在或命令 ID 不匹配")
 	}
