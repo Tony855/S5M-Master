@@ -30,7 +30,10 @@ createApp({
     const generatedToken = ref('');
     const generating = ref(false);
     const agentEntries = ref([]);
-    const openWrtExpandedNode = ref('');\n    const openWrtLogQuery = ref('');\n    const openWrtLogLevel = ref('all');\n    const rebootingOpenWrtNode = ref('');
+    const openWrtExpandedNode = ref('');
+    const openWrtLogQuery = ref('');
+    const openWrtLogLevel = ref('all');
+    const rebootingOpenWrtNode = ref('');
     const agentLoadError = ref('');
     const agentLoading = ref(false);
     const agentSearch = ref('');
