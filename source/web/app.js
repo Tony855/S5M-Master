@@ -494,19 +494,25 @@ createApp({
       }
       updatingKernel.value = true;
       try {
-        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
+        const started = await sendBrowserWSControl({ type: 'mihomo.update.start' });
+        const taskID = String((started.data || started).task_id || '');
+        if (!taskID) throw new Error('更新任务未返回有效任务 ID');
+        const deadline = Date.now() + 5 * 60 * 1000;
+        let task;
+        while (Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const result = await sendBrowserWSControl({ type: 'mihomo.update.status.get', task_id: taskID });
+          task = result.data || result;
+          if (task.status === 'completed' || task.status === 'failed') break;
+        }
+        if (!task || (task.status !== 'completed' && task.status !== 'failed')) throw new Error('更新仍在后台执行，任务 ID：' + taskID + '。重新连接后可查询任务状态。');
+        if (task.status === 'failed') throw new Error(task.error || '主控 Mihomo 更新失败');
         await loadMainMihomoStatus();
-        const expectedVersion = String(d.version || '').trim();
+        const expectedVersion = String(task.version || '').trim();
         const actualVersion = String(mainMihomoStatus.value.version || '').trim();
-        if (!mainMihomoStatus.value.online) {
-          throw new Error('更新请求已返回，但刷新状态显示主控 Mihomo 未正常运行；请查看状态诊断和服务日志。');
-        }
-        if (expectedVersion && actualVersion !== expectedVersion) {
-          throw new Error('版本确认不一致：更新接口返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
-        }
-        showMsg(d.message || 'Mihomo 运行版本已确认', d.status === 'latest' ? 'info' : 'success');
+        if (!mainMihomoStatus.value.online) throw new Error('更新任务已完成，但主控 Mihomo 当前未正常运行，请查看服务日志。');
+        if (expectedVersion && actualVersion !== expectedVersion) throw new Error('版本确认不一致：任务返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
+        showMsg(task.message || 'Mihomo 运行版本已确认', task.result_status === 'latest' ? 'info' : 'success');
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }

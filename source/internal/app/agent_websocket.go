@@ -50,6 +50,7 @@ type browserEventClient struct {
 type browserControlMessage struct {
 	Type            string          `json:"type"`
 	RequestID       string          `json:"request_id"`
+	TaskID          string          `json:"task_id"`
 	MachineCode     string          `json:"machine_code"`
 	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
@@ -195,6 +196,10 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
 		case "mihomo.status.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMihomoStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/status", nil))
+		case "mihomo.update.start":
+			a.startMihomoUpdateTask(client, message.RequestID)
+		case "mihomo.update.status.get":
+			a.handleMihomoUpdateTaskStatus(client, message.RequestID, message.TaskID)
 		case "mihomo.template.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
 		case "mihomo.template.nodes.get":
