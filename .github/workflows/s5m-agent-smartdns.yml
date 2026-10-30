@@ -1,5 +1,7 @@
 name: S5M Agent + SmartDNS image
 
+# CI validation: keep this workflow covered by PR checks on the dedicated SmartDNS branch.
+
 on:
   pull_request:
     branches: [s5m-agent-smartdns]
