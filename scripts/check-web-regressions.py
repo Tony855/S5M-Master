@@ -254,6 +254,8 @@ checks.update({
     ),
     "existing YAML editor provides TUN/DNS shortcuts on the same YAML model": (
         "configTunEnabled" in html and "configDnsEnabled" in html
+        and 'v-model="configTunEnabled" @change="applyConfigQuickSettings"' in html
+        and 'v-model="configDnsEnabled" @change="applyConfigQuickSettings"' in html
         and "configDnsNameservers" in html and "applyConfigQuickSettings" in html
         and "setYamlScalar" in app_js
         and "yamlChildIndent" in app_js and "findYamlChild" in app_js
