@@ -1782,3 +1782,34 @@ func TestQueueOpenWrtAgentRestartPersistsReconnectTracking(t *testing.T) {
 		t.Fatalf("Agent restart must be queued with durable reconnect tracking: command=%#v tracker=%#v", command, tracker)
 	}
 }
+
+
+func TestTimedOutRebootCannotBecomeSuccessfulFromLateDuplicateACK(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	tracker := &agentRebootTracker{
+		CommandID: "timed-out-reboot", CommandType: "reboot_openwrt",
+		BaselineGeneration: 4, Acked: true, Disconnected: true,
+		QueuedAt: time.Now().Add(-6 * time.Minute).Unix(), Status: "timeout",
+	}
+	trackingPayload, err := json.Marshal(tracker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultPayload := `{"id":"timed-out-reboot","type":"reboot_openwrt","status":"success","updated_at":100}`
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_reboot_tracking_" + code: string(trackingPayload),
+		"agent_command_result_" + code:  resultPayload,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app.agentRebootTracking = map[string]*agentRebootTracker{code: tracker}
+	app.agentWSMu.Lock()
+	err = app.ackAgentWSCommand(code, tracker.CommandID, "success", "late duplicate ACK")
+	app.agentWSMu.Unlock()
+	if err != nil {
+		t.Fatalf("duplicate ACK should be idempotent: %v", err)
+	}
+	if tracker.Status != "timeout" {
+		t.Fatalf("late duplicate ACK must not revive timed-out verification: %#v", tracker)
+	}
+}
