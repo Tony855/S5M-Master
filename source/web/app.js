@@ -352,7 +352,7 @@ createApp({
             } else {
               loadAgentsData();
             }
-          } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
+          } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued' || message.type === 'agent.command.reconnected') && message.machine_code) {
             const code = String(message.machine_code);
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
@@ -369,7 +369,7 @@ createApp({
             // The server has atomically persisted the ACK and cleared the pending
             // command. Refresh the authoritative snapshot so the node card reflects
             // command_result instead of only the transient browser event fields.
-            if (message.type === 'agent.command.updated') {
+            if (message.type === 'agent.command.updated' || message.type === 'agent.command.reconnected') {
               Promise.resolve().then(() => loadAgentsData());
             }
           }
