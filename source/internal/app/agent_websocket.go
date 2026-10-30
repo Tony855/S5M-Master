@@ -937,6 +937,16 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
+	// Capture the pending command type before the atomic ACK removes it. The
+	// browser needs this discriminator to update the matching feature panel.
+	commandType := ""
+	if settings, err := a.store.GetSettings(); err == nil {
+		var pending map[string]any
+		if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) == nil &&
+			fmt.Sprint(pending["id"]) == commandID {
+			commandType, _ = pending["type"].(string)
+		}
+	}
 	// Treat Agent-provided command output as untrusted: redact credentials and
 	// local filesystem paths before persisting it or publishing it to the UI.
 	message = sanitizeAgentWebSocketText(message)
@@ -947,7 +957,7 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
 	}
-	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
-	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
+	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\\n", machineCode, commandID, status, message)
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "command_type": commandType, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
 }
