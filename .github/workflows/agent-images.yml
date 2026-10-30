@@ -613,6 +613,29 @@ jobs:
             sha256sum --check s5m-agent-routeros-arm64.tar.sha256
           )
 
+          expected_files=(
+            dist/amd64/s5m-agent-linux-amd64.tar
+            dist/amd64/s5m-agent-linux-amd64.tar.sha256
+            dist/arm64/s5m-agent-linux-arm64.tar
+            dist/arm64/s5m-agent-linux-arm64.tar.sha256
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar.sha256
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar.sha256
+          )
+          for asset in "${expected_files[@]}"; do
+            [[ -s "${asset}" ]] || {
+              echo "::error title=Release asset missing::${asset} is missing or empty."
+              exit 1
+            }
+          done
+          actual_count="$(find dist -type f | wc -l | tr -d ' ')"
+          [[ "${actual_count}" == "${#expected_files[@]}" ]] || {
+            echo "::error title=Unexpected release asset count::Expected ${#expected_files[@]} files, found ${actual_count}."
+            find dist -type f -print >&2
+            exit 1
+          }
+
       - name: Publish release and attach archives
         if: steps.release_gate.outputs.enabled == 'true'
         uses: softprops/action-gh-release@v2
@@ -621,6 +644,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.release_gate.outputs.name }}
           generate_release_notes: true
+          make_latest: true
+          prerelease: false
+          draft: false
+          # Re-running the same immutable tag replaces matching assets instead of duplicating them.
+          overwrite_files: true
           fail_on_unmatched_files: true
           files: |
             dist/amd64/s5m-agent-linux-amd64.tar
