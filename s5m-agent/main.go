@@ -1814,6 +1814,14 @@ func applyAgentControlError(status map[string]any, controlErr string) {
 	status["last_error"] = controlErr
 }
 
+func recordAgentConfigSyncFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	setAgentConfigSyncError("Agent 配置同步失败: " + err.Error())
+	return err
+}
+
 func controllerWebSocketResponseError(operation, message string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -1919,7 +1927,7 @@ func runAgentWebSocketSession(cfg Config) error {
 		if err := writeAgentWSJSON(conn, map[string]string{
 			"type": "config.request", "id": configRequestID, "config_sha256": localHash,
 		}); err != nil {
-			return fmt.Errorf("请求配置失败：%w", err)
+			return recordAgentConfigSyncFailure(fmt.Errorf("请求配置失败：%w", err))
 		}
 		var configResponse struct {
 			Type    string `json:"type"`
@@ -1929,26 +1937,26 @@ func runAgentWebSocketSession(cfg Config) error {
 			Message string `json:"message"`
 		}
 		if err := readAgentWSJSON(conn, &configResponse, 90*time.Second); err != nil {
-			return fmt.Errorf("读取配置响应失败：%w", err)
+			return recordAgentConfigSyncFailure(fmt.Errorf("读取配置响应失败：%w", err))
 		}
 		if configResponse.ID != configRequestID {
-			return fmt.Errorf("WebSocket 配置响应 ID 不匹配")
+			return recordAgentConfigSyncFailure(fmt.Errorf("WebSocket 配置响应 ID 不匹配"))
 		}
 		if configResponse.Type == "error" {
-			return controllerWebSocketResponseError("配置请求", configResponse.Message)
+			return recordAgentConfigSyncFailure(controllerWebSocketResponseError("配置请求", configResponse.Message))
 		}
 		switch configResponse.Type {
 		case "config.unchanged":
 			clearAgentConfigSyncError()
 		case "config.sync":
 			if strings.TrimSpace(configResponse.YAML) == "" {
-				return fmt.Errorf("主控端返回空配置")
+				return recordAgentConfigSyncFailure(fmt.Errorf("主控端返回空配置"))
 			}
 			configHash := controllerConfigHash([]byte(configResponse.YAML))
 			if !strings.EqualFold(configHash, strings.TrimSpace(configResponse.SHA256)) {
 				// Keep strict verification, and expose hashes/size rather than the YAML
 				// body so operators can diagnose stale Agent builds or payload mutation.
-				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用（收到=%s，计算=%s，字节数=%d）", strings.TrimSpace(configResponse.SHA256), configHash, len(configResponse.YAML))
+				return recordAgentConfigSyncFailure(fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用（收到=%s，计算=%s，字节数=%d）", strings.TrimSpace(configResponse.SHA256), configHash, len(configResponse.YAML)))
 			}
 			oldManagedRoutes := readManagedRouteCIDRs()
 			oldManagedRouteValues := make([]string, 0, len(oldManagedRoutes))
@@ -1968,13 +1976,13 @@ func runAgentWebSocketSession(cfg Config) error {
 					setAgentConfigSyncError("Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error())
 					fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-						return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
+						return recordAgentConfigSyncFailure(fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr))
 					}
 					if stateErr := writeManagedRouteCIDRs(oldManagedRouteValues); stateErr != nil {
-						return fmt.Errorf("配置已回滚，但动态主控地址记录恢复失败: %w", stateErr)
+						return recordAgentConfigSyncFailure(fmt.Errorf("配置已回滚，但动态主控地址记录恢复失败: %w", stateErr))
 					}
 					if retryErr := reloadMihomo(); retryErr != nil {
-						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
+						return recordAgentConfigSyncFailure(fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr))
 					}
 				} else {
 					clearAgentConfigSyncError()
@@ -1986,7 +1994,7 @@ func runAgentWebSocketSession(cfg Config) error {
 				clearAgentConfigSyncError()
 			}
 		default:
-			return fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type)
+			return recordAgentConfigSyncFailure(fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type))
 		}
 
 		// 3. Fetch and acknowledge commands over this same persistent socket.
