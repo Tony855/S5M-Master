@@ -2187,6 +2187,10 @@ func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 			switch cmd.Type {
 			case "update_mihomo":
 				message, commandErr = updateMihomoKernel(cmd)
+			case "reboot_openwrt":
+				message, commandErr = scheduleOpenWrtReboot()
+			case "openwrt_service_action":
+				message, commandErr = runOpenWrtServiceAction(cmd.Service, cmd.Action)
 			default:
 				commandErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 			}
