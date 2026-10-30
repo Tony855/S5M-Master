@@ -1287,18 +1287,25 @@ func scheduleOpenWrtReboot() (string, error) {
 var openWrtAgentRestartMu sync.Mutex
 var openWrtAgentRestartScheduled bool
 
+func validateOpenWrtServiceAction(service, action string) error {
+	if service != "mihomo" && service != "agent" {
+		return fmt.Errorf("不支持的 OpenWrt 服务")
+	}
+	if action != "start" && action != "stop" && action != "restart" {
+		return fmt.Errorf("不支持的服务操作")
+	}
+	if service == "agent" && action != "restart" {
+		return fmt.Errorf("为避免失去远程管理通道，Agent 仅允许远程重启")
+	}
+	return nil
+}
+
 func runOpenWrtServiceAction(service, action string) (string, error) {
 	if _, err := os.Stat("/etc/openwrt_release"); err != nil {
 		return "", fmt.Errorf("当前设备不是 OpenWrt，拒绝执行服务操作")
 	}
-	if service != "mihomo" && service != "agent" {
-		return "", fmt.Errorf("不支持的 OpenWrt 服务")
-	}
-	if action != "start" && action != "stop" && action != "restart" {
-		return "", fmt.Errorf("不支持的服务操作")
-	}
-	if service == "agent" && action != "restart" {
-		return "", fmt.Errorf("为避免失去远程管理通道，Agent 仅允许远程重启")
+	if err := validateOpenWrtServiceAction(service, action); err != nil {
+		return "", err
 	}
 	initScript := "/etc/init.d/s5m-mihomo"
 	if service == "agent" {
