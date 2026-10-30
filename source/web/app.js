@@ -1149,7 +1149,225 @@ createApp({
 
     const yamlIndent = line => (String(line || '').match(/^\\s*/) || [''])[0].length;
     const yamlSectionBounds = (lines, section) => {
-      const start = lines.findIndex(line => new RegExp('^\\s*' + section + ':\\s*(?:#.*)?$').test(line));
+      // Mihomo root sections (dns/tun) must be matched at column zero.
+      // Indented keys with the same name must never control the quick toggles.
+      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?
+      if (start < 0) return null;
+      const sectionIndent = yamlIndent(lines[start]);
+      let end = start + 1;
+      while (end < lines.length) {
+        const line = lines[end];
+        if (line.trim() && !/^\\s*#/.test(line) && yamlIndent(line) <= sectionIndent) break;
+        end++;
+      }
+      return { start, end, sectionIndent };
+    };
+    const yamlChildIndent = (lines, bounds) => {
+      for (let i = bounds.start + 1; i < bounds.end; i++) {
+        if (lines[i].trim() && !/^\\s*#/.test(lines[i])) return yamlIndent(lines[i]);
+      }
+      return bounds.sectionIndent + 2;
+    };
+    const setYamlScalar = (yaml, section, key, value) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      if (!bounds) {
+        if (lines.length && lines[lines.length - 1].trim()) lines.push('');
+        lines.push(section + ':', '  ' + key + ': ' + value);
+      } else {
+        const indent = yamlChildIndent(lines, bounds);
+        const re = new RegExp('^\\s*' + key + ':');
+        const index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && yamlIndent(line) === indent && re.test(line.trim()));
+        if (index >= 0) lines[index] = ' '.repeat(indent) + key + ': ' + value;
+        else lines.splice(bounds.start + 1, 0, ' '.repeat(indent) + key + ': ' + value);
+      }
+      return lines.join('\\n');
+    };
+    const readYamlScalar = (yaml, section, key) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      if (!bounds) return '';
+      const indent = yamlChildIndent(lines, bounds);
+      const line = lines.find((value, i) => i > bounds.start && i < bounds.end && yamlIndent(value) === indent && value.trim().startsWith(key + ':'));
+      return line ? line.trim().slice(key.length + 1).split('#')[0].trim().replace(/^['"]|['"]$/g, '') : '';
+    };
+    const findYamlChild = (lines, bounds, key) => {
+      const indent = yamlChildIndent(lines, bounds);
+      const index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && yamlIndent(line) === indent && line.trim().startsWith(key + ':'));
+      return { index, indent };
+    };
+    const syncConfigQuickSettingsFromYaml = () => {
+      const isYamlEnabled = value => /^(?:true|yes|on)$/i.test(String(value || '').trim().replace(/^['"]|['"]$/g, ''));
+      configTunEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'tun', 'enable'));
+      configDnsEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'dns', 'enable'));
+      const lines = String(configYaml.value || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
+      if (!bounds) { configDnsNameservers.value = ''; return; }
+      const child = findYamlChild(lines, bounds, 'nameserver');
+      if (child.index < 0) { configDnsNameservers.value = ''; return; }
+      const values = [];
+      for (let i = child.index + 1; i < bounds.end; i++) {
+        const line = lines[i];
+        if (!line.trim() || /^\\s*#/.test(line)) continue;
+        if (yamlIndent(line) <= child.indent) break;
+        const match = line.trim().match(/^-[ \\t]*(.*)$/);
+        if (match) values.push(match[1].replace(/^['"]|['"]$/g, '').trim());
+      }
+      configDnsNameservers.value = values.join('\\n');
+    };
+    const applyConfigQuickSettings = () => {
+      if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
+      let yaml = setYamlScalar(configYaml.value, 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
+      yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
+      const lines = yaml.split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const values = String(configDnsNameservers.value || '').split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+      if (bounds) {
+        const child = findYamlChild(lines, bounds, 'nameserver');
+        let index = child.index;
+        if (index < 0) { lines.splice(bounds.end, 0, ' '.repeat(child.indent) + 'nameserver:'); index = bounds.end; }
+        const keyIndent = yamlIndent(lines[index]);
+        let end = index + 1;
+        while (end < lines.length && (!lines[end].trim() || /^\\s*#/.test(lines[end]) || yamlIndent(lines[end]) > keyIndent)) end++;
+        const listIndent = keyIndent + 2;
+        lines.splice(index + 1, end - index - 1, ...values.map(v => ' '.repeat(listIndent) + '- ' + v));
+      } else {
+        lines.push('dns:', '  enable: ' + (configDnsEnabled.value ? 'true' : 'false'), '  nameserver:', ...values.map(v => '    - ' + v));
+      }
+      configYaml.value = lines.join('\\n');
+      showMsg('快捷设置已写入当前 YAML，请检查后保存', 'success');
+    };
+
+    const loadNodeConfig = async () => {
+      const code = selectedConfigNode.value;
+      configYaml.value = '';
+      syncConfigQuickSettingsFromYaml();
+      if (!code) return;
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        configYaml.value = result.config_yaml || '';
+        syncConfigQuickSettingsFromYaml();
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+      } catch (e) {
+        configYaml.value = '';
+        syncConfigQuickSettingsFromYaml();
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+      }
+    };
+
+    const saveNodeConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim(), yaml = String(configYaml.value || '');
+      if (!code) return showMsg('保存失败：请先选择节点机器码', 'warning');
+      if (!yaml.trim()) return showMsg('保存失败：YAML 配置不能为空', 'warning');
+      if (savingConfig.value) return;
+      savingConfig.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
+        const data = result.data || result;
+        if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        if (String(verify.config_yaml || (verify.data && verify.data.config_yaml) || '') !== yaml) {
+          showMsg('保存已返回，但 WebSocket 回读内容不一致', 'error'); return;
+        }
+        showMsg(data.message || '节点 YAML 保存并回读验证成功', 'success');
+      } catch (e) {
+        showMsg('保存失败：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] WebSocket save failed', { code, error: e });
+      } finally { savingConfig.value = false; }
+    };
+
+const safeCopy = async (text) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(String(text ?? ''));
+        } else {
+          const t = document.createElement('textarea');
+          t.value = String(text ?? '');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          if (!ok) throw new Error('浏览器复制操作失败');
+        }
+        showMsg('复制成功', 'success');
+      } catch (e) {
+        showMsg('复制失败：' + (e.message || '请检查浏览器权限'), 'error');
+      }
+    };
+
+    const retryNodeConfigSync = async () => {
+      if (retryingNodeConfigSync.value) return;
+      retryingNodeConfigSync.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
+        showMsg(data.message || '节点配置已重新生成', 'success');
+      } catch (e) {
+        showMsg(e.message || '节点配置同步失败', 'error');
+      } finally {
+        retryingNodeConfigSync.value = false;
+      }
+    };
+
+    const loadSettings = async () => {
+      // Always show a usable absolute subscription URL. Older servers may omit
+      // subscribe_url, and settings may contain an empty/whitespace value.
+      const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
+      subUrl.value = fallback;
+      try {
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
+        const configured = String(s.subscribe_url || s.sub_url || '').trim();
+        subUrl.value = configured || fallback;
+      } catch (e) {
+        subUrl.value = fallback;
+      }
+    };
+
+    onMounted(() => {
+      if (token.value) {
+        fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
+        switchPage('dashboard');
+        loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        browserEventsStopped = false;
+        connectBrowserEvents();
+        startStaleStatusTimer();
+      }
+    });
+
+    onUnmounted(() => {
+      if (overviewTimer !== null) clearInterval(overviewTimer);
+      overviewTimer = null;
+      if (staleStatusTimer !== null) clearInterval(staleStatusTimer);
+      staleStatusTimer = null;
+      stopBrowserEvents();
+    });
+
+    return {
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
+      overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      retryingNodeConfigSync, retryNodeConfigSync,
+      configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
+      selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importTab, importText, importing, importMachineCode,
+      switchPage, doLogin, logout, loadOverview,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeed
+    };
+  }
+}).use(ElementPlus).mount('#app');).test(String(line).replace(/^\\uFEFF/, '')));
       if (start < 0) return null;
       const sectionIndent = yamlIndent(lines[start]);
       let end = start + 1;
