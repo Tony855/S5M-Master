@@ -1812,3 +1812,57 @@ func TestTimedOutRebootCannotBecomeSuccessfulFromLateDuplicateACK(t *testing.T) 
 		t.Fatalf("late duplicate ACK must not revive timed-out verification: %#v", tracker)
 	}
 }
+
+
+func TestUnacknowledgedRebootTrackingResumesOnNewControllerSession(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	tracker := &agentRebootTracker{
+		CommandID: "pending-reboot-after-controller-restart", CommandType: "reboot_openwrt",
+		BaselineGeneration: 9, QueuedAt: time.Now().Add(-time.Minute).Unix(),
+		Status: "verification_interrupted", Interrupted: true,
+	}
+	command := map[string]string{"id": tracker.CommandID, "type": "reboot_openwrt"}
+	commandPayload, _ := json.Marshal(command)
+	trackingPayload, _ := json.Marshal(tracker)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code: `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_command_" + code: string(commandPayload),
+		"agent_reboot_tracking_" + code: string(trackingPayload),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app.agentRebootTracking = map[string]*agentRebootTracker{code: tracker}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial Agent WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "command.request", "id": "request-resume"}); err != nil {
+		t.Fatal(err)
+	}
+	var delivered map[string]any
+	if err := conn.ReadJSON(&delivered); err != nil {
+		t.Fatalf("read resumed command: %v", err)
+	}
+	if delivered["type"] != "command.deliver" {
+		t.Fatalf("expected pending command delivery, got %#v", delivered)
+	}
+	app.agentWSMu.Lock()
+	resumed := *app.agentRebootTracking[code]
+	generation := app.agentWSGeneration[code]
+	app.agentWSMu.Unlock()
+	if resumed.Interrupted || resumed.Status != "queued" || resumed.Acked ||
+		resumed.BaselineGeneration != generation || generation <= 0 {
+		t.Fatalf("unacknowledged reboot should resume tracking from the new session: tracker=%#v generation=%d", resumed, generation)
+	}
+}
