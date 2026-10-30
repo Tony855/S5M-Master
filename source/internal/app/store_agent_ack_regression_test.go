@@ -165,7 +165,6 @@ func TestCreateAgentCommandWithTrackingIsAtomicOnPendingConflict(t *testing.T) {
 	}
 }
 
-
 func TestDeleteAgentBindingAlsoRemovesRebootTracking(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "revoke-reboot.db"))
 	if err != nil {
