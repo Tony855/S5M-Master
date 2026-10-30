@@ -690,16 +690,19 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 				return false, fmt.Errorf("保存动态主控地址记录失败，已恢复旧运行配置: %w", err)
 			}
 		}
-		// Write the hash source last. If this fails, the next config request
-		// still compares against the previously applied controller YAML.
-		if err := writeControllerConfig(agentYml); err != nil {
-			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
-			}
-			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
-		}
+		// The controller hash is committed only after Mihomo reload succeeds.
+		// Keeping the old hash on reload failure makes the Agent retry the desired YAML.
 	}
 	return true, nil
+}
+
+// persistControllerConfigAfterReload keeps the desired-config hash aligned with
+// the runtime config: never commit the controller hash before reload succeeds.
+func persistControllerConfigAfterReload(config []byte, reload func() error, persist func([]byte) error) error {
+	if err := reload(); err != nil {
+		return err
+	}
+	return persist(config)
 }
 
 func rollbackConfigAfterReloadFailure() error {
@@ -1915,9 +1918,22 @@ func runAgentWebSocketSession(cfg Config) error {
 						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
 					}
 				} else {
-					lastConfigSyncError = ""
-					_ = os.Remove(mihomoConfigPath() + ".previous")
-					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
+					if commitErr := persistControllerConfigAfterReload(
+						[]byte(configResponse.YAML), reloadMihomo, writeControllerConfig,
+					); commitErr != nil {
+						lastConfigSyncError = "Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error()
+						fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
+						if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
+							return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
+						}
+						if retryErr := reloadMihomo(); retryErr != nil {
+							return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
+						}
+					} else {
+						lastConfigSyncError = ""
+						_ = os.Remove(mihomoConfigPath() + ".previous")
+						fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
+					}
 				}
 			} else {
 				lastConfigSyncError = ""
