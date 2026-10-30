@@ -350,6 +350,36 @@
                 <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
                 <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
               </div>
+              <div v-if="item.platform === 'openwrt'" class="openwrt-panel" style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:10px;background:var(--panel);">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                  <div><strong>OpenWrt 原生管理</strong><el-tag size="small" type="success" style="margin-left:8px;">只读遥测</el-tag></div>
+                  <el-button size="small" @click="openWrtExpandedNode = openWrtExpandedNode === item.code ? '' : item.code">{{ openWrtExpandedNode === item.code ? '收起设备信息' : '查看设备与网络信息' }}</el-button>
+                </div>
+                <div v-if="openWrtExpandedNode === item.code" style="margin-top:12px;">
+                  <div v-if="item.openwrt && item.openwrt.available">
+                    <div class="instance-link-summary" style="margin-bottom:10px;">
+                      <span>设备型号：<strong>{{ item.openwrt.board && (item.openwrt.board.model || item.openwrt.board.board_name) || '未知' }}</strong></span>
+                      <span>主机名：<strong>{{ item.openwrt.board && item.openwrt.board.hostname || item.hostname || '未知' }}</strong></span>
+                      <span>运行时间：<strong>{{ item.openwrt.system && item.openwrt.system.uptime != null ? item.openwrt.system.uptime + ' 秒' : '—' }}</strong></span>
+                      <span>CPU 架构：<strong>{{ item.arch || '未知' }}</strong></span>
+                    </div>
+                    <div style="font-weight:600;margin:10px 0 6px;">网络接口（ubus 实时状态）</div>
+                    <el-table :data="item.openwrt.interfaces || []" size="small" style="width:100%;">
+                      <el-table-column prop="interface" label="接口" min-width="90" />
+                      <el-table-column prop="device" label="设备" min-width="90" />
+                      <el-table-column prop="proto" label="协议" min-width="80" />
+                      <el-table-column label="状态" min-width="80">
+                        <template #default="scope"><el-tag size="small" :type="scope.row.up ? 'success' : 'info'">{{ scope.row.up ? '已连接' : '未连接' }}</el-tag></template>
+                      </el-table-column>
+                      <el-table-column label="IPv4" min-width="150">
+                        <template #default="scope">{{ (scope.row['ipv4-address'] || []).map(x => x.address + '/' + x.mask).join(', ') || '—' }}</template>
+                      </el-table-column>
+                    </el-table>
+                  </div>
+                  <div v-else class="empty-state">Agent 已识别 OpenWrt，但暂时无法读取 ubus 状态。请检查 /sbin/ubus 和系统权限。</div>
+                  <p class="section-hint" style="margin-top:10px;">当前阶段仅采集设备信息与网络接口状态，不会修改 UCI、WAN/LAN、DHCP、防火墙或路由。</p>
+                </div>
+              </div>
             </div>
           </div>
 
