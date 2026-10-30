@@ -374,6 +374,47 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				}
 			}
 			_ = client.writeJSON(reply)
+		case "agent.smartdns.get":
+			code := strings.TrimSpace(message.MachineCode)
+			if !smartDNSMachineCodePattern.MatchString(code) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "机器码格式无效"})
+				continue
+			}
+			settings, err := a.store.GetSettings()
+			if err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "读取 SmartDNS 状态失败"})
+				continue
+			}
+			token := strings.TrimSpace(settings["agent_machine_"+code])
+			if token == "" || token == strings.TrimSpace(settings["agent_token"]) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "目标 Agent 未授权"})
+				continue
+			}
+			config := strings.TrimSpace(settings["agent_smartdns_config_"+code])
+			if config == "" { config = defaultAgentSmartDNSConfig }
+			status := map[string]any{}
+			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" { _ = json.Unmarshal([]byte(raw), &status) }
+			commandResult := map[string]any{}
+			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" { _ = json.Unmarshal([]byte(raw), &commandResult) }
+			_ = client.writeJSON(map[string]any{
+				"type": "request.result", "request_id": message.RequestID, "ok": true,
+				"machine_code": code, "config": config,
+				"desired_config_sha256": hashSmartDNSConfig(config),
+				"reported_config_sha256": status["smartdns_config_sha256"],
+				"available": status["smartdns_available"] == true,
+				"running": status["smartdns_running"] == true,
+				"dns_healthy": status["smartdns_dns_healthy"] == true,
+				"version": status["smartdns_version"],
+				"last_error": status["smartdns_last_error"],
+				"command_result": commandResult,
+				"last_seen": settings["agent_lastseen_"+code],
+			})
+		case "agent.smartdns.configure":
+			if err := a.queueAgentSmartDNSConfig(message.MachineCode, message.Config); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "SmartDNS 配置已通过 WebSocket 校验并排队"})
 		case "agent.mihomo.update":
 			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
 				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
