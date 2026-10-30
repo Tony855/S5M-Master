@@ -47,6 +47,10 @@ func New(cfg Config) (*App, error) {
 		_ = st.db.Close()
 		return nil, err
 	}
+	if err := a.restoreAgentRebootTracking(); err != nil {
+		_ = st.db.Close()
+		return nil, fmt.Errorf("恢复 OpenWrt 重启跟踪状态失败: %w", err)
+	}
 	return a, nil
 }
 
