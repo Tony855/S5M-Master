@@ -21,8 +21,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   IMAGE_NAME: ghcr.io/tony855/s5m-agent
@@ -69,7 +68,11 @@ jobs:
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${release_version}" ]]; then
             release_tag="s5m-agent-v${release_version}"
-            if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
+            if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+              echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to continue."
+              exit 1
+            fi
+            if [[ -n "${existing_tag_refs}" ]]; then
               echo "::error title=Release tag already exists::${release_tag} already exists. Choose a new version."
               exit 1
             fi
@@ -502,7 +505,11 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="s5m-agent-v${RELEASE_VERSION}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
+          if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+            echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to publish."
+            exit 1
+          fi
+          if [[ -n "${existing_tag_refs}" ]]; then
             echo "::error title=Release tag already exists::${release_tag} already exists; refusing to overwrite an existing release."
             exit 1
           fi
