@@ -302,6 +302,10 @@ createApp({
             return;
           }
           if (message.type === 'agent.binding.updated') {
+            // A registration/rebind event must invalidate older list snapshots
+            // just like revocation; otherwise the newly authorized node can
+            // remain absent until another manual refresh or reconnect.
+            agentRevocationRevision++;
             loadAgentsData();
             return;
           }
