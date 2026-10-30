@@ -535,14 +535,14 @@ createApp({
     const filteredOpenWrtLogs = (raw) => {
       const query = String(openWrtLogQuery.value || '').trim().toLowerCase();
       const level = openWrtLogLevel.value;
-      return String(raw || '').split('\\n').filter(line => {
+      return String(raw || '').split('\n').filter(line => {
         const lower = line.toLowerCase();
         if (query && !lower.includes(query)) return false;
-        if (level === 'error' && !/\\b(err|error|crit|alert|emerg)\\b/i.test(line)) return false;
-        if (level === 'warning' && !/\\b(warn|warning)\\b/i.test(line)) return false;
-        if (level === 'info' && !/\\b(info|notice|debug)\\b/i.test(line)) return false;
+        if (level === 'error' && !/\b(err|error|crit|alert|emerg)\b/i.test(line)) return false;
+        if (level === 'warning' && !/\b(warn|warning)\b/i.test(line)) return false;
+        if (level === 'info' && !/\b(info|notice|debug)\b/i.test(line)) return false;
         return true;
-      }).join('\\n');
+      }).join('\n');
     };
 
     const rebootOpenWrtRouter = async (item) => {
