@@ -1752,3 +1752,34 @@ func TestQueueOpenWrtRebootPersistsCommandAndTrackingTogether(t *testing.T) {
 		t.Fatalf("command and durable tracker must be committed together: command=%#v tracker=%#v", command, tracker)
 	}
 }
+
+
+func TestQueueOpenWrtAgentRestartPersistsReconnectTracking(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code:   `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtServiceAction(code, "agent", "restart"); err != nil {
+		t.Fatalf("queue Agent restart: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var command map[string]string
+	var tracker agentRebootTracker
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(settings["agent_reboot_tracking_"+code]), &tracker); err != nil {
+		t.Fatal(err)
+	}
+	if command["type"] != "openwrt_service_action" || command["service"] != "agent" ||
+		command["action"] != "restart" || tracker.CommandID != command["id"] ||
+		tracker.Status != "queued" {
+		t.Fatalf("Agent restart must be queued with durable reconnect tracking: command=%#v tracker=%#v", command, tracker)
+	}
+}
