@@ -217,40 +217,39 @@ checks.update({
 # Agent enrollment and authorization state must not depend on a forced browser reload.
 agent_registration_html = Path("s5m-agent/index.html").read_text(encoding="utf-8")
 agent_registration_main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
-agent_list_html = Path("source/web/agents.html").read_text(encoding="utf-8")
 checks.update({
-    "Agent registration defaults to HTTPS and distinguishes saved credentials from a live connection": (
-        'value="https://bind.v2net.cc"' in agent_registration_html
-        and "else document.getElementById('url').value = 'https://bind.v2net.cc';" in agent_registration_html
-        and "url = 'https://' + url" in agent_registration_html
-        and "refreshBindingStatus" in agent_registration_html
-        and "location.reload()" not in agent_registration_html
-        and "normalizeCentralURLInput(in.CentralURL)" in agent_registration_main
-    ),
-    "Agent authorization changes are broadcast and handled by live management UIs": (
+    "Agent authorization changes are broadcast and handled by the primary management UI": (
         '"type": "agent.binding.revoked"' in handlers
         and '"type": "agent.binding.updated"' in handlers
         and "agent.binding.revoked" in app_js
         and "agent.binding.updated" in app_js
-        and "connectAgentEvents" in agent_list_html
-        and "agent.binding.revoked" in agent_list_html
     ),
-    "Agent management config and kernel update use WebSocket without HTTP polling fallback": (
-        "type: 'node.config.get'" in agent_list_html
-        and "type: 'node.config.save'" in agent_list_html
-        and "type: 'agent.mihomo.update-info'" in agent_list_html
-        and "type: 'agent.mihomo.update'" in agent_list_html
-        and "editorAPI('/api/v1/nodes/" not in agent_list_html
-        and "/api/v1/agents/kernel-update-info?machine_code=" not in agent_list_html
-        and "/api/v1/agents/kernel-update" not in agent_list_html
+    "primary console WebSocket RPC covers agent list and node config read/save": (
+        "type: 'agents.list.get'" in app_js and "type: 'node.config.get'" in app_js
+        and "type: 'node.config.save'" in app_js
+        and 'case "agents.list.get":' in browser_ws_source
         and 'case "node.config.get":' in browser_ws_source
         and 'case "node.config.save":' in browser_ws_source
-        and 'case "agent.mihomo.update-info":' in browser_ws_source
-        and 'case "agent.mihomo.update":' in browser_ws_source
-        and "agentsRefreshTimer" not in agent_list_html
     ),
-
-})
+    "primary instance cards show authorization, copy and per-node telemetry": (
+        "item.authorized" in html and "safeCopy(item.code)" in html
+        and "item.connections" in html and "item.uploadSpeed" in html
+        and "item.downloadSpeed" in html and "item.updated_at" in html
+        and "Number(status.upload_speed)" in app_js
+        and "Number(status.download_speed)" in app_js
+        and "Number(status.connections)" in app_js
+    ),
+    "existing YAML editor provides TUN/DNS shortcuts on the same YAML model": (
+        "configTunEnabled" in html and "configDnsEnabled" in html
+        and "configDnsNameservers" in html and "applyConfigQuickSettings" in html
+        and "setYamlScalar" in app_js
+    ),
+    "node config save and read-back verification use WebSocket only": (
+        "type: 'node.config.save'" in app_js and "type: 'node.config.get'" in app_js
+        and "/api/v1/nodes/" not in app_js[app_js.index("const saveNodeConfig = async () => {"):app_js.index("const safeCopy = async")]
+    ),
+    "retired standalone agent management page is removed": not Path("source/web/agents.html").exists(),
+)
 
 # Read-only control-plane snapshots continue migrating to the authenticated
 # WebSocket RPC channel; writes remain on their existing validated endpoints.
