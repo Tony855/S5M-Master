@@ -2263,7 +2263,8 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_command_"+code]; raw != "" {
 			_ = json.Unmarshal([]byte(raw), &pendingCommand)
 		}
-		if pendingCommand != nil && pendingCommand["type"] == "reboot_openwrt" {
+		if pendingCommand != nil && (pendingCommand["type"] == "reboot_openwrt" ||
+			(pendingCommand["type"] == "openwrt_service_action" && pendingCommand["service"] == "agent" && pendingCommand["action"] == "restart")) {
 			if raw := settings["agent_reboot_tracking_"+code]; raw != "" {
 				var tracking agentRebootTracker
 				if json.Unmarshal([]byte(raw), &tracking) == nil && tracking.CommandID == pendingCommand["id"] {
