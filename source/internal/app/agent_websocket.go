@@ -725,7 +725,8 @@ func (a *App) queueOpenWrtReboot(machineCode string) error {
 		a.agentRebootTracking = make(map[string]*agentRebootTracker)
 	}
 	tracker := &agentRebootTracker{
-		CommandID: command["id"], BaselineGeneration: a.agentWSGeneration[machineCode],
+		CommandID: command["id"], CommandType: command["type"],
+		BaselineGeneration: a.agentWSGeneration[machineCode],
 		QueuedAt: time.Now().Unix(), Status: "queued",
 	}
 	trackingPayload, err := json.Marshal(tracker)
