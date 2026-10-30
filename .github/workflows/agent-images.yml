@@ -24,7 +24,7 @@ on:
 # Both resolve to refs/tags/s5m-agent-vX.Y.Z; ordinary branch builds remain
 # isolated by their own ref. Never cancel a run that may be publishing.
 concurrency:
-  group: s5m-agent-${{ github.event_name == 'workflow_dispatch' && inputs.release_version != '' && format('refs/tags/s5m-agent-v{0}', inputs.release_version) || github.ref }}
+  group: s5m-agent-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && format('refs/tags/s5m-agent-v{0}', github.event.inputs.release_version) || github.ref }}
   cancel-in-progress: false
 
 permissions:
