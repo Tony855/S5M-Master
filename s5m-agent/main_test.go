@@ -1824,3 +1824,16 @@ func TestApplyAgentControlErrorPreservesMihomoDiagnosticAndBoundsOutput(t *testi
 		t.Fatalf("combined diagnostic exceeds safe 700-byte bound: %d", len(bounded))
 	}
 }
+
+func TestSafeMihomoValidationDiagnosticRedactsQuotedCredentialsAndBearerTokens(t *testing.T) {
+	input := `{"token":"secret with spaces","password":"value with \"quote\"","api_key":"key with spaces"} Authorization: Bearer bearer-secret`
+	got := safeMihomoValidationDiagnostic([]byte(input))
+	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("diagnostic leaked sensitive value %q: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 4 {
+		t.Fatalf("expected credential values and bearer token to be redacted: %q", got)
+	}
+}
