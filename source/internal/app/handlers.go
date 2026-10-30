@@ -2151,6 +2151,14 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	// before it can persist another heartbeat.
 	a.agentWSGeneration[code]++
 	delete(a.agentHeartbeatAt, code)
+	// Close the live socket immediately so a revoked idle Agent cannot remain
+	// connected until its next heartbeat timeout.
+	if session := a.agentWSConnections[code]; session != nil {
+		delete(a.agentWSConnections, code)
+		if session.conn != nil {
+			_ = session.conn.Close()
+		}
+	}
 	a.agentWSMu.Unlock()
 
 	// Publish only after revocation is committed and the Agent heartbeat lock is released.
