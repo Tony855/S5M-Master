@@ -32,13 +32,13 @@ jobs:
           import sys
 
           script = Path(sys.argv[1]).read_text(encoding="utf-8")
-          detection = script.index("Resolve an existing S5M TLS virtual host BEFORE prompting")
-          prompt = script.index('read -r -p "请输入面板域名')
+          detection = script.index("# 解析 nginx -T 输出，查找已存在的 S5M HTTPS 虚拟主机")
+          prompt = script.index('read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: "')
           cert_issue = script.index('certbot --nginx --non-interactive')
           assert detection < prompt < cert_issue, "TLS detection must happen before prompting and certificate issuance"
           for marker in (
               "nginx -T 2>/dev/null | python3 -c",
-              "never combine a certificate from one vhost",
+              "只复用 443+ssl+proxy_pass 127.0.0.1:8080 且证书有效的 server 块",
               "proxy_pass",
               "ssl_certificate_key",
               "openssl x509 -in \"$cert_path\" -noout -checkhost",
@@ -78,7 +78,7 @@ jobs:
           script = Path(sys.argv[1]).read_text(encoding="utf-8")
           assert 'EXISTING_ADDR="$(sed -n \'s/^S5M_ADDR=//p\' "$ENV_FILE" | tail -n1)"' in script
           assert 'PORT_TO_USE=8080' in script
-          assert 'not the public Nginx listener' in script
+          assert '不将其误判为 S5M 后端冲突' in script
           assert '不将其误判为 S5M 后端冲突' in script
           assert 'grep -oP \'pid=\\K[0-9]+\'' in script
           print("PASS: installer derives backend port from S5M_ADDR and does not mistake public Nginx :80 for S5M backend")

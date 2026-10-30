@@ -1015,3 +1015,6 @@ html, body, #app {
 /* Browser-to-master realtime channel state. */
 .topbar-status .topbar-dot.realtime-online { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.14); }
 .topbar-status .topbar-dot.realtime-pending { background: #d97706; box-shadow: 0 0 0 3px rgba(217,119,6,.14); }
+
+.instance-host-system { flex: 1 1 100%; min-width: 0; color: var(--sub); overflow-wrap: anywhere; }
+.instance-host-system strong { color: var(--text); font-weight: 600; }
