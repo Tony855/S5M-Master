@@ -1,12 +1,14 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -40,16 +42,29 @@ type browserWSTicket struct {
 }
 
 type browserEventClient struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn     *websocket.Conn
+	username string
+	mu       sync.Mutex
 }
 
 type browserControlMessage struct {
-	Type        string `json:"type"`
-	RequestID   string `json:"request_id"`
-	MachineCode string `json:"machine_code"`
-	Version     string `json:"version"`
-	SHA256      string `json:"sha256"`
+	Type            string          `json:"type"`
+	RequestID       string          `json:"request_id"`
+	TaskID          string          `json:"task_id"`
+	MachineCode     string          `json:"machine_code"`
+	ProxyID         string          `json:"proxy_id"`
+	ProxyPayload    json.RawMessage `json:"proxy"`
+	YAML            string          `json:"yaml"`
+	ImportContent   string          `json:"content"`
+	Version         string          `json:"version"`
+	TemplateVersion int             `json:"template_version"`
+	SHA256          string          `json:"sha256"`
+	Config          string          `json:"config"`
+	ConfigYAML      string          `json:"config_yaml"`
+	Note            string          `json:"note"`
+	Confirm         bool            `json:"confirm"`
+	PasswordOld     string          `json:"old"`
+	PasswordNew     string          `json:"new"`
 }
 
 var browserEventsUpgrader = websocket.Upgrader{
@@ -95,7 +110,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		return
 	}
-	client := &browserEventClient{conn: conn}
+	client := &browserEventClient{conn: conn, username: issued.Username}
 	a.browserWSMu.Lock()
 	if a.browserWSClients == nil {
 		a.browserWSClients = make(map[*browserEventClient]struct{})
@@ -112,28 +127,302 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	// WebSocket is the primary live control channel. HTTP remains the
 	// authentication/ticket, initial snapshot, health, and recovery path.
 	conn.SetReadLimit(16 << 10)
+	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+		fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err)
+		return
+	}
+	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(90 * time.Second)) })
+	pingDone := make(chan struct{})
+	defer close(pingDone)
+	go func() {
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-pingDone:
+				return
+			case <-ticker.C:
+				client.mu.Lock()
+				_ = client.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				err := client.conn.WriteControl(websocket.PingMessage, []byte("s5m"), time.Now().Add(5*time.Second))
+				client.mu.Unlock()
+				if err != nil {
+					fmt.Printf("browser_ws: ping failed user=%q: %v\n", client.username, err)
+					_ = client.conn.Close()
+					return
+				}
+			}
+		}
+	}()
 	for {
 		var message browserControlMessage
 		if err := conn.ReadJSON(&message); err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				fmt.Printf("browser_ws: read failed user=%q: %v\n", client.username, err)
+			}
 			return
 		}
-		if message.Type != "agent.mihomo.update" {
+		if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
+			fmt.Printf("browser_ws: refresh deadline user=%q: %v\n", client.username, err)
+			return
+		}
+		if strings.TrimSpace(message.RequestID) == "" {
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": "", "ok": false, "error": "缺少 request_id，无法关联操作结果"})
+			continue
+		}
+		// Revalidate the administrator session for every browser RPC, not only
+		// when the one-time WebSocket ticket is exchanged.
+		u, authErr := a.store.UserByUsername(client.username)
+		if authErr != nil || u == nil || !u.Enabled || u.Role != "admin" {
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "管理员会话已失效，请重新登录"})
+			return
+		}
+		switch message.Type {
+		case "monitor.overview.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleOverview, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/overview", nil))
+		case "monitor.traffic.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
+		case "agents.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "proxies.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
+		case "auth.password.change":
+			body, _ := json.Marshal(map[string]string{"old": message.PasswordOld, "new": message.PasswordNew})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePassword, req)
+		case "settings.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetSettings, httptest.NewRequest(http.MethodGet, "/api/v1/settings", nil))
+		case "mihomo.status.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMihomoStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/status", nil))
+		case "mihomo.update.start":
+			a.startMihomoUpdateTask(client, message.RequestID)
+		case "mihomo.update.status.get":
+			a.handleMihomoUpdateTaskStatus(client, message.RequestID, message.TaskID)
+		case "mihomo.update.latest.get":
+			a.handleLatestMihomoUpdateTaskStatus(client, message.RequestID)
+		case "mihomo.template.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetMihomoTemplate, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template", nil))
+		case "mihomo.template.nodes.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetNodeTemplateStatus, httptest.NewRequest(http.MethodGet, "/api/v1/mihomo/template/nodes", nil))
+		case "system.logs.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetLogs, httptest.NewRequest(http.MethodGet, "/api/v1/logs", nil))
+		case "nodes.config-sync.retry":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
+		case "agent.binding.generate":
+			body, _ := json.Marshal(map[string]string{"machine_code": message.MachineCode})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGenerateAgentToken, req)
+		case "agent.binding.revoke":
+			code := strings.TrimSpace(message.MachineCode)
+			if !regexp.MustCompile("^[A-Za-z0-9_-]{1,64}$").MatchString(code) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "机器码格式无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+url.QueryEscape(code), nil)
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgent, req)
+		case "mihomo.template.publish":
+			body, _ := json.Marshal(map[string]string{"note": message.Note})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/publish", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handlePublishMihomoTemplate, req)
+		case "mihomo.template.apply":
+			if message.TemplateVersion < 1 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "必须选择有效模板版本"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "version": message.TemplateVersion, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/apply", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleApplyMihomoTemplate, req)
+		case "mihomo.template.rollback":
+			body, _ := json.Marshal(map[string]any{"machine_code": message.MachineCode, "confirm": message.Confirm})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/rollback", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRollbackNodeTemplate, req)
+		case "proxy.save":
+			idText := strings.TrimSpace(message.ProxyID)
+			method, path := http.MethodPost, "/api/v1/proxies"
+			if idText != "" {
+				id, err := strconv.ParseInt(idText, 10, 64)
+				if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+					_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+					continue
+				}
+				method, path = http.MethodPut, "/api/v1/proxies/"+idText
+			}
+			if len(message.ProxyPayload) == 0 || len(message.ProxyPayload) > 1<<20 || !json.Valid(message.ProxyPayload) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理数据无效或超过 1 MiB"})
+				continue
+			}
+			req := httptest.NewRequest(method, path, strings.NewReader(string(message.ProxyPayload)))
+			req.Header.Set("Content-Type", "application/json")
+			if idText != "" {
+				req.SetPathValue("id", idText)
+			}
+			handler := a.handleCreateProxy
+			if method == http.MethodPut {
+				handler = a.handleUpdateProxy
+			}
+			a.runBrowserHTTPHandler(client, message.RequestID, handler, req)
+		case "proxies.import":
+			if len(message.ImportContent) > 1<<20 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理导入请求超过 1 MiB 限制"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]string{"content": message.ImportContent})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleImportProxies, req)
+		case "mihomo.template.validate":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/validate", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleValidateMihomoTemplate, req)
+		case "mihomo.template.save":
+			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/mihomo/template", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleSaveMihomoTemplateDraft, req)
+		case "proxy.delete":
+			idText := strings.TrimSpace(message.ProxyID)
+			id, err := strconv.ParseInt(idText, 10, 64)
+			if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理 ID 无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/proxies/"+strconv.FormatInt(id, 10), nil)
+			req.SetPathValue("id", strconv.FormatInt(id, 10))
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteProxy, req)
+		case "mihomo.template.delete":
+			versionText := strings.TrimSpace(message.Version)
+			version, err := strconv.Atoi(versionText)
+			if err != nil || version < 1 || strconv.Itoa(version) != versionText {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "模板版本号无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/mihomo/template/"+strconv.Itoa(version), nil)
+			req.SetPathValue("version", strconv.Itoa(version))
+			rec := httptest.NewRecorder()
+			a.handleDeleteMihomoTemplateVersion(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				} else {
+					reply["error"] = "删除模板版本失败"
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "agent.mihomo.update-info":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/kernel-update-info?machine_code="+url.QueryEscape(message.MachineCode), nil)
+			rec := httptest.NewRecorder()
+			a.handleAgentMihomoUpdateInfo(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "node.config.get":
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/nodes/"+message.MachineCode+"/config", nil)
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleGetNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "node.config.save":
+			body, _ := json.Marshal(map[string]string{"config_yaml": message.ConfigYAML})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+message.MachineCode+"/config", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			req.SetPathValue("code", message.MachineCode)
+			rec := httptest.NewRecorder()
+			a.handleSaveNodeConfig(rec, req)
+			var payload map[string]any
+			_ = json.Unmarshal(rec.Body.Bytes(), &payload)
+			reply := map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": rec.Code >= 200 && rec.Code < 300}
+			for key, value := range payload {
+				reply[key] = value
+			}
+			if rec.Code < 200 || rec.Code >= 300 {
+				if errText, ok := payload["error"].(string); ok {
+					reply["error"] = errText
+				}
+			}
+			_ = client.writeJSON(reply)
+		case "agent.mihomo.update":
+			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
+		default:
 			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "不支持的实时操作类型"})
-			continue
 		}
-		if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
-			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
-			continue
-		}
-		_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "更新任务已通过 WebSocket 排队"})
 	}
 }
 
 func (c *browserEventClient) writeJSON(v any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	if err := c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("设置 WebSocket 写入超时失败: %w", err)
+	}
 	return c.conn.WriteJSON(v)
+}
+
+// runBrowserHTTPHandler reuses an existing read handler for a narrowly whitelisted
+// WebSocket RPC. Authorization is checked by handleBrowserEventsWebSocket first.
+func (a *App) runBrowserHTTPHandler(client *browserEventClient, requestID string, handler http.HandlerFunc, req *http.Request) {
+	rec := httptest.NewRecorder()
+	started := time.Now()
+	handler(rec, req)
+	if rec.Code < 200 || rec.Code >= 300 {
+		fmt.Printf("browser_ws: rpc failed user=%q request_id=%q status=%d duration_ms=%d path=%q\n", client.username, requestID, rec.Code, time.Since(started).Milliseconds(), req.URL.Path)
+	}
+	var payload any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		payload = map[string]any{"error": "服务器返回了无效 JSON"}
+	}
+	reply := map[string]any{"type": "request.result", "request_id": requestID, "ok": rec.Code >= 200 && rec.Code < 300}
+	if rec.Code >= 200 && rec.Code < 300 {
+		reply["data"] = payload
+	} else if object, ok := payload.(map[string]any); ok {
+		if errText, ok := object["error"].(string); ok {
+			reply["error"] = errText
+		} else {
+			reply["error"] = "读取数据失败"
+		}
+	} else {
+		reply["error"] = "读取数据失败"
+	}
+	if err := client.writeJSON(reply); err != nil {
+		fmt.Printf("browser_ws: rpc response write failed user=%q request_id=%q path=%q: %v\n", client.username, requestID, req.URL.Path, err)
+	}
 }
 
 func (a *App) publishBrowserEvent(event map[string]any) {
@@ -145,12 +434,29 @@ func (a *App) publishBrowserEvent(event map[string]any) {
 	a.browserWSMu.Unlock()
 	for _, client := range clients {
 		if err := client.writeJSON(event); err != nil {
+			fmt.Printf("browser_ws: event write failed user=%q event_type=%v: %v\n", client.username, event["type"], err)
 			a.browserWSMu.Lock()
 			delete(a.browserWSClients, client)
 			a.browserWSMu.Unlock()
 			_ = client.conn.Close()
 		}
 	}
+}
+
+func closeAgentWebSocket(conn *websocket.Conn, reason string) {
+	if conn == nil {
+		return
+	}
+	_ = conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, reason),
+		time.Now().Add(time.Second),
+	)
+	_ = conn.Close()
+}
+
+type agentWSConnection struct {
+	conn *websocket.Conn
 }
 
 type agentWSMessage struct {
@@ -252,6 +558,54 @@ func (a *App) queueAgentMihomoUpdate(machineCode, version, sha256sum string) err
 	return nil
 }
 
+// writeAgentWSJSON applies a bounded write deadline to every server-to-Agent
+// frame. Without this, a slow or half-open peer can stall command/config handling
+// indefinitely and make the control channel appear unresponsive.
+func writeAgentWSJSON(conn *websocket.Conn, machineCode string, payload any) error {
+	messageType := "unknown"
+	switch message := payload.(type) {
+	case map[string]any:
+		if value, ok := message["type"].(string); ok {
+			messageType = value
+		}
+	case map[string]string:
+		if value, ok := message["type"]; ok {
+			messageType = value
+		}
+	}
+	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		fmt.Printf("agent_ws: set write deadline failed machine_code=%q message_type=%q: %s\n", machineCode, messageType, safeAgentWebSocketError("设置写入超时", err))
+		return err
+	}
+	if err := conn.WriteJSON(payload); err != nil {
+		fmt.Printf("agent_ws: write failed machine_code=%q message_type=%q: %s\n", machineCode, messageType, safeAgentWebSocketError("发送消息", err))
+		return err
+	}
+	return nil
+}
+
+func sanitizeAgentWebSocketText(value string) string {
+	detail := strings.TrimSpace(value)
+	// Handle both plain key=value diagnostics and JSON-like quoted fields.
+	detail = regexp.MustCompile(`(?i)(["']?(?:secret|token|password|api[_-]?key)["']?\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^"'[:space:],;}{]+)`).ReplaceAllString(detail, "$1\"[已隐藏]\"")
+	// Authorization headers commonly carry credentials without a token key.
+	detail = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]+`).ReplaceAllString(detail, "$1[已隐藏]")
+	detail = regexp.MustCompile(`([A-Za-z]:)?[/\\\\][^[:space:]\\"']+`).ReplaceAllString(detail, "[路径已隐藏]")
+	detail = strings.Join(strings.Fields(detail), " ")
+	if len(detail) > 600 {
+		detail = detail[:600] + "…"
+	}
+	return detail
+}
+
+func safeAgentWebSocketError(operation string, err error) string {
+	detail := "未知错误"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		detail = sanitizeAgentWebSocketText(err.Error())
+	}
+	return operation + "失败: " + detail
+}
+
 func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	machineCode, err := a.agentMachineFromRequest(r)
 	if err != nil {
@@ -274,10 +628,25 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
+	if a.agentWSConnections == nil {
+		a.agentWSConnections = make(map[string]*agentWSConnection)
+	}
+	// Actively close the previous socket, rather than merely waiting for its
+	// next heartbeat/request to notice the generation change.
+	if previous := a.agentWSConnections[machineCode]; previous != nil && previous.conn != nil {
+		closeAgentWebSocket(previous.conn, "Agent connection superseded")
+	}
+	session := &agentWSConnection{conn: conn}
+	a.agentWSConnections[machineCode] = session
 	a.agentWSMu.Unlock()
-	// Keep the generation counter after disconnect. Deleting it would let a
-	// later reconnect reuse generation 1 and accidentally re-authorize an old
-	// still-open socket (an ABA problem).
+	defer func() {
+		a.agentWSMu.Lock()
+		if a.agentWSConnections[machineCode] == session {
+			delete(a.agentWSConnections, machineCode)
+		}
+		a.agentWSMu.Unlock()
+	}()
+	// Keep the generation counter after disconnect to prevent an ABA reuse.
 
 	conn.SetReadLimit(agentWSMaxMessageBytes)
 	_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
@@ -285,7 +654,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		return conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 	})
 
-	if err := conn.WriteJSON(map[string]any{
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 		"type":                   "welcome",
 		"protocol":               1,
 		"heartbeat_interval_sec": 30,
@@ -296,7 +665,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		var msg agentWSMessage
 		if err := conn.ReadJSON(&msg); err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				fmt.Printf("agent_ws: read failed machine_code=%q: %s\n", machineCode, safeAgentWebSocketError("读取消息", err))
+			}
 			return
+		}
+		if msg.Type != "heartbeat" {
+			fmt.Printf("agent_ws: request received machine_code=%q type=%q id=%q\n", machineCode, msg.Type, msg.ID)
 		}
 		if msg.Type == "config.request" || msg.Type == "command.request" || msg.Type == "command.ack" {
 			// Serialize sensitive WebSocket operations with connection replacement and
@@ -304,13 +679,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			a.agentWSMu.Lock()
 			if a.agentWSGeneration[machineCode] != generation {
 				a.agentWSMu.Unlock()
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
 				return
 			}
 			authorizedCode, authErr := a.agentMachineFromRequest(r)
 			if authErr != nil || authorizedCode != machineCode {
 				a.agentWSMu.Unlock()
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
 				return
 			}
 			switch msg.Type {
@@ -323,28 +698,30 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 			a.agentWSMu.Unlock()
 			if err != nil {
-				message := err.Error()
+				operation := "处理 Agent WebSocket 请求"
 				if msg.Type == "config.request" {
-					message = "读取节点配置失败"
+					operation = "读取节点配置"
 				} else if msg.Type == "command.request" {
-					message = "读取待执行命令失败"
+					operation = "读取待执行命令"
 				}
-				_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": message})
+				message := safeAgentWebSocketError(operation, err)
+				fmt.Printf("agent_ws: request failed machine_code=%q type=%q id=%q: %s\n", machineCode, msg.Type, msg.ID, message)
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": message})
 				continue
 			}
 			if msg.Type == "command.ack" {
-				if err := conn.WriteJSON(map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
+				if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.acknowledged", "id": msg.ID, "ok": true}); err != nil {
 					return
 				}
 			}
 			continue
 		}
 		if msg.Type != "heartbeat" || msg.Status == nil {
-			_ = conn.WriteJSON(map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
 			continue
 		}
 		if err := validateAgentWSStatus(msg.Status); err != nil {
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": err.Error(),
@@ -361,7 +738,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.agentWSMu.Lock()
 		if a.agentWSGeneration[machineCode] != generation {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "Agent WebSocket 连接已被更新连接取代",
@@ -375,7 +752,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		authorizedCode, authErr := a.agentMachineFromRequest(r)
 		if authErr != nil || authorizedCode != machineCode {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "Agent 未授权或授权已失效",
@@ -387,7 +764,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "已忽略较旧的 Agent 心跳",
@@ -399,7 +776,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			"agent_status_" + machineCode:   string(payload),
 		}); err != nil {
 			a.agentWSMu.Unlock()
-			_ = conn.WriteJSON(map[string]string{
+			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
 				"message": "保存 Agent 心跳失败",
@@ -410,7 +787,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		a.agentWSMu.Unlock()
 		a.publishBrowserEvent(map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "last_seen": receivedAt.Unix(), "status": msg.Status})
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
-		if err := conn.WriteJSON(map[string]any{
+		if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 			"type": "heartbeat.ack",
 			"id":   msg.ID,
 			"ok":   true,
@@ -428,9 +805,12 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 	}
 	yml := ""
 	if nodeConfig != nil {
-		yml = strings.TrimSpace(nodeConfig.YAML)
+		// Preserve the exact persisted bytes for compare-and-swap and hashing.
+		// Trimming here makes the expected snapshot differ from the DB value when
+		// the YAML has a trailing newline, causing every normalization to conflict.
+		yml = nodeConfig.YAML
 	}
-	if yml == "" {
+	if strings.TrimSpace(yml) == "" {
 		yml, err = a.BuildConfigForMachine(machineCode)
 		if err != nil {
 			return err
@@ -443,9 +823,22 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 		return normalizeErr
 	}
 	if normalized != yml {
-		yml = normalized
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
-			return err
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(machineCode, yml, normalized)
+		if saveErr != nil {
+			return saveErr
+		}
+		if updated {
+			yml = normalized
+		} else {
+			// A concurrent operator save is newer than this normalization snapshot.
+			latest, readErr := a.store.GetNodeConfig(machineCode)
+			if readErr != nil {
+				return readErr
+			}
+			if latest == nil || strings.TrimSpace(latest.YAML) == "" {
+				return fmt.Errorf("并发更新后节点配置不存在")
+			}
+			yml = latest.YAML
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
@@ -454,9 +847,17 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 		return err
 	}
 	if clientHash == hash {
-		return conn.WriteJSON(map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash})
+		if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash}); err != nil {
+			return fmt.Errorf("发送配置未变更确认失败: %w", err)
+		}
+		fmt.Printf("agent_ws: config unchanged machine_code=%q request_id=%q sha256=%s\n", machineCode, requestID, hash)
+		return nil
 	}
-	return conn.WriteJSON(map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml})
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "config.sync", "id": requestID, "sha256": hash, "yaml": yml}); err != nil {
+		return fmt.Errorf("发送配置失败: %w", err)
+	}
+	fmt.Printf("agent_ws: config delivered machine_code=%q request_id=%q bytes=%d sha256=%s\n", machineCode, requestID, len(yml), hash)
+	return nil
 }
 
 // sendAgentWSCommand redelivers the persisted pending command until an ACK is stored.
@@ -467,13 +868,17 @@ func (a *App) sendAgentWSCommand(conn *websocket.Conn, machineCode, requestID st
 	}
 	raw := strings.TrimSpace(settings["agent_command_"+machineCode])
 	if raw == "" {
-		return conn.WriteJSON(map[string]any{"type": "command.none", "id": requestID})
+		return writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.none", "id": requestID})
 	}
 	var command map[string]any
 	if err := json.Unmarshal([]byte(raw), &command); err != nil {
 		return fmt.Errorf("解析待执行命令失败: %w", err)
 	}
-	return conn.WriteJSON(map[string]any{"type": "command.deliver", "id": requestID, "command": command})
+	if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "command.deliver", "id": requestID, "command": command}); err != nil {
+		return fmt.Errorf("发送待执行命令失败: %w", err)
+	}
+	fmt.Printf("agent_ws: command delivered machine_code=%q request_id=%q command_id=%v command_type=%v\n", machineCode, requestID, command["id"], command["type"])
+	return nil
 }
 
 // ackAgentWSCommand persists an ACK only for the currently pending command.
@@ -482,6 +887,9 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
+	// Treat Agent-provided command output as untrusted: redact credentials and
+	// local filesystem paths before persisting it or publishing it to the UI.
+	message = sanitizeAgentWebSocketText(message)
 	_, matched, err := a.store.AckAgentCommand(machineCode, commandID, status, message, time.Now().Unix())
 	if err != nil {
 		return fmt.Errorf("原子保存命令结果失败: %w", err)
@@ -489,6 +897,7 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
 	}
+	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
 }

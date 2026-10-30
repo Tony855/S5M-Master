@@ -1,18 +1,351 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+func TestAgentBindRequestsAreSerialized(t *testing.T) {
+	var active atomic.Int32
+	var maximum atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			unlock := lockAgentBind()
+			defer unlock()
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+			active.Add(-1)
+		}()
+	}
+	wg.Wait()
+	if got := maximum.Load(); got != 1 {
+		t.Fatalf("maximum concurrent bind operations = %d, want 1", got)
+	}
+}
+
+func TestAgentWebSocketRejectsStaleBindingGeneration(t *testing.T) {
+	previous := agentBindingGeneration.Load()
+	agentBindingGeneration.Store(previous + 1)
+	t.Cleanup(func() { agentBindingGeneration.Store(previous) })
+
+	if setAgentActiveWebSocket(nil, previous) {
+		t.Fatal("websocket with stale binding generation must not become active")
+	}
+}
+
+func TestStaleAgentSessionCleanupDoesNotClearNewSession(t *testing.T) {
+	previousGeneration := agentBindingGeneration.Load()
+	previousConnected := agentConnected.Load()
+	oldConn := &websocket.Conn{}
+	newConn := &websocket.Conn{}
+	agentBindingGeneration.Store(previousGeneration + 1)
+	agentConnected.Store(false)
+	agentActiveWSMu.Lock()
+	agentActiveWSConn = oldConn
+	agentActiveWSMu.Unlock()
+	t.Cleanup(func() {
+		agentActiveWSMu.Lock()
+		agentActiveWSConn = nil
+		agentActiveWSMu.Unlock()
+		agentBindingGeneration.Store(previousGeneration)
+		agentConnected.Store(previousConnected)
+	})
+
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(newConn, generation) {
+		t.Fatal("new session should become active")
+	}
+	if !markAgentWebSocketConnected(newConn, generation) {
+		t.Fatal("new session should become connected")
+	}
+	clearAgentActiveWebSocket(oldConn)
+	if !agentConnected.Load() {
+		t.Fatal("stale session cleanup must not clear the new session connected state")
+	}
+	agentActiveWSMu.Lock()
+	active := agentActiveWSConn
+	agentActiveWSMu.Unlock()
+	if active != newConn {
+		t.Fatal("stale session cleanup must not replace the active websocket")
+	}
+	clearAgentActiveWebSocket(newConn)
+	if agentConnected.Load() {
+		t.Fatal("cleanup of the current session must clear connected state")
+	}
+}
+
+func TestAgentConnectedRequiresCurrentActiveWebSocket(t *testing.T) {
+	previousGeneration := agentBindingGeneration.Load()
+	previousConnected := agentConnected.Load()
+	agentBindingGeneration.Store(previousGeneration + 1)
+	agentConnected.Store(false)
+	t.Cleanup(func() {
+		agentActiveWSMu.Lock()
+		agentActiveWSConn = nil
+		agentActiveWSMu.Unlock()
+		agentBindingGeneration.Store(previousGeneration)
+		agentConnected.Store(previousConnected)
+	})
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err == nil {
+			defer conn.Close()
+			_, _, _ = conn.ReadMessage()
+		}
+	}))
+	defer server.Close()
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	defer conn.Close()
+
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(conn, generation) {
+		t.Fatal("expected current websocket to become active")
+	}
+	if !markAgentWebSocketConnected(conn, generation) {
+		t.Fatal("expected active websocket to mark agent connected")
+	}
+	if !agentConnected.Load() {
+		t.Fatal("agentConnected must be true for the active session")
+	}
+	if markAgentWebSocketConnected(conn, generation-1) {
+		t.Fatal("stale binding generation must not mark agent connected")
+	}
+	if !agentConnected.Load() {
+		t.Fatal("rejected stale activation must not clear the current session state")
+	}
+	agentBindingGeneration.Add(1)
+	closeAgentActiveWebSocketForRebind()
+	if markAgentWebSocketConnected(conn, generation) {
+		t.Fatal("rebound credentials must reject activation of the old socket")
+	}
+	if agentConnected.Load() {
+		t.Fatal("rebind must immediately clear the old session connected state")
+	}
+}
+
+func TestCloseAgentWebSocketForRebind(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	serverRead := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			serverRead <- err
+			return
+		}
+		defer conn.Close()
+		_, _, err = conn.ReadMessage()
+		serverRead <- err
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	generation := agentBindingGeneration.Load()
+	if !setAgentActiveWebSocket(conn, generation) {
+		t.Fatal("expected current binding generation to register websocket")
+	}
+	closeAgentActiveWebSocketForRebind()
+	clearAgentActiveWebSocket(conn)
+
+	select {
+	case readErr := <-serverRead:
+		closeErr, ok := readErr.(*websocket.CloseError)
+		if !ok || closeErr.Code != websocket.CloseNormalClosure {
+			t.Fatalf("server read error = %v, want normal websocket close", readErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("active websocket was not closed after rebind")
+	}
+}
+
+func TestAgentRegistrationClientDoesNotFollowRedirectWithSecretBody(t *testing.T) {
+	var redirectTargetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirectTargetHits.Add(1)
+	}))
+	defer target.Close()
+
+	const secret = "one-time-registration-secret"
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read registration body: %v", err)
+			return
+		}
+		if !strings.Contains(string(body), secret) {
+			t.Errorf("origin did not receive expected registration secret")
+		}
+		w.Header().Set("Location", target.URL+"/capture")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	resp, err := newAgentRegistrationHTTPClient().Post(origin.URL, "application/json", strings.NewReader(`{"secret":"`+secret+`"}`))
+	if err != nil {
+		t.Fatalf("registration POST: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("registration status = %d, want %d", resp.StatusCode, http.StatusTemporaryRedirect)
+	}
+	if got := redirectTargetHits.Load(); got != 0 {
+		t.Fatalf("registration secret was forwarded to redirect target %d times", got)
+	}
+}
+
+func TestControllerWebSocketResponseErrorPreservesDetails(t *testing.T) {
+	tests := []struct {
+		name      string
+		operation string
+		message   string
+		want      string
+	}{
+		{name: "config error", operation: "配置请求", message: "读取节点配置失败", want: "主控端配置请求失败: 读取节点配置失败"},
+		{name: "command error", operation: "命令请求", message: "读取待执行命令失败", want: "主控端命令请求失败: 读取待执行命令失败"},
+		{name: "empty message", operation: "配置请求", message: "  ", want: "主控端配置请求失败: 主控端未提供错误详情"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := controllerWebSocketResponseError(tt.operation, tt.message)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("controllerWebSocketResponseError() = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
+	payload := []byte("mixed-port: 7890\nsecret: test-secret\n\n")
+	want := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if got := controllerConfigHash(payload); got != want {
+		t.Fatalf("controllerConfigHash() = %q, want exact-byte hash %q", got, want)
+	}
+	trimmedHash := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(payload)))))
+	if controllerConfigHash(payload) == trimmedHash {
+		t.Fatal("trailing whitespace must remain part of the exact payload hash")
+	}
+}
+
+func TestAtomicWriteFileReplacesFileWithSyncedPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "controller-config.yaml")
+	if err := os.WriteFile(path, []byte("secret: old\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("secret: new\ntun:\n  enable: true\n")
+	if err := atomicWriteFile(path, want, 0600); err != nil {
+		t.Fatalf("atomicWriteFile() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("file = %q, want %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("file mode = %o, want 600", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "controller-config.yaml" {
+		t.Fatalf("unexpected temporary files after atomic write: %#v", entries)
+	}
+}
+
+func TestControllerConfigNeedsApplyAfterInterruptedCommit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MIHOMO_HOME", home)
+	payload := []byte("mixed-port: 7890\nsecret: local-secret\n")
+	if err := os.WriteFile(mihomoConfigPath(), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !controllerConfigNeedsApply(payload) {
+		t.Fatal("missing controller hash must require reload even when runtime YAML matches")
+	}
+	if err := writeControllerConfig(payload); err != nil {
+		t.Fatal(err)
+	}
+	if controllerConfigNeedsApply(payload) {
+		t.Fatal("matching committed controller payload must not require reload")
+	}
+	changed := []byte("mixed-port: 7891\nsecret: local-secret\n")
+	if !controllerConfigNeedsApply(changed) {
+		t.Fatal("different controller payload must require reload")
+	}
+}
+
+func TestPersistControllerConfigAfterReloadOnlyCommitsAfterSuccess(t *testing.T) {
+	payload := []byte("mixed-port: 7890\nsecret: test-secret\n")
+	persisted := false
+	reloadErr := errors.New("simulated Mihomo reload failure")
+	err := persistControllerConfigAfterReload(payload, func() error {
+		return reloadErr
+	}, func([]byte) error {
+		persisted = true
+		return nil
+	})
+	if !errors.Is(err, reloadErr) {
+		t.Fatalf("error = %v, want reload error", err)
+	}
+	if persisted {
+		t.Fatal("controller config hash must not be committed when reload fails")
+	}
+
+	err = persistControllerConfigAfterReload(payload, func() error {
+		return nil
+	}, func(got []byte) error {
+		persisted = true
+		if string(got) != string(payload) {
+			t.Fatalf("persisted payload = %q, want exact bytes %q", got, payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("persistControllerConfigAfterReload() error = %v", err)
+	}
+	if !persisted {
+		t.Fatal("controller config hash was not committed after successful reload")
+	}
+}
 
 func TestCentralHostname(t *testing.T) {
 	tests := []struct {
@@ -1427,5 +1760,80 @@ func TestEnsureV2NetDirectRuleDeduplicatesExistingRules(t *testing.T) {
 	rules := cfg["rules"].([]interface{})
 	if len(rules) != 3 || rules[0] != "DOMAIN,example.com,DIRECT" || rules[1] != "DOMAIN-SUFFIX,v2net.cc,DIRECT" || rules[2] != "MATCH,Proxy" {
 		t.Fatalf("unexpected deduplicated rule order: %#v", rules)
+	}
+}
+
+func TestAgentSyncErrorsPersistAcrossWebSocketSessions(t *testing.T) {
+	clearAgentConfigSyncError()
+	setAgentRouteSyncError("")
+	t.Cleanup(func() {
+		clearAgentConfigSyncError()
+		setAgentRouteSyncError("")
+	})
+
+	configErr := errors.New("配置 SHA-256 不匹配")
+	if got := recordAgentConfigSyncFailure(configErr); !errors.Is(got, configErr) {
+		t.Fatalf("recordAgentConfigSyncFailure() = %v, want original error", got)
+	}
+	setAgentRouteSyncError("主控直连路由更新失败: DNS timeout")
+
+	// A new WebSocket session reads the same process-level error state.
+	configState, routeState := agentControlSyncErrors()
+	if !strings.Contains(configState, "配置 SHA-256 不匹配") {
+		t.Fatalf("config error was lost across reconnect: %q", configState)
+	}
+	if !strings.Contains(routeState, "DNS timeout") {
+		t.Fatalf("route error was lost across reconnect: %q", routeState)
+	}
+
+	clearAgentConfigSyncError()
+	configState, routeState = agentControlSyncErrors()
+	if configState != "" {
+		t.Fatalf("config error was not cleared after successful sync: %q", configState)
+	}
+	if routeState == "" {
+		t.Fatal("clearing config error must not clear independent route error")
+	}
+	setAgentRouteSyncError("")
+	configState, routeState = agentControlSyncErrors()
+	if configState != "" || routeState != "" {
+		t.Fatalf("sync errors remain after independent recovery: config=%q route=%q", configState, routeState)
+	}
+}
+
+func TestApplyAgentControlErrorPreservesMihomoDiagnosticAndBoundsOutput(t *testing.T) {
+	status := map[string]any{"last_error": "Mihomo API unavailable at /opt/s5m/data/config.yaml"}
+	applyAgentControlError(status, "主控配置同步失败: token=private-token rejected by controller")
+	got, ok := status["last_error"].(string)
+	if !ok {
+		t.Fatalf("last_error has unexpected type: %#v", status["last_error"])
+	}
+	if !strings.Contains(got, "主控配置同步失败") || !strings.Contains(got, "Mihomo:") {
+		t.Fatalf("combined diagnostic lost one error source: %q", got)
+	}
+	for _, secret := range []string{"private-token", "/opt/s5m"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("combined diagnostic leaked %q: %q", secret, got)
+		}
+	}
+
+	largeStatus := map[string]any{"last_error": strings.Repeat("M", 700)}
+	applyAgentControlError(largeStatus, strings.Repeat("C", 700))
+	bounded, _ := largeStatus["last_error"].(string)
+	if len(bounded) > 704 {
+		t.Fatalf("combined diagnostic exceeds safe 700-byte bound: %d", len(bounded))
+	}
+}
+
+func TestSafeMihomoValidationDiagnosticRedactsQuotedCredentialsAndBearerTokens(t *testing.T) {
+	input := `{"token":"secret with spaces","password":"value with \"quote\"","api_key":"key with spaces"} Authorization: Bearer bearer-secret`
+	got := safeMihomoValidationDiagnostic([]byte(input))
+	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("diagnostic leaked sensitive value %q: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 4 {
+		t.Fatalf("expected credential values and bearer token to be redacted: %q", got)
 	}
 }

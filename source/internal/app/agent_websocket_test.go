@@ -180,12 +180,8 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-old", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on superseded connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read superseded connection response: %v", err)
-	}
-	if response["type"] != "error" || !strings.Contains(response["message"].(string), "取代") {
-		t.Fatalf("unexpected superseded connection response: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("superseded connection should close cleanly, got %v", err)
 	}
 
 	settings, err := app.store.GetSettings()
@@ -204,6 +200,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": floatMap(freshStatus)}); err != nil {
 		t.Fatalf("send heartbeat on current connection: %v", err)
 	}
+	var response map[string]any
 	if err := newConn.ReadJSON(&response); err != nil {
 		t.Fatalf("read current connection ACK: %v", err)
 	}
@@ -266,12 +263,8 @@ func TestAgentWebSocketGenerationDoesNotResetAfterDisconnect(t *testing.T) {
 	if err := oldConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-aba", "status": floatMap(status)}); err != nil {
 		t.Fatalf("send heartbeat on stale connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read stale connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("stale connection was re-authorized after reconnect: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("stale connection should close cleanly, got %v", err)
 	}
 }
 
@@ -699,12 +692,8 @@ func TestAgentWebSocketCannotPersistHeartbeatAfterAuthorizationRevocation(t *tes
 	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-revoked", "status": status}); err != nil {
 		t.Fatalf("send heartbeat after revocation: %v", err)
 	}
-	var response map[string]any
-	if err := conn.ReadJSON(&response); err != nil {
-		t.Fatalf("read revoked connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("revoked WebSocket should be rejected, got %#v", response)
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("revoked WebSocket should close cleanly, got %v", err)
 	}
 
 	settings, err := app.store.GetSettings()
@@ -963,12 +952,8 @@ func TestAgentWebSocketCannotReadConfigAfterAuthorizationRevocation(t *testing.T
 	if err := conn.WriteJSON(map[string]any{"type": "config.request", "id": "cfg-after-revoke"}); err != nil {
 		t.Fatalf("send config request after revocation: %v", err)
 	}
-	var response map[string]any
-	if err := conn.ReadJSON(&response); err != nil {
-		t.Fatalf("read revoked connection response: %v", err)
-	}
-	if response["type"] != "error" || strings.Contains(fmt.Sprint(response["yaml"]), "retained-secret") {
-		t.Fatalf("revoked Agent must not receive config: %#v", response)
+	if _, _, err := conn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("revoked Agent connection should close before config delivery, got %v", err)
 	}
 }
 
@@ -1005,15 +990,8 @@ func TestAgentWebSocketSupersededConnectionCannotReadPendingCommand(t *testing.T
 	if err := oldConn.WriteJSON(map[string]any{"type": "command.request", "id": "old-connection"}); err != nil {
 		t.Fatalf("send command request on superseded connection: %v", err)
 	}
-	var response map[string]any
-	if err := oldConn.ReadJSON(&response); err != nil {
-		t.Fatalf("read superseded connection response: %v", err)
-	}
-	if response["type"] != "error" {
-		t.Fatalf("superseded connection must not read pending command, got %#v", response)
-	}
-	if strings.Contains(fmt.Sprint(response["command"]), "cmd-current") {
-		t.Fatalf("superseded connection received command payload: %#v", response)
+	if _, _, err := oldConn.ReadMessage(); !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+		t.Fatalf("superseded connection should close before command delivery, got %v", err)
 	}
 }
 
@@ -1266,8 +1244,204 @@ func TestQueueAgentMihomoUpdateRejectsInvalidInputAndUnknownAgent(t *testing.T) 
 // TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate guards against the server
 // closing an Agent session while a bounded Mihomo download/restart/health check is
 // still running and the Agent cannot send another heartbeat until it finishes.
+func TestSafeAgentWebSocketErrorRedactsSensitiveDetails(t *testing.T) {
+	err := fmt.Errorf("open /opt/s5m-agent/data/config.yaml failed: token=abc123 secret: xyz789: YAML syntax error")
+	got := safeAgentWebSocketError("读取节点配置", err)
+	if !strings.Contains(got, "读取节点配置失败") || !strings.Contains(got, "YAML syntax error") {
+		t.Fatalf("diagnostic lost useful error details: %q", got)
+	}
+	for _, secret := range []string{"abc123", "xyz789", "/opt/s5m-agent"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("diagnostic leaked sensitive value %q: %q", secret, got)
+		}
+	}
+}
+
+func TestSafeAgentWebSocketErrorHandlesEmptyErrorAndBoundsLength(t *testing.T) {
+	if got := safeAgentWebSocketError("读取节点配置", nil); got != "读取节点配置失败: 未知错误" {
+		t.Fatalf("empty error diagnostic = %q", got)
+	}
+	got := safeAgentWebSocketError("读取节点配置", fmt.Errorf("%s", strings.Repeat("x", 1000)))
+	if len(got) > 650 {
+		t.Fatalf("diagnostic exceeds safe bound: %d bytes", len(got))
+	}
+}
+
 func TestAgentWebSocketHeartbeatTTLAllowsLongKernelUpdate(t *testing.T) {
 	if agentWSHeartbeatTTL < 5*time.Minute {
 		t.Fatalf("agent WebSocket heartbeat TTL = %s; want at least 5 minutes for kernel updates", agentWSHeartbeatTTL)
+	}
+}
+
+func TestAckAgentWSCommandRedactsSensitiveResultBeforePersisting(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	pending := `{"id":"cmd-redact","type":"update_mihomo"}`
+	if err := app.store.UpdateSettings(map[string]string{"agent_command_" + code: pending}); err != nil {
+		t.Fatalf("queue pending command: %v", err)
+	}
+	message := "token=super-secret failed at /tmp/private/config.yaml"
+	if err := app.ackAgentWSCommand(code, "cmd-redact", "failed", message); err != nil {
+		t.Fatalf("ack command: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read command result: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+code]), &result); err != nil {
+		t.Fatalf("decode command result: %v", err)
+	}
+	got, _ := result["message"].(string)
+	if strings.Contains(got, "super-secret") || strings.Contains(got, "/tmp/private/config.yaml") {
+		t.Fatalf("sensitive command result was persisted unredacted: %q", got)
+	}
+	if !strings.Contains(got, "[已隐藏]") || !strings.Contains(got, "[路径已隐藏]") {
+		t.Fatalf("command result lost redaction markers: %q", got)
+	}
+}
+
+func TestSanitizeAgentWebSocketTextRedactsJSONCredentialsAndBearerTokens(t *testing.T) {
+	input := `{"token":"json-secret","api_key":"key-secret"} Authorization: Bearer bearer-secret`
+	got := sanitizeAgentWebSocketText(input)
+	for _, secret := range []string{"json-secret", "key-secret", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sensitive value %q remained in sanitized text: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 3 {
+		t.Fatalf("expected JSON credentials and bearer token to be redacted: %q", got)
+	}
+}
+
+func TestSanitizeAgentWebSocketTextRedactsQuotedCredentialsWithSpacesAndEscapes(t *testing.T) {
+	input := `{"token":"secret with spaces","password":"value with \"quote\"","api_key": "key with spaces"} token='plain value with spaces' Authorization: Bearer bearer-secret`
+	got := sanitizeAgentWebSocketText(input)
+	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "plain value with spaces", "bearer-secret"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("sensitive value %q remained in sanitized text: %q", secret, got)
+		}
+	}
+	if strings.Count(got, "[已隐藏]") < 4 {
+		t.Fatalf("expected quoted JSON credentials and bearer token to be redacted: %q", got)
+	}
+}
+
+func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	if welcome["type"] != "welcome" {
+		t.Fatalf("unexpected welcome: %#v", welcome)
+	}
+
+	const reportedError = "Agent 配置同步失败: Mihomo reload rejected config"
+	status := map[string]any{
+		"mihomo_version": "v1.19.33", "mihomo_healthy": true,
+		"upload_total": float64(12), "download_total": float64(34),
+		"upload_speed": float64(1), "download_speed": float64(2),
+		"connections": float64(3), "config_sha256": strings.Repeat("a", 64),
+		"last_error": reportedError,
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-config-error", "status": status}); err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" || ack["id"] != "hb-config-error" || ack["ok"] != true {
+		t.Fatalf("unexpected heartbeat ACK: %#v", ack)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read persisted Agent settings: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode persisted Agent status: %v", err)
+	}
+	if got, _ := persisted["last_error"].(string); got != reportedError {
+		t.Fatalf("persisted last_error = %q, want %q", got, reportedError)
+	}
+	if settings["agent_lastseen_"+code] == "" {
+		t.Fatal("heartbeat timestamp was not persisted with error status")
+	}
+
+	// A later healthy heartbeat must replace the stale error, not leave the
+	// previous failure visible indefinitely in the console.
+	recoveredStatus := map[string]any{
+		"mihomo_version": "v1.19.33", "mihomo_healthy": true,
+		"upload_total": float64(15), "download_total": float64(40),
+		"upload_speed": float64(2), "download_speed": float64(3),
+		"connections": float64(2), "config_sha256": strings.Repeat("b", 64),
+		"last_error": "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-config-recovered", "status": recoveredStatus}); err != nil {
+		t.Fatalf("send recovered heartbeat: %v", err)
+	}
+	ack = nil
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read recovered heartbeat ACK: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" || ack["id"] != "hb-config-recovered" || ack["ok"] != true {
+		t.Fatalf("unexpected recovered heartbeat ACK: %#v", ack)
+	}
+	settings, err = app.store.GetSettings()
+	if err != nil {
+		t.Fatalf("read recovered Agent settings: %v", err)
+	}
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &persisted); err != nil {
+		t.Fatalf("decode recovered Agent status: %v", err)
+	}
+	if got, _ := persisted["last_error"].(string); got != "" {
+		t.Fatalf("stale last_error remained after recovery: %q", got)
+	}
+}
+
+func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	// No heartbeat or further request is sent: revocation itself must close
+	// the idle socket rather than waiting for the next message/TTL timeout.
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatal("revoked idle WebSocket remained open")
+	}
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		t.Fatalf("unexpected WebSocket close error: %v", err)
 	}
 }

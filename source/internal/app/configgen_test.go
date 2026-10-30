@@ -175,7 +175,7 @@ proxies:
 	if !ok {
 		t.Fatalf("route-exclude-address is not a sequence: %#v", tun["route-exclude-address"])
 	}
-	for _, want := range []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "198.18.0.0/16", "203.0.113.10/32", "10.1.2.0/24"} {
+	for _, want := range []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "203.0.113.10/32", "10.1.2.0/24"} {
 		found := false
 		for _, item := range addresses {
 			if item == want {
@@ -184,6 +184,12 @@ proxies:
 		}
 		if !found {
 			t.Errorf("route-exclude-address missing %q: %#v", want, addresses)
+		}
+	}
+	// Fake IPs must remain routed through TUN so Mihomo can map them back to domains.
+	for _, item := range addresses {
+		if item == "198.18.0.0/16" {
+			t.Fatalf("fake-IP range must remain routed through TUN: %#v", addresses)
 		}
 	}
 	if !strings.Contains(got, "# stale mixed listener") {

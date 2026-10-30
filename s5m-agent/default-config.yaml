@@ -18,12 +18,18 @@ profile:
 # DNS 设置
 dns:
   enable: true
+  ipv6: false
   listen: 127.0.0.1:5353
   enhanced-mode: fake-ip
   fake-ip-range: 198.18.0.1/16
   fake-ip-filter:
     - "*.lan"
-    - "+.v2net.cc"
+    - "*.local"
+    - '+.v2net.cc'
+    - "geosite:private"
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
   proxy-server-nameserver:
     - 223.5.5.5
     - 119.29.29.29
@@ -52,3 +58,6 @@ tun:
   stack: system
   auto-route: true
   auto-detect-interface: true
+  dns-hijack:
+    - "any:53"
+    - "tcp://any:53"

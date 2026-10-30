@@ -22,6 +22,67 @@ jobs:
         uses: actions/checkout@v5
       - name: Validate native installer shell syntax
         run: bash -n ../scripts/install.sh
+      - name: Guard installer against duplicate domain and certificate prompts
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer=../scripts/install.sh
+          python3 - "$installer" <<'PY'
+          from pathlib import Path
+          import sys
+
+          script = Path(sys.argv[1]).read_text(encoding="utf-8")
+          detection = script.index("# 解析 nginx -T 输出，查找已存在的 S5M HTTPS 虚拟主机")
+          prompt = script.index('read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: "')
+          cert_issue = script.index('certbot --nginx --non-interactive')
+          assert detection < prompt < cert_issue, "TLS detection must happen before prompting and certificate issuance"
+          for marker in (
+              "nginx -T 2>/dev/null | python3 -c",
+              "只复用 443+ssl+proxy_pass 127.0.0.1:8080 且证书有效的 server 块",
+              "proxy_pass",
+              "ssl_certificate_key",
+              "openssl x509 -in \"$cert_path\" -noout -checkhost",
+              "openssl x509 -in \"$cert_path\" -noout -checkend 0",
+              "HTTPS_ALREADY_CONFIGURED=1",
+              "不重新询问域名或签发证书",
+          ):
+              assert marker in script, f"missing existing TLS reuse guard: {marker}"
+          print("PASS: installer parses expanded Nginx server blocks and validates S5M TLS certificate/domain before prompting")
+          PY
+      - name: Test IPv4 and IPv6 HTTPS listener detection patterns
+        shell: bash
+        run: |
+          set -euo pipefail
+          listener_re='^[[:space:]]*listen[[:space:]]+(\[::\]:)?443[[:space:]]+ssl([[:space:]]|;|$)'
+          for line in 'listen 443 ssl;' '    listen [::]:443 ssl;' 'listen 443 ssl http2;'; do
+            printf '%s\n' "$line" | grep -Eq "$listener_re" || {
+              echo "FAIL: expected HTTPS listener to match: $line"
+              exit 1
+            }
+          done
+          for line in 'listen 80;' 'listen [::]:80;' 'listen 8443 ssl;'; do
+            if printf '%s\n' "$line" | grep -Eq "$listener_re"; then
+              echo "FAIL: non-443 listener matched: $line"
+              exit 1
+            fi
+          done
+          echo "PASS: IPv4/IPv6 port-443 SSL listeners detected; non-TLS listeners ignored"
+
+      - name: Guard installer against false Nginx port-80 conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - ../scripts/install.sh <<'PY'
+          from pathlib import Path
+          import sys
+          script = Path(sys.argv[1]).read_text(encoding="utf-8")
+          assert 'EXISTING_ADDR="$(sed -n \'s/^S5M_ADDR=//p\' "$ENV_FILE" | tail -n1)"' in script
+          assert 'PORT_TO_USE=8080' in script
+          assert '不将其误判为 S5M 后端冲突' in script
+          assert '不将其误判为 S5M 后端冲突' in script
+          assert 'grep -oP \'pid=\\K[0-9]+\'' in script
+          print("PASS: installer derives backend port from S5M_ADDR and does not mistake public Nginx :80 for S5M backend")
+          PY
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -58,6 +119,7 @@ jobs:
           gzip -dc "$archive" > /tmp/mihomo
           chmod +x /tmp/mihomo
           /tmp/mihomo -t -f internal/app/testdata/mihomo-anchors.yaml
+          /tmp/mihomo -t -f ../s5m-agent/default-config.yaml
 
   agent:
     name: Agent tests, vet and build
@@ -254,8 +316,33 @@ jobs:
             [[ -f "$file" ]] || continue
             node --check "$file"
           done
+      - name: Verify Agent first-boot DNS/TUN defaults match controller normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=s5m-agent/default-config.yaml
+          generator=source/internal/app/configgen.go
+          grep -Fq 'mixed-port: 7890' "$config"
+          grep -Fq 'external-controller: 127.0.0.1:8088' "$config"
+          grep -Fq '  ipv6: false' "$config"
+          grep -Fq '    - "*.local"' "$config"
+          grep -Fq '    - "geosite:private"' "$config"
+          grep -Fq '  default-nameserver:' "$config"
+          grep -Fq '    - "any:53"' "$config"
+          grep -A2 '^tun:' "$config" | grep -Fq '  enable: false'
+          grep -Fq "default-nameserver:" "$generator"
+          grep -Fq "'*.local'" "$generator"
+          grep -Fq "'geosite:private'" "$generator"
+          grep -Fq "dns-hijack:" "$generator"
+          grep -Fq "'any:53'" "$generator"
+          grep -Fq 'Existing /data/config.yaml is intentionally preserved' "$config"
+          grep -Fq "sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" source/web/app.js
+          ! grep -Fq "api('/api/v1/nodes/' + encodeURIComponent(code) + '/config" source/web/app.js
+          echo "PASS: Agent DNS/TUN defaults match controller normalization; TUN stays disabled; node config reads use WebSocket."
       - name: Check UI data-integrity regressions
         run: python3 scripts/check-web-regressions.py
+      - name: Test YAML quick-settings behavior
+        run: node scripts/test-yaml-quick-settings.js
       - name: Verify required web files
         shell: bash
         run: |
@@ -264,7 +351,6 @@ jobs:
             source/web/index.html
             source/web/app.css
             source/web/app.js
-            source/web/agents.html
           )
           missing=0
           for file in "${required[@]}"; do

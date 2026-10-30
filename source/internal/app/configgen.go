@@ -36,8 +36,8 @@ dns:
     fake-ip-filter:
         - '*.lan'
         - '*.local'
-        - 'geosite:private'
         - '+.v2net.cc'
+        - 'geosite:private'
     default-nameserver:
         - 223.5.5.5
         - 119.29.29.29
@@ -60,6 +60,7 @@ tun:
     auto-detect-interface: true
     dns-hijack:
         - 'any:53'
+        - 'tcp://any:53'
 proxies:__PROXIES__
 rules:__RULES__`
 
@@ -265,7 +266,7 @@ func normalizeAgentMixedPort(yml string) (string, error) {
 	// proxy endpoint IPs so TUN cannot recursively route its own upstream transport.
 	excluded := []string{
 		"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12",
-		"192.168.0.0/16", "198.18.0.0/16",
+		"192.168.0.0/16",
 	}
 	seen := make(map[string]bool, len(excluded))
 	for _, cidr := range excluded {

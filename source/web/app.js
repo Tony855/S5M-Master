@@ -18,6 +18,8 @@ createApp({
     let browserEventsSocket = null;
     let browserEventsRetryTimer = null;
     let browserEventsStopped = false;
+    let browserEventsConnecting = false;
+    let browserEventsGeneration = 0;
     let staleStatusTimer = null;
     const browserWSRequests = new Map();
     let overviewTimer = null;
@@ -45,8 +47,12 @@ createApp({
     const subUrl = ref('');
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
+    const configTunEnabled = ref(false);
+    const configDnsEnabled = ref(false);
+    const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    let nodeConfigLoadGeneration = 0;
     const templateYaml = ref('');
     const templateNote = ref('');
     const templateVersions = ref([]);
@@ -206,15 +212,21 @@ createApp({
       }
     });
 
+    const rejectPendingBrowserWSRequests = (message) => {
+      for (const [requestId, pending] of browserWSRequests.entries()) {
+        browserWSRequests.delete(requestId);
+        pending.reject(new Error(message));
+      }
+    };
+
     const stopBrowserEvents = () => {
       browserEventsStopped = true;
+      browserEventsConnecting = false;
+      browserEventsGeneration++;
       realtimeStatus.value = 'disconnected';
       if (browserEventsRetryTimer !== null) clearTimeout(browserEventsRetryTimer);
       browserEventsRetryTimer = null;
-      for (const [requestId, pending] of browserWSRequests.entries()) {
-        browserWSRequests.delete(requestId);
-        pending.reject(new Error('实时通道已断开，请重新连接后重试'));
-      }
+      rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试');
       if (browserEventsSocket) {
         const socket = browserEventsSocket;
         browserEventsSocket = null;
@@ -238,22 +250,31 @@ createApp({
     };
 
     const connectBrowserEvents = async () => {
-      if (!token.value || browserEventsSocket || browserEventsStopped) return;
+      if (!token.value || browserEventsSocket || browserEventsStopped || browserEventsConnecting) return;
+      browserEventsConnecting = true;
+      const generation = ++browserEventsGeneration;
       realtimeStatus.value = 'connecting';
       try {
         const res = await api('/api/v1/events/ticket', { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ticket) throw new Error(data.error || '获取实时通道授权失败');
+        if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;
+        browserEventsConnecting = false;
         const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const socket = new WebSocket(scheme + '//' + window.location.host + '/api/v1/events/ws?ticket=' + encodeURIComponent(data.ticket));
         browserEventsSocket = socket;
         socket.onopen = () => {
+          if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) {
+            try { socket.close(); } catch (_) {}
+            return;
+          }
           realtimeStatus.value = 'connected';
           // Resync the full snapshot after every connect/reconnect; WebSocket events are deltas.
           loadAgentsData();
           loadOverview();
         };
         socket.onmessage = (event) => {
+          if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) return;
           // Resolve browser-originated control requests on the same primary WebSocket.
           let envelope;
           try { envelope = JSON.parse(event.data); } catch (_) { return; }
@@ -262,7 +283,11 @@ createApp({
             if (pending) {
               browserWSRequests.delete(envelope.request_id);
               if (envelope.ok) pending.resolve(envelope);
-              else pending.reject(new Error(envelope.error || '实时操作失败'));
+              else {
+                const error = new Error(envelope.error || '实时操作失败');
+                if (Array.isArray(envelope.bound_nodes)) error.bound_nodes = envelope.bound_nodes;
+                pending.reject(error);
+              }
             }
             return;
           }
@@ -270,11 +295,18 @@ createApp({
           try { message = JSON.parse(event.data); } catch (_) { return; }
           if (message.type === 'agent.binding.revoked' && message.machine_code) {
             const revokedCode = String(message.machine_code);
+            // Invalidate snapshots already in flight: an older agents.list.get
+            // response must never resurrect a binding removed by this event.
+            agentBindingRevision++;
             agentEntries.value = agentEntries.value.filter(item => item.code !== revokedCode);
             loadAgentsData();
             return;
           }
           if (message.type === 'agent.binding.updated') {
+            // A registration/rebind event must invalidate older list snapshots
+            // just like revocation; otherwise the newly authorized node can
+            // remain absent until another manual refresh or reconnect.
+            agentBindingRevision++;
             loadAgentsData();
             return;
           }
@@ -282,6 +314,13 @@ createApp({
             const code = String(message.machine_code);
             const status = message.status && typeof message.status === 'object' ? message.status : {};
             const receivedAt = Number(message.last_seen) || Math.floor(Date.now() / 1000);
+            // Live telemetry is authoritative while WebSocket is connected.
+            // HTTP is only used for initial/reconnect snapshots, not polling.
+            traffic.value = {
+              up: Math.max(0, Number(status.upload_speed) || 0),
+              down: Math.max(0, Number(status.download_speed) || 0),
+              conns: Math.max(0, Number(status.connections) || 0)
+            };
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
               const previous = agentEntries.value[index];
@@ -294,6 +333,9 @@ createApp({
                 arch: String(status.arch || previous.arch || ''),
                 mihomoRunning: status.mihomo_healthy === true,
                 mihomoVersion: normalizeMihomoVersion(status.mihomo_version || previous.mihomoVersion),
+                connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : previous.connections,
+                uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
+                downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
                 runtimeReported: true,
                 lastError: String(status.last_error || ''),
                 runtimeMessage: status.mihomo_healthy === true ? '' : String(status.last_error || 'Agent 已连接，但 Mihomo 健康检查未通过'),
@@ -321,8 +363,16 @@ createApp({
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
         socket.onclose = () => {
-          if (browserEventsSocket === socket) browserEventsSocket = null;
-          if (browserEventsStopped || !token.value) return;
+          if (generation !== browserEventsGeneration) return;
+          const wasCurrentSocket = browserEventsSocket === socket;
+          if (wasCurrentSocket) {
+            browserEventsSocket = null;
+            // Fail pending requests immediately instead of making each caller wait
+            // for its 15-second timeout. The server may have completed a write
+            // before the reply was lost, so callers must treat the outcome as unknown.
+            rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试');
+          }
+          if (!wasCurrentSocket || browserEventsStopped || !token.value) return;
           realtimeStatus.value = 'reconnecting';
           browserEventsRetryTimer = setTimeout(() => {
             browserEventsRetryTimer = null;
@@ -330,6 +380,12 @@ createApp({
           }, 3000);
         };
       } catch (e) {
+        if (generation !== browserEventsGeneration) return;
+        browserEventsConnecting = false;
+        if (browserEventsStopped || !token.value) {
+          realtimeStatus.value = 'disconnected';
+          return;
+        }
         realtimeStatus.value = 'reconnecting';
         if (!browserEventsStopped && token.value) {
           browserEventsRetryTimer = setTimeout(() => {
@@ -365,9 +421,8 @@ createApp({
       if (pwdForm.old === pwdForm.new) return showMsg('新密码不能与当前密码相同', 'warning');
       pwdSaving.value = true;
       try {
-        const res = await api('/api/v1/auth/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old: pwdForm.old, new: pwdForm.new }) });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        const result = await sendBrowserWSControl({ type: 'auth.password.change', old: pwdForm.old, new: pwdForm.new });
+        const data = result.data || result;
         showMsg(data.message || '管理员密码已更新', 'success');
         pwdDialog.value = false;
         resetPwdForm();
@@ -406,22 +461,36 @@ createApp({
     };
 
     const loadOverview = async () => {
+      // The dashboard uses the authenticated browser WebSocket as its primary
+      // data channel. Do not silently fall back to repeated HTTP requests.
       try {
-        const res = await api('/api/v1/monitor/overview?t=' + Date.now());
-        if (res.ok) overview.value = await res.json() || {};
-      } catch (e) { console.warn('读取仪表盘概览失败', e); }
+        const data = await sendBrowserWSControl({ type: 'monitor.overview.get' });
+        overview.value = data.data || {};
+      } catch (e) {
+        console.warn('通过实时通道读取仪表盘概览失败', e);
+      }
 
       try {
-        const res = await api('/api/v1/monitor/traffic?t=' + Date.now());
-        if (res.ok) {
-          const data = await res.json() || {};
-          traffic.value = {
-            up: Number(data.up) || 0,
-            down: Number(data.down) || 0,
-            conns: Number(data.conns) || 0
-          };
-        }
-      } catch (e) { console.warn('读取实时流量失败', e); }
+        const data = await sendBrowserWSControl({ type: 'monitor.traffic.get' });
+        traffic.value = {
+          up: Math.max(0, Number((data.data || {}).up) || 0),
+          down: Math.max(0, Number((data.data || {}).down) || 0),
+          conns: Math.max(0, Number((data.data || {}).conns) || 0)
+        };
+      } catch (e) {
+        console.warn('通过实时通道读取流量失败', e);
+      }
+    };
+
+    const recoverMihomoUpdateTask = async () => {
+      try {
+        const result = await sendBrowserWSControl({ type: 'mihomo.update.latest.get' });
+        const task = result.data || null;
+        if (!task) { showMsg('没有可恢复的 Mihomo 更新任务', 'info'); return; }
+        const statusText = task.status === 'running' || task.status === 'queued' ? '仍在执行' : task.status === 'completed' ? '已完成' : '失败';
+        const detail = task.error || task.message || task.version || '';
+        showMsg('最近一次主控 Mihomo 更新' + statusText + '（任务 ' + task.task_id + '）' + (detail ? '：' + detail : ''), task.status === 'failed' ? 'error' : 'info');
+      } catch (e) { showMsg(e.message || '查询最近更新任务失败', 'error'); }
     };
 
     const updateKernel = async () => {
@@ -436,19 +505,25 @@ createApp({
       }
       updatingKernel.value = true;
       try {
-        const res = await api('/api/v1/mihomo/update', { method: 'POST' });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(d.error || d.message || '更新失败');
+        const started = await sendBrowserWSControl({ type: 'mihomo.update.start' });
+        const taskID = String((started.data || started).task_id || '');
+        if (!taskID) throw new Error('更新任务未返回有效任务 ID');
+        const deadline = Date.now() + 5 * 60 * 1000;
+        let task;
+        while (Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          const result = await sendBrowserWSControl({ type: 'mihomo.update.status.get', task_id: taskID });
+          task = result.data || result;
+          if (task.status === 'completed' || task.status === 'failed') break;
+        }
+        if (!task || (task.status !== 'completed' && task.status !== 'failed')) throw new Error('更新仍在后台执行，任务 ID：' + taskID + '。可使用“查询最近更新任务”恢复查看。');
+        if (task.status === 'failed') throw new Error(task.error || '主控 Mihomo 更新失败');
         await loadMainMihomoStatus();
-        const expectedVersion = String(d.version || '').trim();
+        const expectedVersion = String(task.version || '').trim();
         const actualVersion = String(mainMihomoStatus.value.version || '').trim();
-        if (!mainMihomoStatus.value.online) {
-          throw new Error('更新请求已返回，但刷新状态显示主控 Mihomo 未正常运行；请查看状态诊断和服务日志。');
-        }
-        if (expectedVersion && actualVersion !== expectedVersion) {
-          throw new Error('版本确认不一致：更新接口返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
-        }
-        showMsg(d.message || 'Mihomo 运行版本已确认', d.status === 'latest' ? 'info' : 'success');
+        if (!mainMihomoStatus.value.online) throw new Error('更新任务已完成，但主控 Mihomo 当前未正常运行，请查看服务日志。');
+        if (expectedVersion && actualVersion !== expectedVersion) throw new Error('版本确认不一致：任务返回 ' + expectedVersion + '，状态页读取到 ' + (actualVersion || '未知'));
+        showMsg(task.message || 'Mihomo 运行版本已确认', task.result_status === 'latest' ? 'info' : 'success');
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
@@ -457,9 +532,8 @@ createApp({
     const loadMainMihomoStatus = async () => {
       mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: true };
       try {
-        const res = await api('/api/v1/mihomo/status?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取主控 Mihomo 状态失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.status.get' });
+        const data = result.data || {};
         mainMihomoStatus.value = { ...data, loading: false };
       } catch (e) {
         mainMihomoStatus.value = { ...mainMihomoStatus.value, loading: false, online: false, queryError: e.message || '状态查询失败' };
@@ -469,9 +543,8 @@ createApp({
     const loadSystemLogs = async () => {
       loadingSystemLogs.value = true;
       try {
-        const res = await api('/api/v1/logs?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取系统日志失败');
+        const result = await sendBrowserWSControl({ type: 'system.logs.get' });
+        const data = result.data || {};
         systemLogs.value = data.logs || '';
       } catch (e) {
         showMsg(e.message || '读取系统日志失败', 'error');
@@ -540,11 +613,8 @@ createApp({
     const loadProxies = async () => {
       loadingProxies.value = true;
       try {
-        const res = await api('/api/v1/proxies?t=' + Date.now());
-        if (res.ok) {
-          const d = await res.json();
-          proxies.value = Array.isArray(d) ? d : (d.data || d.proxies || []);
-        }
+        const result = await sendBrowserWSControl({ type: 'proxies.list.get' });
+        proxies.value = Array.isArray(result.data) ? result.data : [];
       } catch (e) { console.warn(e); }
       finally {
         loadingProxies.value = false;
@@ -601,28 +671,29 @@ createApp({
         if (proxyForm.username) extra.username = proxyForm.username;
         if (proxyForm.password) extra.password = proxyForm.password;
 
-        const res = await api(url, {
-          method: isEdit ? 'PUT' : 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        await sendBrowserWSControl({
+          type: 'proxy.save',
+          proxy_id: isEdit ? String(proxyForm.id) : '',
+          proxy: {
             name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
-          })
-        });
-        if (res.ok) {
-          proxyDialog.value = false; loadProxies(); showMsg('保存成功', 'success');
-        } else {
-          const message = await parseErr(res);
-          if (String(message).includes('同步失败') || String(message).includes('已保存') || String(message).includes('已更新')) {
-            proxyDialog.value = false;
-            await loadProxies();
-            showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
-          } else {
-            showMsg(message, 'error');
           }
+        });
+        proxyDialog.value = false;
+        await loadProxies();
+        showMsg('保存成功', 'success');
+      } catch (e) {
+        const message = e.message || '网络错误';
+        // Proxy persistence may succeed even when downstream node sync fails.
+        if (message.includes('同步失败') || message.includes('已保存') || message.includes('已更新')) {
+          proxyDialog.value = false;
+          await loadProxies();
+          showMsg('代理数据已保存，但节点配置同步失败：' + message + '。请检查节点状态后重试同步。', 'warning');
+        } else {
+          showMsg(message, 'error');
         }
-      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
+      }
       savingProxy.value = false;
     };
 
@@ -630,18 +701,14 @@ createApp({
       if (!row.id) return showMsg('该节点无 id，无法删除', 'warning');
       if (!confirm('确定删除节点 "' + (row.name || row.proxy_name || row.id) + '" ？')) return;
       try {
-        const res = await api('/api/v1/proxies/' + encodeURIComponent(row.id), { method: 'DELETE' });
-        if (res.ok) {
-          // Remove from the reactive list immediately so both desktop and mobile
-          // views update without waiting for a second API request.
-          proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
-          await loadProxies();
-          showMsg('已删除', 'success');
-          return;
-        }
-        const message = await parseErr(res);
-        // The DB delete may succeed even when node-config synchronization fails.
-        // Reflect that committed deletion immediately, then reload the authoritative list.
+        await sendBrowserWSControl({ type: 'proxy.delete', proxy_id: String(row.id) });
+        // Reflect the committed deletion immediately, then reload the authoritative list.
+        proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
+        await loadProxies();
+        showMsg('已删除', 'success');
+      } catch (e) {
+        const message = e.message || '删除失败';
+        // The backend may commit the delete before reporting a node-sync failure.
         if (message.includes('代理已删除')) {
           proxies.value = proxies.value.filter(p => String(p.id) !== String(row.id));
           await loadProxies();
@@ -649,8 +716,6 @@ createApp({
           return;
         }
         showMsg(message, 'error');
-      } catch (e) {
-        showMsg(e.message || '删除失败', 'error');
       }
     };
 
@@ -758,15 +823,10 @@ createApp({
       if (importing.value) return;
       importing.value = true;
       try {
-        // 后端 handleImportProxies 的请求结构是 { content: "多行文本" }。
-        // 不发送前端自行解析的 { proxies: [...] }，避免接口结构不匹配。
-        const res = await api('/api/v1/proxies/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        // Import is text/JSON content rather than a binary upload, so it uses the
+        // authenticated WebSocket control channel like other proxy mutations.
+        const result = await sendBrowserWSControl({ type: 'proxies.import', content });
+        const data = result.data || result;
         const success = Number(data.success) || 0;
         const fail = Number(data.fail) || 0;
         if (data.sync_failed) {
@@ -788,28 +848,20 @@ createApp({
     };
 
     const agentRefreshing = ref(false);
+    let agentBindingRevision = 0;
     const loadAgentsData = async () => {
       // Never overlap instance requests. Once data exists, refresh silently so
       // the current list and expanded cards remain mounted while the request runs.
       if (agentLoading.value || agentRefreshing.value) return;
+      const revocationRevision = agentBindingRevision;
+      let retryAfterRevocation = false;
       const hasExistingData = agentEntries.value.length > 0;
       if (hasExistingData) agentRefreshing.value = true;
       else agentLoading.value = true;
       if (!hasExistingData) agentLoadError.value = '';
       try {
-        const res = await api('/api/v1/agents?t=' + Date.now());
-        if (!res.ok) {
-          const detail = await res.text().catch(() => '');
-          if (!hasExistingData) {
-            agentLoadError.value = '读取实例失败（HTTP ' + res.status + '）。请确认登录状态及主控 API。';
-          } else {
-            console.warn('静默刷新实例失败，保留现有列表（HTTP ' + res.status + '）', detail);
-          }
-          console.error('读取实例失败', res.status, detail);
-          if (!hasExistingData) agentEntries.value = [];
-          return;
-        }
-        const data = await res.json();
+        const result = await sendBrowserWSControl({ type: 'agents.list.get' });
+        const data = result.data || {};
         const now = Math.floor(Date.now() / 1000);
         const list = [];
         Object.keys(data || {}).forEach(code => {
@@ -839,7 +891,11 @@ createApp({
 
           list.push({
             code,
+            authorized: item.authorized === true,
             tokenConfigured: item.token_configured === true,
+            connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : null,
+            uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
+            downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
             online,
             last_seen: last,
             hostname,
@@ -858,7 +914,13 @@ createApp({
           });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
-        agentEntries.value = list;
+        if (revocationRevision !== agentBindingRevision) {
+          // A revoke event arrived while this snapshot was loading. Discard it
+          // and fetch a fresh authoritative snapshot after releasing the lock.
+          retryAfterRevocation = true;
+        } else {
+          agentEntries.value = list;
+        }
       } catch (e) {
         if (!hasExistingData) {
           agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。';
@@ -870,6 +932,9 @@ createApp({
       } finally {
         agentLoading.value = false;
         agentRefreshing.value = false;
+        if (retryAfterRevocation) {
+          Promise.resolve().then(() => loadAgentsData());
+        }
       }
     };
 
@@ -877,11 +942,9 @@ createApp({
       if (!newMachineCode.value) return showMsg('请输入机器码', 'warning');
       generating.value = true;
       try {
-        const res = await api('/api/v1/agents/generate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machine_code: newMachineCode.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.token) {
+        const result = await sendBrowserWSControl({ type: 'agent.binding.generate', machine_code: newMachineCode.value });
+        const data = result.data || result;
+        if (data.token) {
           generatedToken.value = data.token; newMachineCode.value = ''; loadAgentsData();
         } else { showMsg(data.error || data.message || '生成失败', 'error'); }
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
@@ -896,9 +959,8 @@ createApp({
       kernelUpdateVersion.value = '';
       kernelUpdateSHA256.value = '';
       try {
-        const res = await api('/api/v1/agents/kernel-update-info?machine_code=' + encodeURIComponent(machineCode) + '&t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        const result = await sendBrowserWSControl({ type: 'agent.mihomo.update-info', machine_code: machineCode });
+        const data = result.data || result;
         kernelUpdateInfo.value = data;
         kernelUpdateVersion.value = String(data.latest_version || '');
         kernelUpdateSHA256.value = String(data.sha256 || '').toLowerCase();
@@ -955,16 +1017,17 @@ createApp({
     const deleteAgent = async (code) => {
       if (!confirm('确定删除机器码 "' + code + '" 的 Token？')) return;
       try {
-        const res = await api('/api/v1/agents?code=' + encodeURIComponent(code), { method: 'DELETE' });
-        if (res.ok) { if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; } await loadAgentsData(); showMsg('已撤销绑定；旧 Token 已失效', 'success'); } else showMsg(await parseErr(res), 'error');
+        await sendBrowserWSControl({ type: 'agent.binding.revoke', machine_code: code });
+        if (selectedConfigNode.value === code) { selectedConfigNode.value = ''; configYaml.value = ''; }
+        await loadAgentsData();
+        showMsg('已撤销绑定；旧 Token 已失效', 'success');
       } catch (e) { showMsg(e.message || '删除失败', 'error'); }
     };
 
     const loadMihomoTemplate = async () => {
       try {
-        const res = await api('/api/v1/mihomo/template?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.get' });
+        const data = result.data || {};
         templateYaml.value = data.draft_yaml || '';
         templateVersions.value = Array.isArray(data.versions) ? data.versions : [];
         templateCurrentVersion.value = Number(data.current_version || 0);
@@ -974,9 +1037,8 @@ createApp({
 
     const loadTemplateNodeStatus = async () => {
       try {
-        const res = await api('/api/v1/mihomo/template/nodes?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '读取节点版本状态失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.nodes.get' });
+        const data = result.data || {};
         templateNodes.value = Array.isArray(data.nodes) ? data.nodes : [];
         if (!selectedTemplateNode.value && templateNodes.value.length) selectedTemplateNode.value = templateNodes.value[0].machine_code;
       } catch (e) { showMsg(e.message || '读取节点版本状态失败', 'error'); }
@@ -987,12 +1049,8 @@ createApp({
       if (validatingTemplate.value) return;
       validatingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/validate', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error([data.error || data.message || 'Mihomo 内核校验失败', data.detail].filter(Boolean).join('：'));
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.validate', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || 'Mihomo 内核校验通过', 'success');
       } catch (e) { showMsg(e.message || 'Mihomo 内核校验失败', 'error'); }
       finally { validatingTemplate.value = false; }
@@ -1003,12 +1061,8 @@ createApp({
       if (savingTemplate.value) return;
       savingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ yaml: templateYaml.value })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '保存模板草稿失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.save', yaml: templateYaml.value });
+        const data = result.data || result;
         showMsg(data.message || '模板草稿已保存', 'success');
         await loadMihomoTemplate();
       } catch (e) { showMsg(e.message || '保存模板草稿失败', 'error'); }
@@ -1020,12 +1074,8 @@ createApp({
       if (publishingTemplate.value) return;
       publishingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/publish', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ note: templateNote.value || '' })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '发布模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.publish', note: templateNote.value || '' });
+        const data = result.data || result;
         templateNote.value = '';
         showMsg((data.message || '模板已发布') + '（v' + data.version + '）', 'success');
         await loadMihomoTemplate();
@@ -1050,12 +1100,10 @@ createApp({
       if (deletingTemplateVersion.value) return;
       deletingTemplateVersion.value = target;
       try {
-        const res = await api('/api/v1/mihomo/template/' + target, { method: 'DELETE' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const error = new Error(data.error || data.message || '删除模板版本失败');
-          error.bound_nodes = data.bound_nodes;
-          throw error;
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.delete', version: String(target) });
+        const data = result.data || result;
+        if (data.bound_nodes) {
+          // Keep any server-provided bound-node details visible if deletion is rejected.
         }
         if (Number(selectedTemplateVersion.value) === target) selectedTemplateVersion.value = null;
         showMsg(data.message || ('模板历史版本 v' + target + ' 已删除'), 'success');
@@ -1079,12 +1127,8 @@ createApp({
       if (applyingTemplate.value) return;
       applyingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/rollback', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: code, confirm: true })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '恢复节点配置失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.rollback', machine_code: code, confirm: true });
+        const data = result.data || result;
         showMsg(data.message || '节点配置已恢复', 'success');
         await loadTemplateNodeStatus();
         if (selectedConfigNode.value === code) await loadNodeConfig();
@@ -1100,12 +1144,8 @@ createApp({
       if (applyingTemplate.value) return;
       applyingTemplate.value = true;
       try {
-        const res = await api('/api/v1/mihomo/template/apply', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ machine_code: code, version, confirm: true })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || '应用模板失败');
+        const result = await sendBrowserWSControl({ type: 'mihomo.template.apply', machine_code: code, template_version: version, confirm: true });
+        const data = result.data || result;
         showMsg(data.message || '模板已应用到节点', 'success');
         await loadTemplateNodeStatus();
         if (selectedConfigNode.value === code) await loadNodeConfig();
@@ -1113,93 +1153,179 @@ createApp({
       finally { applyingTemplate.value = false; }
     };
 
+    const yamlIndent = line => {
+      const match = String(line || '').match(/^ */);
+      return match ? match[0].length : 0;
+    };
+    const yamlSectionBounds = (lines, section) => {
+      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line));
+      if (start < 0) return null;
+      const sectionIndent = yamlIndent(lines[start]);
+      let end = start + 1;
+      while (end < lines.length) {
+        const line = lines[end];
+        if (line.trim() && !/^\s*#/.test(line) && yamlIndent(line) <= sectionIndent) break;
+        end++;
+      }
+      return { start, end, sectionIndent };
+    };
+    const assertUniqueYamlSections = (lines, sections) => {
+      for (const section of sections) {
+        const count = lines.filter(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line)).length;
+        if (count > 1) throw new Error('YAML 存在重复的顶层 ' + section + ' 配置块；请先重新加载原始 YAML 并检查');
+      }
+    };
+    const yamlChildIndent = (lines, bounds) => {
+      let childIndent = Infinity;
+      for (let i = bounds.start + 1; i < bounds.end; i++) {
+        const line = lines[i];
+        if (!line.trim() || /^\s*#/.test(line)) continue;
+        const indent = yamlIndent(line);
+        if (indent > bounds.sectionIndent) childIndent = Math.min(childIndent, indent);
+      }
+      return Number.isFinite(childIndent) ? childIndent : bounds.sectionIndent + 2;
+    };
+    const findYamlChild = (lines, bounds, key) => {
+      const childIndent = yamlChildIndent(lines, bounds);
+      const keyPattern = new RegExp('^' + key + ':(?:\\s|$)');
+      const index = lines.findIndex((line, i) =>
+        i > bounds.start && i < bounds.end &&
+        yamlIndent(line) === childIndent &&
+        keyPattern.test(line.trim())
+      );
+      return { index, indent: index >= 0 ? yamlIndent(lines[index]) : childIndent };
+    };
+    const setYamlScalar = (yaml, section, key, value) => {
+      const lines = String(yaml || '').split(/\r?\n/);
+      const bounds = yamlSectionBounds(lines, section);
+      if (!bounds) {
+        if (lines.length && lines[lines.length - 1].trim()) lines.push('');
+        lines.push(section + ':', '  ' + key + ': ' + value);
+      } else {
+        const child = findYamlChild(lines, bounds, key);
+        if (child.index >= 0) {
+          const original = lines[child.index];
+          const inlineComment = original.match(/\s+#.*$/);
+          lines[child.index] = ' '.repeat(child.indent) + key + ': ' + value + (inlineComment ? inlineComment[0] : '');
+        }
+        else lines.splice(bounds.start + 1, 0, ' '.repeat(child.indent) + key + ': ' + value);
+      }
+      return lines.join('\n');
+    };
+    const readYamlScalar = (yaml, section, key) => {
+      const lines = String(yaml || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, section);
+      if (!bounds) return '';
+      const child = findYamlChild(lines, bounds, key);
+      return child.index >= 0
+        ? lines[child.index].trim().slice(key.length + 1).split('#')[0].trim().replace(/^['"]|['"]$/g, '')
+        : '';
+    };
+    const syncConfigQuickSettingsFromYaml = () => {
+      const isYamlEnabled = value => /^(?:true|yes|on)$/i.test(String(value || '').trim().replace(/^['"]|['"]$/g, ''));
+      configTunEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'tun', 'enable'));
+      configDnsEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'dns', 'enable'));
+      const lines = String(configYaml.value || '').split(/\r?\n/), bounds = yamlSectionBounds(lines, 'dns');
+      if (!bounds) { configDnsNameservers.value = ''; return; }
+      const child = findYamlChild(lines, bounds, 'nameserver');
+      if (child.index < 0) { configDnsNameservers.value = ''; return; }
+      const values = [];
+      for (let i = child.index + 1; i < bounds.end; i++) {
+        const line = lines[i];
+        if (!line.trim() || /^\s*#/.test(line)) continue;
+        if (yamlIndent(line) <= child.indent) break;
+        const match = line.trim().match(/^-[ \t]*(.*)$/);
+        if (match) values.push(match[1].replace(/^['"]|['"]$/g, '').trim());
+      }
+      configDnsNameservers.value = values.join('\n');
+    };
+    const applyConfigQuickSettings = () => {
+      if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
+      try {
+        let lines = String(configYaml.value || '').split(/\r?\n/);
+        assertUniqueYamlSections(lines, ['tun', 'dns']);
+        let yaml = setYamlScalar(lines.join('\n'), 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
+        yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
+        lines = yaml.split(/\r?\n/);
+        const bounds = yamlSectionBounds(lines, 'dns');
+        const values = String(configDnsNameservers.value || '').split(/\r?\n/).map(v => v.trim()).filter(Boolean);
+        if (bounds) {
+          const child = findYamlChild(lines, bounds, 'nameserver');
+          let index = child.index;
+          if (index < 0) {
+            lines.splice(bounds.end, 0, ' '.repeat(child.indent) + 'nameserver:');
+            index = bounds.end;
+          }
+          const keyIndent = yamlIndent(lines[index]);
+          let end = index + 1;
+          while (end < lines.length) {
+            const line = lines[end];
+            if (line.trim() && yamlIndent(line) <= keyIndent) break;
+            end++;
+          }
+          const listIndent = keyIndent + 2;
+          lines.splice(index + 1, end - index - 1, ...values.map(value => ' '.repeat(listIndent) + '- ' + JSON.stringify(value)));
+        } else {
+          lines.push('dns:', '  enable: ' + (configDnsEnabled.value ? 'true' : 'false'), '  nameserver:',
+            ...values.map(value => '    - ' + JSON.stringify(value)));
+        }
+        configYaml.value = lines.join('\n').replace(/\n*$/, '\n');
+        syncConfigQuickSettingsFromYaml();
+        showMsg('快捷设置已更新 YAML（尚未保存），请检查后保存', 'success');
+      } catch (error) {
+        showMsg('快捷设置未写入：' + (error.message || String(error)), 'error');
+      }
+    };
+
     const loadNodeConfig = async () => {
-      const code = selectedConfigNode.value;
+      const code = String(selectedConfigNode.value || '').trim();
+      const generation = ++nodeConfigLoadGeneration;
       configYaml.value = '';
+      syncConfigQuickSettingsFromYaml();
       if (!code) return;
       try {
-        const res = await api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=' + Date.now());
-        const data = await res.json().catch(() => ({}));
-        if (res.ok) {
-          configYaml.value = data.config_yaml || '';
-          showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
-        } else {
-          configYaml.value = '';
-          showMsg(data.error || data.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
-        }
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const data = result.data || result;
+        if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
+        configYaml.value = String(data.config_yaml || '');
+        syncConfigQuickSettingsFromYaml();
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
-        showMsg(e.message || '读取节点配置失败', 'error');
+        if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
+        configYaml.value = '';
+        syncConfigQuickSettingsFromYaml();
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
       }
     };
 
     const saveNodeConfig = async () => {
-      const code = String(selectedConfigNode.value || '').trim();
-      const yaml = String(configYaml.value || '');
-
-      if (!code) {
-        showMsg('保存失败：请先选择节点机器码', 'warning');
-        return;
-      }
-      if (!yaml.trim()) {
-        showMsg('保存失败：YAML 配置不能为空', 'warning');
-        return;
-      }
+      const code = String(selectedConfigNode.value || '').trim(), yaml = String(configYaml.value || '');
+      if (!code) return showMsg('保存失败：请先选择节点机器码', 'warning');
+      if (!yaml.trim()) return showMsg('保存失败：YAML 配置不能为空', 'warning');
       if (savingConfig.value) return;
-
       savingConfig.value = true;
-      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
-
       try {
-        const path = '/api/v1/nodes/' +
-          encodeURIComponent(code) + '/config';
-
-        const res = await api(path, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config_yaml: yaml })
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          const message = data.error || data.message ||
-            ('HTTP ' + res.status);
-          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
-          console.error('[S5M node config] PUT failed', {
-            code, status: res.status, message
-          });
+        const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
+        const data = result.data || result;
+        if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
+        const verifyResult = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const verify = verifyResult.data || verifyResult;
+        if (String(verify.config_yaml || '') !== yaml) {
+          showMsg('保存已返回，但 WebSocket 回读内容不一致；请重新加载核对', 'error');
           return;
         }
-
-        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
-        const verify = await api(path + '?t=' + Date.now());
-        const saved = await verify.json().catch(() => ({}));
-
-        if (!verify.ok) {
-          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
-            verify.status + '）', 'warning');
-          console.error('[S5M node config] verification failed', {
-            code, status: verify.status, response: saved
-          });
+        if (String(selectedConfigNode.value || '').trim() !== code) return;
+        if (String(configYaml.value || '') !== yaml) {
+          showMsg('已保存并验证提交时的 YAML；编辑器内容在保存期间发生变化，请再次保存最新修改', 'warning');
           return;
         }
-
-        if (String(saved.config_yaml || '') !== yaml) {
-          showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
-          console.error('[S5M node config] verification mismatch', { code });
-          return;
-        }
-
-        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+        showMsg(data.message || '节点 YAML 保存并回读验证成功', 'success');
       } catch (e) {
-        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
-        console.error('[S5M node config] request exception', e);
-      } finally {
-        savingConfig.value = false;
-      }
+        if (String(selectedConfigNode.value || '').trim() === code) showMsg('保存失败：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] WebSocket save failed', { code, error: e });
+      } finally { savingConfig.value = false; }
     };
 
-const safeCopy = async (text) => {
+    const safeCopy = async (text) => {
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(String(text ?? ''));
@@ -1224,9 +1350,9 @@ const safeCopy = async (text) => {
       if (retryingNodeConfigSync.value) return;
       retryingNodeConfigSync.value = true;
       try {
-        const res = await api('/api/v1/nodes/config-sync', { method: 'POST' });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || data.ok === false) throw new Error(data.error || data.message || '节点配置同步失败');
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
         showMsg(data.message || '节点配置已重新生成', 'success');
       } catch (e) {
         showMsg(e.message || '节点配置同步失败', 'error');
@@ -1241,9 +1367,8 @@ const safeCopy = async (text) => {
       const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
       subUrl.value = fallback;
       try {
-        const res = await api('/api/v1/settings?t=' + Date.now());
-        if (!res.ok) return;
-        const s = await res.json().catch(() => ({}));
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
         const configured = String(s.subscribe_url || s.sub_url || '').trim();
         subUrl.value = configured || fallback;
       } catch (e) {
@@ -1277,7 +1402,8 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
-      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
+      selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
       loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
@@ -1288,7 +1414,7 @@ const safeCopy = async (text) => {
       proxyDialog, proxyForm, savingProxy,
       showImport, importTab, importText, importing, importMachineCode,
       switchPage, doLogin, logout, loadOverview,
-      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      updateKernel, recoverMihomoUpdateTask, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
       loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
       loadNodeConfig, loadSettings, saveNodeConfig,
       fmtBytes, fmtSpeed
