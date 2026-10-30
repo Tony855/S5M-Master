@@ -654,6 +654,53 @@ jobs:
             echo "::notice title=Release not requested::No release_version was present in the workflow_dispatch payload. This run will only build development artifacts."
           fi
 
+      - name: Verify release tag and existing Release commit
+        if: steps.release_gate.outputs.enabled == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release_gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_commit="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"
+            [[ "${tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Release tag commit mismatch::The triggering tag does not resolve to this workflow commit."
+              exit 1
+            }
+          fi
+
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error --output "${response_file}" --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+
+          case "${http_code}" in
+            200)
+              existing_target="$(python3 - "${response_file}" <<'PY'
+          import json, pathlib, sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(release.get("target_commitish", ""))
+          PY
+              )"
+              if [[ "${existing_target}" != "${GITHUB_SHA}" ]]; then
+                echo "::error title=Release commit mismatch::Existing Release targets '${existing_target}', but this run builds '${GITHUB_SHA}'. Refusing to replace its assets."
+                exit 1
+              fi
+              echo "Existing Release target matches ${GITHUB_SHA}; same-commit asset retry is allowed."
+              ;;
+            404)
+              echo "No existing GitHub Release for ${RELEASE_TAG}; creation may proceed."
+              ;;
+            *)
+              echo "::error title=Release lookup failed::GitHub API returned HTTP ${http_code}; refusing to publish assets."
+              cat "${response_file}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Download amd64 archive
         if: steps.release_gate.outputs.enabled == 'true'
         uses: actions/download-artifact@v4
