@@ -30,7 +30,7 @@ createApp({
     const generatedToken = ref('');
     const generating = ref(false);
     const agentEntries = ref([]);
-    const openWrtExpandedNode = ref('');
+    const openWrtExpandedNode = ref('');\n    const openWrtLogQuery = ref('');\n    const openWrtLogLevel = ref('all');\n    const rebootingOpenWrtNode = ref('');
     const agentLoadError = ref('');
     const agentLoading = ref(false);
     const agentSearch = ref('');
@@ -530,6 +530,40 @@ createApp({
         await loadOverview();
       } catch (e) { showMsg(e.message || '网络错误', 'error'); }
       finally { updatingKernel.value = false; }
+    };
+
+    const filteredOpenWrtLogs = (raw) => {
+      const query = String(openWrtLogQuery.value || '').trim().toLowerCase();
+      const level = openWrtLogLevel.value;
+      return String(raw || '').split('\\n').filter(line => {
+        const lower = line.toLowerCase();
+        if (query && !lower.includes(query)) return false;
+        if (level === 'error' && !/\\b(err|error|crit|alert|emerg)\\b/i.test(line)) return false;
+        if (level === 'warning' && !/\\b(warn|warning)\\b/i.test(line)) return false;
+        if (level === 'info' && !/\\b(info|notice|debug)\\b/i.test(line)) return false;
+        return true;
+      }).join('\\n');
+    };
+
+    const rebootOpenWrtRouter = async (item) => {
+      const code = String(item && item.code || '').trim();
+      if (!code || item.platform !== 'openwrt' || rebootingOpenWrtNode.value) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确认重启路由器 ' + code + '？设备网络和代理服务将暂时中断，待路由器启动且 Agent 重新连接后恢复管理。',
+          '确认重启 OpenWrt 路由器',
+          { type: 'warning', confirmButtonText: '确认重启', cancelButtonText: '取消', distinguishCancelAndClose: true }
+        );
+      } catch (_) { return; }
+      rebootingOpenWrtNode.value = code;
+      try {
+        const result = await sendBrowserWSControl({ type: 'openwrt.router.reboot', machine_code: code, confirm: true });
+        showMsg(result.message || '重启命令已排队，等待设备离线并重新上线', 'success');
+      } catch (e) {
+        showMsg(e.message || '重启命令提交失败', 'error');
+      } finally {
+        rebootingOpenWrtNode.value = '';
+      }
     };
 
     const loadMainMihomoStatus = async () => {
@@ -1406,7 +1440,7 @@ createApp({
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
-      retryingNodeConfigSync, retryNodeConfigSync, openWrtExpandedNode,
+      retryingNodeConfigSync, retryNodeConfigSync, openWrtExpandedNode, openWrtLogQuery, openWrtLogLevel, filteredOpenWrtLogs, rebootingOpenWrtNode, rebootOpenWrtRouter,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
