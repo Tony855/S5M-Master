@@ -461,7 +461,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version || github.event.inputs.release_version || inputs.release_version || '' }}
         run: |
           set -euo pipefail
-          release_version="$(printf '%s' "${release_version}" | tr -d '[:space:]')"
+          release_version="$(printf '%s' "${RELEASE_VERSION}" | tr -d '[:space:]')"
           if [[ -n "${release_version}" ]]; then
             if [[ ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error title=Invalid release version::Received '${release_version}', expected X.Y.Z (for example 1.0.0)."
