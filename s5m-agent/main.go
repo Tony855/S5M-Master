@@ -1909,6 +1909,11 @@ func runAgentWebSocketSession(cfg Config) error {
 				// body so operators can diagnose stale Agent builds or payload mutation.
 				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用（收到=%s，计算=%s，字节数=%d）", strings.TrimSpace(configResponse.SHA256), configHash, len(configResponse.YAML))
 			}
+			oldManagedRoutes := readManagedRouteCIDRs()
+			oldManagedRouteValues := make([]string, 0, len(oldManagedRoutes))
+			for cidr := range oldManagedRoutes {
+				oldManagedRouteValues = append(oldManagedRouteValues, cidr)
+			}
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
 				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
@@ -1923,6 +1928,9 @@ func runAgentWebSocketSession(cfg Config) error {
 					fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 						return fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr)
+					}
+					if stateErr := writeManagedRouteCIDRs(oldManagedRouteValues); stateErr != nil {
+						return fmt.Errorf("配置已回滚，但动态主控地址记录恢复失败: %w", stateErr)
 					}
 					if retryErr := reloadMihomo(); retryErr != nil {
 						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
