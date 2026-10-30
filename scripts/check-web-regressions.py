@@ -53,7 +53,7 @@ checks = {
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "row.mode] || row.mode || 'return'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'return'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
-    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in ui and "同步失败" in ui,
+    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in app_js and "同步失败" in app_js,
     "proxy deletion sync failure refreshes list and offers retry": "if (message.includes('代理已删除'))" in app_js and "await loadProxies();" in app_js and "立即重试同步所有节点" in app_js,
     "bulk proxy import synchronizes authorized node configs and exposes partial failure": "if successCount > 0" in import_handler and "syncAuthorizedNodeConfigs()" in import_handler and '"sync_failed": syncFailed' in import_handler and "data.sync_failed" in app_js and "代理导入已完成" in app_js,
     "JSON proxy import inherits the top-level protocol without silently defaulting to SOCKS5": "parsedJSON.protocol || parsedJSON.type || parsedJSON.scheme" in app_js and "item.type || item.protocol || item.scheme || inheritedProtocol || ''" in app_js and "item.type || item.protocol || 'socks5'" not in app_js,
@@ -212,6 +212,9 @@ checks.update({
         and "立即重试同步所有节点" in app_js
         and "type: 'proxy.delete'" in app_js
     ),
+    "proxy create and update use authenticated WebSocket RPC while preserving partial-sync recovery": "type: 'proxy.save'" in app_js and "proxy_id: isEdit ? String(proxyForm.id) : ''" in app_js and "代理数据已保存，但节点配置同步失败" in app_js,
+    "Mihomo template validate and draft save use authenticated WebSocket RPC": "type: 'mihomo.template.validate'" in app_js and "type: 'mihomo.template.save'" in app_js and "/api/v1/mihomo/template/validate" not in app_js and "/api/v1/mihomo/template'" not in app_js,
+    "proxy import text payload uses authenticated WebSocket RPC with 1 MiB server bound": "type: 'proxies.import'" in app_js and "/api/v1/proxies/import" not in app_js and 'case "proxies.import":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "len(message.ImportContent) > 1<<20" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "Proxy deletion uses authenticated WebSocket RPC with validated numeric ID": (
         "type: 'proxy.delete'" in app_js
         and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js

@@ -54,6 +54,7 @@ type browserControlMessage struct {
 	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
 	YAML            string          `json:"yaml"`
+	ImportContent   string          `json:"content"`
 	Version         string          `json:"version"`
 	TemplateVersion int             `json:"template_version"`
 	SHA256          string          `json:"sha256"`
@@ -260,6 +261,15 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				handler = a.handleUpdateProxy
 			}
 			a.runBrowserHTTPHandler(client, message.RequestID, handler, req)
+		case "proxies.import":
+			if len(message.ImportContent) > 1<<20 {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "代理导入请求超过 1 MiB 限制"})
+				continue
+			}
+			body, _ := json.Marshal(map[string]string{"content": message.ImportContent})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/import", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleImportProxies, req)
 		case "mihomo.template.validate":
 			body, _ := json.Marshal(map[string]string{"yaml": message.YAML})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/mihomo/template/validate", strings.NewReader(string(body)))

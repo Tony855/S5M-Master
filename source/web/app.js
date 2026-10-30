@@ -806,15 +806,10 @@ createApp({
       if (importing.value) return;
       importing.value = true;
       try {
-        // 后端 handleImportProxies 的请求结构是 { content: "多行文本" }。
-        // 不发送前端自行解析的 { proxies: [...] }，避免接口结构不匹配。
-        const res = await api('/api/v1/proxies/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content })
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || data.message || ('HTTP ' + res.status));
+        // Import is text/JSON content rather than a binary upload, so it uses the
+        // authenticated WebSocket control channel like other proxy mutations.
+        const result = await sendBrowserWSControl({ type: 'proxies.import', content });
+        const data = result.data || result;
         const success = Number(data.success) || 0;
         const fail = Number(data.fail) || 0;
         if (data.sync_failed) {
