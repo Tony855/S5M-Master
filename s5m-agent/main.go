@@ -648,16 +648,22 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if string(oldNorm) == string(newNorm) {
+		// A matching runtime YAML may still need a reload after an interrupted
+		// apply. In that case create a fresh rollback point before returning
+		// changed=true; never let the caller restore a stale .previous file.
+		needsApply := controllerConfigNeedsApply(agentYml)
+		if needsApply {
+			if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
+				return false, fmt.Errorf("备份待重载的 Mihomo 配置失败: %w", err)
+			}
+		}
 		if strings.TrimSpace(centralURL) != "" && len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
 				return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
 			}
 		}
-		// The on-disk runtime YAML can already match after an interrupted
-		// apply. Do not advance the controller hash here: force the caller
-		// through reload + hash commit so a restarted Agent cannot report
-		// an unapplied config as successful.
-		return controllerConfigNeedsApply(agentYml), nil
+		// The controller hash is committed only after Mihomo reload succeeds.
+		return needsApply, nil
 	}
 	if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败")
