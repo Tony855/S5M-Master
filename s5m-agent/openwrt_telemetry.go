@@ -46,7 +46,7 @@ func collectOpenWrtTelemetry() map[string]any {
 	uci := map[string]string{}
 	uciBytes := 0
 	for _, section := range []string{"network", "dhcp", "firewall"} {
-		if value, ok := openWrtUCIShow(section); ok && uciBytes+len(value) <= 5<<10 {
+		if value, ok := openWrtUCIShow(section); ok && uciBytes+len(value) <= 3<<10 {
 			uci[section] = value
 			uciBytes += len(value)
 		}
@@ -190,8 +190,8 @@ func collectOpenWrtSystemLogs() (string, bool) {
 		return "", false
 	}
 	value := redactOpenWrtLog(string(output))
-	if len(value) > 3<<10 {
-		value = value[len(value)-(3<<10):]
+	if len(value) > 2<<10 {
+		value = value[len(value)-(2<<10):]
 	}
 	return strings.TrimSpace(value), value != ""
 }
