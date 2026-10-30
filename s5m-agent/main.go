@@ -890,6 +890,10 @@ func collectMihomoStatus() map[string]any {
 	if hostname, err := agentHostname(); err == nil {
 		status["hostname"] = hostname
 	}
+	if openWrt := collectOpenWrtTelemetry(); openWrt != nil {
+		status["platform"] = "openwrt"
+		status["openwrt"] = openWrt
+	}
 	configPath := mihomoConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
