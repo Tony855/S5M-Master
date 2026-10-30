@@ -493,24 +493,6 @@ type agentRebootTracker struct {
 	queuedAt            int64
 }
 
-func (a *App) markAgentRebootDisconnected(machineCode string, generation uint64) {
-	a.agentWSMu.Lock()
-	defer a.agentWSMu.Unlock()
-	tracker := a.agentRebootTracking[machineCode]
-	if tracker != nil && tracker.acked && tracker.baselineGeneration == generation {
-		tracker.disconnected = true
-	}
-}
-
-func (a *App) markAgentRebootReconnected(machineCode string, generation uint64) bool {
-	tracker := a.agentRebootTracking[machineCode]
-	if tracker == nil || !tracker.acked || !tracker.disconnected ||
-		generation <= tracker.baselineGeneration || tracker.reconnectGeneration != generation {
-		return false
-	}
-	return true
-}
-
 func (a *App) persistAgentRebootReconnect(machineCode string, tracker *agentRebootTracker, at int64) error {
 	key := "agent_command_result_" + machineCode
 	settings, err := a.store.GetSettings()
@@ -1114,7 +1096,7 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
 	}
-	a.agentWSMu.Lock()
+	// ackAgentWSCommand is called while handleAgentWebSocket holds agentWSMu.
 	if tracker := a.agentRebootTracking[machineCode]; tracker != nil && tracker.commandID == commandID {
 		if status == "success" {
 			tracker.acked = true
@@ -1122,7 +1104,6 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 			delete(a.agentRebootTracking, machineCode)
 		}
 	}
-	a.agentWSMu.Unlock()
 	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
 	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
