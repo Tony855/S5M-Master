@@ -1690,6 +1690,12 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, validationError)
 		return
 	}
+	// Serialize registration with dedicated-token allocation and revocation.
+	// Otherwise a registration racing with deletion could receive a freshly
+	// minted JWT for a credential that was revoked while the request was in flight.
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+
 	settings, err := a.store.GetSettings()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 注册配置失败")
