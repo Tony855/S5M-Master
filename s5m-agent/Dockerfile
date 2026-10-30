@@ -14,6 +14,7 @@ WORKDIR /src
 COPY s5m-agent/go.mod s5m-agent/go.sum ./
 RUN go mod download
 COPY s5m-agent/main.go ./main.go
+COPY s5m-agent/smartdns_runtime.go ./smartdns_runtime.go
 RUN mkdir -p /out && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/s5m-agent .
 
 FROM alpine:${ALPINE_VERSION} AS mihomo-fetch

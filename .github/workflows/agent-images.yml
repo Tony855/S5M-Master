@@ -2,12 +2,17 @@ name: S5M Agent multi-arch images
 
 on:
   push:
-    branches: [main, dev, S5M-SmartDNS]
+    branches: [main, dev, s5m-agent-smartdns, S5M-SmartDNS]
     tags: ["s5m-agent-v*"]
   pull_request:
-    branches: [main, dev, S5M-SmartDNS]
+    branches: [main, dev, s5m-agent-smartdns]
     paths:
       - "s5m-agent/**"
+      - "source/**"
+      - "docker/smartdns/**"
+      - ".github/workflows/s5m-agent-smartdns.yml"
+      - ".github/workflows/smartdns-image.yml"
+      - "docs/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/agent-images.yml"
@@ -21,7 +26,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   IMAGE_NAME: ghcr.io/tony855/s5m-agent
@@ -30,6 +35,9 @@ jobs:
   build-and-publish:
     name: Build and publish multi-arch image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       release_version: ${{ steps.tags.outputs.release_version }}
     steps:

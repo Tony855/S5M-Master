@@ -2,9 +2,9 @@ name: S5M CI
 
 on:
   push:
-    branches: [dev, main, S5M-SmartDNS, "fix/**"]
+    branches: [dev, main, s5m-agent-smartdns, S5M-SmartDNS, "fix/**"]
   pull_request:
-    branches: [dev, main, S5M-SmartDNS]
+    branches: [dev, main, s5m-agent-smartdns, S5M-SmartDNS]
   workflow_dispatch:
 
 permissions:
@@ -135,6 +135,11 @@ jobs:
           sh -n cont-init.d/10-mihomo-config
           sh -n services/mihomo/run
           sh -n services/agent/run
+          grep -Fq 'COPY s5m-agent/smartdns_runtime.go ./smartdns_runtime.go' Dockerfile
+          grep -Fq 'COPY s5m-agent/smartdns_runtime.go ./smartdns_runtime.go' Dockerfile.routeros
+          sh -n smartdns/cont-init.d/20-smartdns-config
+          sh -n smartdns/services/smartdns/run
+          sh -n smartdns/healthcheck.sh
           sh -n routeros/cont-init.d/10-mihomo-config
           sh -n routeros/services/mihomo/run
           sh -n routeros/services/agent/run
@@ -147,16 +152,21 @@ jobs:
           from pathlib import Path
           import re
 
-          compose = Path("s5m-agent/docker-compose.yml").read_text(encoding="utf-8")
-          active_compose = "\\n".join(line.split("#", 1)[0] for line in compose.splitlines())
+          import json, subprocess
+          rendered = subprocess.run(
+              ["docker", "compose", "-f", "s5m-agent/docker-compose.yml", "config", "--format", "json"],
+              check=True, capture_output=True, text=True,
+          )
+          model = json.loads(rendered.stdout)
+          service = model["services"]["s5m-agent"]
           config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
           tun = config.split("tun:", 1)[1].split("proxies:", 1)[0]
-          assert re.search(r"(?m)^\s+cap_add:\s*\n\s+- NET_ADMIN$", compose), "Compose must grant NET_ADMIN for opt-in TUN"
-          assert re.search(r"(?m)^\s+devices:\s*\n\s+- /dev/net/tun:/dev/net/tun$", compose), "Compose must map /dev/net/tun for opt-in TUN"
+          assert "NET_ADMIN" in service.get("cap_add", []), "Compose must grant NET_ADMIN for opt-in TUN"
+          assert any((item.get("source") == "/dev/net/tun" and item.get("target") == "/dev/net/tun") if isinstance(item, dict) else str(item).startswith("/dev/net/tun:/dev/net/tun") for item in service.get("devices", [])), "Compose must map /dev/net/tun for opt-in TUN"
           assert re.search(r"(?m)^  enable: false$", tun), "first-boot Agent config must keep TUN disabled"
-          assert not re.search(r"(?m)^\\s*network_mode:\\s*host\\s*$", active_compose), "Agent must not use host networking"
+          assert service.get("network_mode") != "host", "Agent must not use host networking"
           assert "Existing /data/config.yaml is intentionally preserved" in config, "existing runtime config must not be overwritten"
-          print("PASS: first-boot TUN is disabled; opt-in permissions exist; host networking is forbidden")
+          print("PASS: parsed Compose model confirms TUN permissions, bridge networking and disabled first-boot TUN")
           PY
       - name: Set up Go
         uses: actions/setup-go@v6
