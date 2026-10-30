@@ -2234,23 +2234,28 @@ func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 		if raw := settings["agent_reboot_tracking_"+code]; raw != "" {
 			var tracking agentRebootTracker
 			if json.Unmarshal([]byte(raw), &tracking) == nil && tracking.CommandID != "" {
-				if tracking.Status != "reconnected" && tracking.Status != "timeout" &&
-					tracking.Status != "failed" && !tracking.Interrupted &&
-					tracking.QueuedAt > 0 && time.Since(time.Unix(tracking.QueuedAt, 0)) > 5*time.Minute {
-					tracking.Status = "timeout"
+				if !tracking.Interrupted && tracking.QueuedAt > 0 &&
+					time.Since(time.Unix(tracking.QueuedAt, 0)) > 5*time.Minute {
+					var expired agentRebootTracker
+					expire := false
 					a.agentWSMu.Lock()
-					if active := a.agentRebootTracking[code]; active != nil && active.CommandID == tracking.CommandID {
+					if active := a.agentRebootTracking[code]; active != nil &&
+						active.CommandID == tracking.CommandID &&
+						active.Status != "reconnected" && active.Status != "timeout" && active.Status != "failed" {
 						active.Status = "timeout"
+						expired = *active
+						expire = true
 					}
 					a.agentWSMu.Unlock()
-					_ = a.saveAgentRebootTracker(code, &tracking)
-					if updatedTracking, marshalErr := json.Marshal(tracking); marshalErr == nil {
-						settings["agent_reboot_tracking_"+code] = string(updatedTracking)
+					if expire {
+						_ = a.saveAgentRebootTracker(code, &expired)
+						if updatedTracking, marshalErr := json.Marshal(expired); marshalErr == nil {
+							settings["agent_reboot_tracking_"+code] = string(updatedTracking)
+						}
+						tracking = expired
 					}
-					if commandResult != nil && commandResult["id"] == tracking.CommandID {
-						commandResult["reboot_status"] = "timeout"
-					}
-				} else if commandResult != nil && commandResult["id"] == tracking.CommandID {
+				}
+				if commandResult != nil && commandResult["id"] == tracking.CommandID {
 					commandResult["reboot_status"] = tracking.Status
 					if tracking.Interrupted {
 						commandResult["reboot_interrupted"] = true
