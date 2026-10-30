@@ -1,28 +1,46 @@
-# OpenWrt native runtime files
+# S5M OpenWrt full firmware
 
-This directory contains the initial native OpenWrt service integration. It does not use Docker, RouterOS Container, s6-overlay, or a container network namespace.
+This branch builds a minimal native OpenWrt image with S5M Agent and Mihomo installed directly on the router. It does not use Docker, RouterOS containers, s6-overlay, or LuCI.
 
-## Current files
+## Build targets
 
-- `etc/init.d/s5m-agent`: procd supervises Mihomo and S5M Agent as separate processes.
-- `etc/config/s5m-agent`: initial UCI defaults for the future package integration.
+- OpenWrt 25.12.6 stable series.
+- x86/64 ImageBuilder profile generic (x86_64).
+- armsr/armv8 ImageBuilder profile generic (generic ARMv8 system image; not universal for every ARM router board).
+- S5M Agent is cross-compiled as static Go binaries for linux/amd64 and linux/arm64.
+- Mihomo v1.19.31 official release assets are pinned and SHA-256 verified before inclusion.
 
-## Initial manual deployment (development only)
+## Firmware contents
 
-1. Build `s5m-agent` for the device's verified Go target and install it as `/usr/bin/s5m-agent`.
-2. Install a matching, verified Mihomo binary as `/usr/bin/mihomo`.
-3. Install the Agent web asset as `/usr/share/s5m-agent/index.html`.
-4. Install the repository's default Mihomo YAML as `/usr/share/s5m-agent/default-config.yaml`.
-5. Copy the init script to `/etc/init.d/s5m-agent`, make it executable, and copy the UCI defaults to `/etc/config/s5m-agent`.
-6. Review the default YAML. Keep TUN disabled and keep `external-controller` bound to loopback.
-7. Run `/etc/init.d/s5m-agent enable` and `/etc/init.d/s5m-agent start`.
+The selected OpenWrt profile retains its kernel, device support, network drivers, firmware, base system, netifd, dnsmasq, odhcpd, firewall4/nftables, Dropbear SSH, procd, UCI and BusyBox. The build adds kmod-tun, ip-full, CA certificates, S5M Agent and Mihomo. LuCI and unrelated server packages are not added.
 
-This is not yet a distributable IPK/APK package. Package metadata, target-specific cross-compilation, UCI option wiring, upgrade/rollback scripts, and hardware validation remain outstanding. The current init script uses conservative fixed paths; the UCI values are defaults/documentation until the service is fully wired to UCI.
+Agent and Mihomo run as separate native processes supervised by procd. Agent registration UI is installed at /usr/share/s5m-agent/index.html; persistent Agent/Mihomo data and YAML live under /etc/s5m-agent.
 
-## Important limitations
+## Network and safety defaults
 
-- Agent currently listens on TCP/80. Do not expose it on WAN; restrict access to a trusted management LAN.
-- No firewall, LAN/WAN, DHCP, DNS, route, or TUN changes are applied automatically.
-- TUN remains disabled until the exact router model, kernel modules, device access, and management-path rollback are validated.
-- The persistent data directory currently defaults to `/etc/s5m-agent`; ensure the device has writable persistent overlay/extroot space.
-- Do not use this development init script on production routers before CI and device testing.
+- No automatic edits to LAN/WAN interfaces, IP addresses, DHCP pools, firewall zones, default routes or SSH settings.
+- OpenWrt's default firewall policy remains responsible for WAN isolation; the Agent registration endpoint listens on TCP/80 and must only be reached from a trusted management LAN.
+- Mihomo TUN is disabled in the shipped default YAML. The firmware includes kmod-tun but does not enable TUN or install routes.
+- Mihomo controller remains bound to 127.0.0.1:8088 in the shipped default configuration.
+- First boot creates a per-device Mihomo API secret. Existing /etc/s5m-agent/config.yaml and Agent binding data are not overwritten on service restart.
+- Agent and Mihomo binaries are separate from the OpenWrt base system; the Agent updater must not overwrite kernel, bootloader, /etc/init.d, or network configuration files.
+
+## CI build
+
+.github/workflows/openwrt-firmware.yml builds both targets on pushes to s5m-agent-openwrt and manual dispatch. It validates the ImageBuilder profile, compiles Agent, verifies the Mihomo archive checksum, assembles firmware, checks the resulting manifest and emits SHA-256 checksums. Firmware is uploaded as a workflow artifact.
+
+CI does not create a GitHub Release or merge this branch into dev/main. Release is a separate step after successful CI and hardware smoke tests.
+
+## Important ARM limitation
+
+armsr/armv8 generic is an ARMv8 system target, not a board-specific image. Wi-Fi radios, switch PHYs, LEDs, reset buttons, storage layout and bootloader integration are board-specific. Do not flash it to a consumer router unless that exact device is listed as supported by this target/profile. Add board-specific profiles only after identifying and testing the hardware model.
+
+## First boot
+
+1. Connect by the OpenWrt default LAN address and SSH.
+2. Confirm LAN/WAN and SSH access before binding the Agent.
+3. Open the Agent registration page from the trusted LAN at http://<router-lan-ip>/.
+4. Bind the device to S5M Master.
+5. Keep TUN disabled until exact hardware, kernel module and management-route rollback are validated.
+
+This branch currently produces full firmware images, not standalone APK/IPK packages. A separately installable package can be added later if required; it is not needed for the selected full-firmware delivery.
