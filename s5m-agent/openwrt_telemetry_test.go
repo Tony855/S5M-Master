@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	"os"\n\t"path/filepath"\n\t"strings"
 	"testing"
 )
 
@@ -60,5 +60,44 @@ func TestRedactOpenWrtLog(t *testing.T) {
 	}
 	if !strings.Contains(got, "service: started") {
 		t.Fatalf("ordinary log content should remain: %s", got)
+	}
+}
+
+func TestOpenWrtProcessStatusFindsNamedProcesses(t *testing.T) {
+	procRoot := t.TempDir()
+	for pid, name := range map[string]string{"123": "mihomo", "456": "s5m-agent"} {
+		dir := filepath.Join(procRoot, pid)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(name+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mihomo := openWrtProcessStatus(procRoot, "mihomo")
+	if mihomo["running"] != true || mihomo["pid"] != 123 {
+		t.Fatalf("unexpected Mihomo status: %#v", mihomo)
+	}
+	agent := openWrtProcessStatus(procRoot, "s5m-agent")
+	if agent["running"] != true || agent["pid"] != 456 {
+		t.Fatalf("unexpected Agent status: %#v", agent)
+	}
+	missing := openWrtProcessStatus(procRoot, "dnsmasq")
+	if missing["running"] != false || missing["pid"] != 0 {
+		t.Fatalf("missing process should be stopped: %#v", missing)
+	}
+}
+
+func TestOpenWrtProcessStatusRejectsNonNumericProcEntries(t *testing.T) {
+	procRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(procRoot, "self"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(procRoot, "self", "comm"), []byte("mihomo\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := openWrtProcessStatus(procRoot, "mihomo")
+	if got["running"] != false {
+		t.Fatalf("non-numeric proc entries must be ignored: %#v", got)
 	}
 }
