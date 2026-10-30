@@ -420,6 +420,12 @@ checks["Primary console loads Agent list over authenticated WebSocket RPC"] = (
 )
 
 
+checks["OpenWrt reboot and Agent restart ACKs never treat an ordinary heartbeat timestamp as reconnect proof"] = (
+    "等待 Agent 连接断开并通过新连接确认" in instance_card_section
+    and "等待连接断开并通过新连接确认" in instance_card_section
+    and "item.last_seen > Number(item.commandResult.updated_at || 0)" not in instance_card_section
+)
+
 checks["Agent binding updates and revocations invalidate in-flight snapshots and force an authoritative list reload"] = (
     "let agentBindingRevision = 0;" in app_js
     and app_js.count("agentBindingRevision++;") >= 2
