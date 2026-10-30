@@ -2143,6 +2143,7 @@ func closeAgentActiveWebSocketForRebind() {
 	agentActiveWSMu.Lock()
 	conn := agentActiveWSConn
 	agentActiveWSConn = nil
+	agentConnected.Store(false)
 	agentActiveWSMu.Unlock()
 	if conn == nil {
 		return
