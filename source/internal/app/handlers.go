@@ -1762,9 +1762,10 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	yml := ""
 	if nodeConfig != nil {
-		yml = strings.TrimSpace(nodeConfig.YAML)
+		// Preserve exact stored bytes so the optimistic compare matches the DB snapshot.
+		yml = nodeConfig.YAML
 	}
-	if yml == "" {
+	if strings.TrimSpace(yml) == "" {
 		yml, err = a.BuildConfigForMachine(machineCode)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "生成节点配置失败: "+err.Error())
@@ -1778,10 +1779,21 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if normalized != yml {
-		yml = normalized
-		if err := a.store.SaveNodeConfig(machineCode, yml); err != nil {
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(machineCode, yml, normalized)
+		if saveErr != nil {
 			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
+		}
+		if updated {
+			yml = normalized
+		} else {
+			// Do not send a stale config after a concurrent manual save.
+			latest, readErr := a.store.GetNodeConfig(machineCode)
+			if readErr != nil || latest == nil {
+				writeErr(w, http.StatusInternalServerError, "重新读取并发更新后的节点配置失败")
+				return
+			}
+			yml = latest.YAML
 		}
 	}
 	sum := sha256.Sum256([]byte(yml))
@@ -2424,12 +2436,22 @@ func (a *App) handleGetNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if normalized != cfg.YAML {
-		if saveErr := a.store.SaveNodeConfig(code, normalized); saveErr != nil {
+		updated, saveErr := a.store.SaveNodeConfigIfUnchanged(code, cfg.YAML, normalized)
+		if saveErr != nil {
 			writeErr(w, http.StatusInternalServerError, "保存校正后的节点配置失败")
 			return
 		}
-		// Keep any existing template/independent binding metadata intact; only refresh its config hash.
-		cfg.YAML = normalized
+		if updated {
+			// Keep any existing template/independent binding metadata intact; only refresh its config hash.
+			cfg.YAML = normalized
+		} else {
+			// A manual save won the race. Return the latest YAML instead of the stale snapshot.
+			cfg, err = a.store.GetNodeConfig(code)
+			if err != nil || cfg == nil {
+				writeErr(w, http.StatusInternalServerError, "重新读取并发更新后的节点配置失败")
+				return
+			}
+		}
 	}
 	writeJSON(w, 200, cfg)
 }
