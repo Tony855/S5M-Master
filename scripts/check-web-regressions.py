@@ -426,6 +426,22 @@ checks["Agent binding updates and revocations invalidate in-flight snapshots and
     and "Promise.resolve().then(() => loadAgentsData());" in app_js
 )
 
+quick_settings_start = app_js.index("    const yamlIndent =")
+quick_settings_end = app_js.index("    const loadNodeConfig = async () => {", quick_settings_start)
+quick_settings_js = app_js[quick_settings_start:quick_settings_end]
+checks["node YAML quick settings use real newlines, safe indentation, and reject duplicate root blocks"] = (
+    quick_settings_start >= 0
+    and quick_settings_end > quick_settings_start
+    and r"split(/\r?\n/)" in quick_settings_js
+    and r"join('\n')" in quick_settings_js
+    and r"match(/^ */)" in quick_settings_js
+    and "assertUniqueYamlSections(lines, ['tun', 'dns'])" in quick_settings_js
+    and "快捷设置未写入：" in quick_settings_js
+    and r"split(/\\r?\\n/)" not in quick_settings_js
+    and r"join('\\n')" not in quick_settings_js
+)
+
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
