@@ -249,7 +249,7 @@ checks.update({
         and "/api/v1/nodes/" not in app_js[app_js.index("const saveNodeConfig = async () => {"):app_js.index("const safeCopy = async")]
     ),
     "retired standalone agent management page is removed": not Path("source/web/agents.html").exists(),
-)
+})
 
 # Read-only control-plane snapshots continue migrating to the authenticated
 # WebSocket RPC channel; writes remain on their existing validated endpoints.
