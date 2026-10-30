@@ -200,6 +200,7 @@ func TestAgentWebSocketSupersededConnectionCannotOverwriteStatus(t *testing.T) {
 	if err := newConn.WriteJSON(map[string]any{"type": "heartbeat", "id": "hb-new", "status": floatMap(freshStatus)}); err != nil {
 		t.Fatalf("send heartbeat on current connection: %v", err)
 	}
+	var response map[string]any
 	if err := newConn.ReadJSON(&response); err != nil {
 		t.Fatalf("read current connection ACK: %v", err)
 	}
