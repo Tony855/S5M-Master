@@ -1431,3 +1431,40 @@ func TestAgentWebSocketPersistsConfigSyncErrorInHeartbeat(t *testing.T) {
 		t.Fatalf("stale last_error remained after recovery: %q", got)
 	}
 }
+
+
+func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+
+	revokeReq := httptest.NewRequest(http.MethodDelete, "/api/v1/agents?code="+code, nil)
+	revokeRec := httptest.NewRecorder()
+	app.handleDeleteAgent(revokeRec, revokeReq)
+	if revokeRec.Code != http.StatusOK {
+		t.Fatalf("revoke status = %d, want 200; body=%s", revokeRec.Code, revokeRec.Body.String())
+	}
+
+	// No heartbeat or further request is sent: revocation itself must close
+	// the idle socket rather than waiting for the next message/TTL timeout.
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatal("revoked idle WebSocket remained open")
+	}
+	if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+		t.Fatalf("unexpected WebSocket close error: %v", err)
+	}
+}
