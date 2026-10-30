@@ -1170,18 +1170,24 @@ createApp({
       }
     };
     const yamlChildIndent = (lines, bounds) => {
+      let childIndent = Infinity;
       for (let i = bounds.start + 1; i < bounds.end; i++) {
-        if (lines[i].trim() && !/^\s*#/.test(lines[i])) return yamlIndent(lines[i]);
+        const line = lines[i];
+        if (!line.trim() || /^\s*#/.test(line)) continue;
+        const indent = yamlIndent(line);
+        if (indent > bounds.sectionIndent) childIndent = Math.min(childIndent, indent);
       }
-      return bounds.sectionIndent + 2;
+      return Number.isFinite(childIndent) ? childIndent : bounds.sectionIndent + 2;
     };
     const findYamlChild = (lines, bounds, key) => {
+      const childIndent = yamlChildIndent(lines, bounds);
+      const keyPattern = new RegExp('^' + key + ':\\s*(?:#.*)?$');
       const index = lines.findIndex((line, i) =>
         i > bounds.start && i < bounds.end &&
-        yamlIndent(line) > bounds.sectionIndent &&
-        line.trim().startsWith(key + ':')
+        yamlIndent(line) === childIndent &&
+        keyPattern.test(line.trim())
       );
-      return { index, indent: index >= 0 ? yamlIndent(lines[index]) : yamlChildIndent(lines, bounds) };
+      return { index, indent: index >= 0 ? yamlIndent(lines[index]) : childIndent };
     };
     const setYamlScalar = (yaml, section, key, value) => {
       const lines = String(yaml || '').split(/\r?\n/);
@@ -1241,7 +1247,11 @@ createApp({
           }
           const keyIndent = yamlIndent(lines[index]);
           let end = index + 1;
-          while (end < lines.length && (!lines[end].trim() || /^\s*#/.test(lines[end]) || yamlIndent(lines[end]) > keyIndent)) end++;
+          while (end < lines.length) {
+            const line = lines[end];
+            if (line.trim() && yamlIndent(line) <= keyIndent) break;
+            end++;
+          }
           const listIndent = keyIndent + 2;
           lines.splice(index + 1, end - index - 1, ...values.map(value => ' '.repeat(listIndent) + '- ' + JSON.stringify(value)));
         } else {
