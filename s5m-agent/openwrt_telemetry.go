@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"strconv"
 	"time"
 )
 
@@ -33,6 +34,9 @@ func collectOpenWrtTelemetry() map[string]any {
 	}
 	if networkOK {
 		result["interfaces"] = compactOpenWrtInterfaces(network)
+	}
+	if disk := collectOpenWrtDiskUsage(); len(disk) > 0 {
+		result["disk"] = disk
 	}
 	// UCI inspection is read-only and limited to the three requested network
 	// domains. Potential credentials are redacted before leaving the device.
@@ -144,4 +148,33 @@ func redactOpenWrtUCIOutput(raw string) string {
 		redacted = append(redacted, line)
 	}
 	return strings.Join(redacted, "\n")
+}
+
+func collectOpenWrtDiskUsage() []map[string]any {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "/bin/df", "-kP", "/overlay", "/").Output()
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(output), "\n")
+	result := make([]map[string]any, 0, 2)
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		total, errTotal := strconv.ParseUint(fields[1], 10, 64)
+		used, errUsed := strconv.ParseUint(fields[2], 10, 64)
+		available, errAvailable := strconv.ParseUint(fields[3], 10, 64)
+		if errTotal != nil || errUsed != nil || errAvailable != nil || total == 0 {
+			continue
+		}
+		result = append(result, map[string]any{
+			"mount": fields[5], "total_bytes": total * 1024,
+			"used_bytes": used * 1024, "available_bytes": available * 1024,
+			"used_percent": fields[4],
+		})
+	}
+	return result
 }
