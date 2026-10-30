@@ -49,6 +49,40 @@ func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
 	}
 }
 
+func TestPersistControllerConfigAfterReloadOnlyCommitsAfterSuccess(t *testing.T) {
+	payload := []byte("mixed-port: 7890\\nsecret: test-secret\\n")
+	persisted := false
+	reloadErr := errors.New("simulated Mihomo reload failure")
+	err := persistControllerConfigAfterReload(payload, func() error {
+		return reloadErr
+	}, func([]byte) error {
+		persisted = true
+		return nil
+	})
+	if !errors.Is(err, reloadErr) {
+		t.Fatalf("error = %v, want reload error", err)
+	}
+	if persisted {
+		t.Fatal("controller config hash must not be committed when reload fails")
+	}
+
+	err = persistControllerConfigAfterReload(payload, func() error {
+		return nil
+	}, func(got []byte) error {
+		persisted = true
+		if string(got) != string(payload) {
+			t.Fatalf("persisted payload = %q, want exact bytes %q", got, payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("persistControllerConfigAfterReload() error = %v", err)
+	}
+	if !persisted {
+		t.Fatal("controller config hash was not committed after successful reload")
+	}
+}
+
 func TestCentralHostname(t *testing.T) {
 	tests := []struct {
 		input string
