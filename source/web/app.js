@@ -52,6 +52,7 @@ createApp({
     const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
+    let nodeConfigLoadGeneration = 0;
     const templateYaml = ref('');
     const templateNote = ref('');
     const templateVersions = ref([]);
@@ -1271,16 +1272,20 @@ createApp({
     };
 
     const loadNodeConfig = async () => {
-      const code = selectedConfigNode.value;
+      const code = String(selectedConfigNode.value || '').trim();
+      const generation = ++nodeConfigLoadGeneration;
       configYaml.value = '';
       syncConfigQuickSettingsFromYaml();
       if (!code) return;
       try {
         const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
-        configYaml.value = result.config_yaml || '';
+        const data = result.data || result;
+        if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
+        configYaml.value = String(data.config_yaml || '');
         syncConfigQuickSettingsFromYaml();
         showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
+        if (generation !== nodeConfigLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
         configYaml.value = '';
         syncConfigQuickSettingsFromYaml();
         showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
@@ -1297,18 +1302,25 @@ createApp({
         const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
         const data = result.data || result;
         if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
-        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
-        if (String(verify.config_yaml || (verify.data && verify.data.config_yaml) || '') !== yaml) {
-          showMsg('保存已返回，但 WebSocket 回读内容不一致', 'error'); return;
+        const verifyResult = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const verify = verifyResult.data || verifyResult;
+        if (String(verify.config_yaml || '') !== yaml) {
+          showMsg('保存已返回，但 WebSocket 回读内容不一致；请重新加载核对', 'error');
+          return;
+        }
+        if (String(selectedConfigNode.value || '').trim() !== code) return;
+        if (String(configYaml.value || '') !== yaml) {
+          showMsg('已保存并验证提交时的 YAML；编辑器内容在保存期间发生变化，请再次保存最新修改', 'warning');
+          return;
         }
         showMsg(data.message || '节点 YAML 保存并回读验证成功', 'success');
       } catch (e) {
-        showMsg('保存失败：' + (e.message || String(e)), 'error');
+        if (String(selectedConfigNode.value || '').trim() === code) showMsg('保存失败：' + (e.message || String(e)), 'error');
         console.error('[S5M node config] WebSocket save failed', { code, error: e });
       } finally { savingConfig.value = false; }
     };
 
-const safeCopy = async (text) => {
+    const safeCopy = async (text) => {
       try {
         if (navigator.clipboard && window.isSecureContext) {
           await navigator.clipboard.writeText(String(text ?? ''));
