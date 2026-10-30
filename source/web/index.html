@@ -300,7 +300,9 @@
             <div v-for="item in filteredAgentEntries" :key="item.code" class="agent-item instance-row">
               <div class="instance-main">
                 <div class="agent-code">{{ item.code }}</div>
-                <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? '在线' : '离线' }}</span>
+                <el-button size="small" plain @click="safeCopy(item.code)">复制机器码</el-button>
+                <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
+                <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
               </div>
               <div class="instance-summary">
                 <div class="instance-summary-primary">
@@ -308,6 +310,10 @@
                   <span>{{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</span>
                 </div>
                 <div class="instance-summary-secondary">
+                  <span>连接数：<strong>{{ item.connections ?? '—' }}</strong></span>
+                  <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
+                  <span>实时下载：<strong>{{ fmtSpeed(item.downloadSpeed || 0) }}</strong></span>
+                  <span>最后上报：<strong>{{ item.updated_at || '暂无记录' }}</strong></span>
                   <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown'))">
                     Mihomo：{{ !item.online ? (item.runtimeReported ? '状态未知（Agent 离线）' : '状态未知') : (item.mihomoRunning ? '运行中' : (item.runtimeReported ? '未运行/异常' : '状态未知')) }}{{ item.mihomoVersion ? (item.online ? ' · v' : ' · 最后上报 v') + item.mihomoVersion : '' }}
                   </span>
@@ -371,7 +377,14 @@
             <el-button @click="loadAgentsData">刷新节点</el-button>
             <el-button @click="loadNodeConfig" :disabled="!selectedConfigNode">重新加载 YAML</el-button>
           </div>
-          <el-input v-model="configYaml" type="textarea" :rows="18" placeholder="先选择节点，再粘贴或编辑该节点专属的 Mihomo YAML 配置..."></el-input>
+          <div class="instance-link-summary" style="align-items:center;gap:14px;margin:10px 0;">
+            <label style="display:flex;align-items:center;gap:8px;">TUN <el-switch v-model="configTunEnabled" /></label>
+            <label style="display:flex;align-items:center;gap:8px;">DNS <el-switch v-model="configDnsEnabled" /></label>
+            <el-input v-model="configDnsNameservers" type="textarea" :rows="2" placeholder="DNS nameserver，每行一个地址" style="min-width:240px;flex:1;" />
+            <el-button size="small" @click="applyConfigQuickSettings" :disabled="!selectedConfigNode">应用快捷设置到 YAML</el-button>
+          </div>
+          <p class="section-hint">快捷设置直接修改下方同一份完整 YAML；检查后再保存。</p>
+          <el-input v-model="configYaml" @input="syncConfigQuickSettingsFromYaml" type="textarea" :rows="18" placeholder="先选择节点，再粘贴或编辑该节点专属的 Mihomo YAML 配置..."></el-input>
           <div style="display:flex;gap:10px;margin-top:15px;">
             <el-button type="primary" style="flex:1;" @click="saveNodeConfig" :loading="savingConfig" :disabled="!selectedConfigNode">保存当前节点配置</el-button>
           </div>
