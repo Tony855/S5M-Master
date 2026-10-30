@@ -1826,7 +1826,7 @@ func TestApplyAgentControlErrorPreservesMihomoDiagnosticAndBoundsOutput(t *testi
 }
 
 func TestSafeMihomoValidationDiagnosticRedactsQuotedCredentialsAndBearerTokens(t *testing.T) {
-	input := \`{"token":"secret with spaces","password":"value with \\"quote\\"","api_key":"key with spaces"} Authorization: Bearer bearer-secret\`
+	input := `{"token":"secret with spaces","password":"value with \"quote\"","api_key":"key with spaces"} Authorization: Bearer bearer-secret`
 	got := safeMihomoValidationDiagnostic([]byte(input))
 	for _, secret := range []string{"secret with spaces", "value with", "quote", "key with spaces", "bearer-secret"} {
 		if strings.Contains(got, secret) {
