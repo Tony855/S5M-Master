@@ -2,7 +2,7 @@ name: SmartDNS multi-arch image
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, S5M-SmartDNS]
     paths:
       - "docker/smartdns/**"
       - ".github/workflows/smartdns-image.yml"
