@@ -47,6 +47,9 @@ createApp({
     const subUrl = ref('');
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
+    const configTunEnabled = ref(false);
+    const configDnsEnabled = ref(false);
+    const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
     const templateYaml = ref('');
@@ -861,7 +864,11 @@ createApp({
 
           list.push({
             code,
+            authorized: item.authorized === true,
             tokenConfigured: item.token_configured === true,
+            connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : null,
+            uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
+            downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
             online,
             last_seen: last,
             hostname,
@@ -1118,13 +1125,62 @@ createApp({
       finally { applyingTemplate.value = false; }
     };
 
+    const yamlSectionBounds = (lines, section) => {
+      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?$').test(line));
+      if (start < 0) return null;
+      let end = start + 1;
+      while (end < lines.length && (!lines[end].trim() || /^\\s/.test(lines[end]))) end++;
+      return { start, end };
+    };
+    const setYamlScalar = (yaml, section, key, value) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      if (!bounds) { if (lines.length && lines[lines.length - 1]) lines.push(''); lines.push(section + ':', '  ' + key + ': ' + value); }
+      else {
+        const re = new RegExp('^\\s{2}' + key + ':');
+        const index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && re.test(line));
+        if (index >= 0) lines[index] = '  ' + key + ': ' + value;
+        else lines.splice(bounds.start + 1, 0, '  ' + key + ': ' + value);
+      }
+      return lines.join('\\n');
+    };
+    const readYamlScalar = (yaml, section, key) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, section);
+      if (!bounds) return '';
+      const line = lines.find((value, i) => i > bounds.start && i < bounds.end && new RegExp('^\\s{2}' + key + ':').test(value));
+      return line ? line.replace(/^\\s{2}[^:]+:\\s*/, '').split('#')[0].trim().replace(/^['"]|['"]$/g, '') : '';
+    };
+    const syncConfigQuickSettingsFromYaml = () => {
+      configTunEnabled.value = readYamlScalar(configYaml.value, 'tun', 'enable') === 'true';
+      configDnsEnabled.value = readYamlScalar(configYaml.value, 'dns', 'enable') === 'true';
+      const lines = String(configYaml.value || '').split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const index = bounds && lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\\s{2}nameserver:/.test(line));
+      configDnsNameservers.value = index >= 0 ? lines.slice(index + 1).filter(line => /^\\s{4}-\\s*/.test(line)).map(line => line.replace(/^\\s{4}-\\s*/, '').trim()).join('\\n') : '';
+    };
+    const applyConfigQuickSettings = () => {
+      if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
+      let yaml = setYamlScalar(configYaml.value, 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
+      yaml = setYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
+      const lines = yaml.split(/\\r?\\n/), bounds = yamlSectionBounds(lines, 'dns');
+      const values = String(configDnsNameservers.value || '').split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+      if (bounds) {
+        let index = lines.findIndex((line, i) => i > bounds.start && i < bounds.end && /^\\s{2}nameserver:/.test(line));
+        if (index < 0) { lines.splice(bounds.end, 0, '  nameserver:'); index = bounds.end; }
+        let end = index + 1; while (end < lines.length && /^\\s{4}-\\s*/.test(lines[end])) end++;
+        lines.splice(index + 1, end - index - 1, ...values.map(v => '    - ' + v));
+      } else lines.push('dns:', '  nameserver:', ...values.map(v => '    - ' + v));
+      configYaml.value = lines.join('\\n');
+      showMsg('快捷设置已写入当前 YAML，请检查后保存', 'success');
+    };
+
     const loadNodeConfig = async () => {
       const code = selectedConfigNode.value;
       configYaml.value = '';
+        syncConfigQuickSettingsFromYaml();
       if (!code) return;
       try {
         const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
         configYaml.value = result.config_yaml || '';
+        syncConfigQuickSettingsFromYaml();
         showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
       } catch (e) {
         configYaml.value = '';
@@ -1133,70 +1189,24 @@ createApp({
     };
 
     const saveNodeConfig = async () => {
-      const code = String(selectedConfigNode.value || '').trim();
-      const yaml = String(configYaml.value || '');
-
-      if (!code) {
-        showMsg('保存失败：请先选择节点机器码', 'warning');
-        return;
-      }
-      if (!yaml.trim()) {
-        showMsg('保存失败：YAML 配置不能为空', 'warning');
-        return;
-      }
+      const code = String(selectedConfigNode.value || '').trim(), yaml = String(configYaml.value || '');
+      if (!code) return showMsg('保存失败：请先选择节点机器码', 'warning');
+      if (!yaml.trim()) return showMsg('保存失败：YAML 配置不能为空', 'warning');
       if (savingConfig.value) return;
-
       savingConfig.value = true;
-      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
-
       try {
-        const path = '/api/v1/nodes/' +
-          encodeURIComponent(code) + '/config';
-
-        const res = await api(path, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config_yaml: yaml })
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-          const message = data.error || data.message ||
-            ('HTTP ' + res.status);
-          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
-          console.error('[S5M node config] PUT failed', {
-            code, status: res.status, message
-          });
-          return;
+        const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
+        const data = result.data || result;
+        if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        if (String(verify.config_yaml || (verify.data && verify.data.config_yaml) || '') !== yaml) {
+          showMsg('保存已返回，但 WebSocket 回读内容不一致', 'error'); return;
         }
-
-        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
-        const verify = await api(path + '?t=' + Date.now());
-        const saved = await verify.json().catch(() => ({}));
-
-        if (!verify.ok) {
-          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
-            verify.status + '）', 'warning');
-          console.error('[S5M node config] verification failed', {
-            code, status: verify.status, response: saved
-          });
-          return;
-        }
-
-        if (String(saved.config_yaml || '') !== yaml) {
-          showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
-          console.error('[S5M node config] verification mismatch', { code });
-          return;
-        }
-
-        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+        showMsg(data.message || '节点 YAML 保存并回读验证成功', 'success');
       } catch (e) {
-        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
-        console.error('[S5M node config] request exception', e);
-      } finally {
-        savingConfig.value = false;
-      }
+        showMsg('保存失败：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] WebSocket save failed', { code, error: e });
+      } finally { savingConfig.value = false; }
     };
 
 const safeCopy = async (text) => {
@@ -1276,7 +1286,8 @@ const safeCopy = async (text) => {
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
-      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
+      selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
       loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
