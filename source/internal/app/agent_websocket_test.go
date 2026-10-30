@@ -1687,7 +1687,6 @@ func TestOpenWrtRebootRequiresDisconnectNewConnectionAndHeartbeat(t *testing.T) 
 	}
 }
 
-
 func TestRestoreAgentRebootTrackingMarksControllerRestartAsUnverified(t *testing.T) {
 	app, code, _ := websocketTestApp(t)
 	tracker := &agentRebootTracker{
@@ -1729,7 +1728,7 @@ func TestRestoreAgentRebootTrackingMarksControllerRestartAsUnverified(t *testing
 func TestQueueOpenWrtRebootPersistsCommandAndTrackingTogether(t *testing.T) {
 	app, code, _ := websocketTestApp(t)
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_status_" + code: `{"platform":"openwrt"}`,
+		"agent_status_" + code:   `{"platform":"openwrt"}`,
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
 	}); err != nil {
 		t.Fatal(err)
