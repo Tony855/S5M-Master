@@ -117,6 +117,11 @@ func validateCentralURL(raw string) (string, error) {
 }
 
 func mihomoBinaryPath() string {
+	// An explicit binary path supports native distributions such as OpenWrt,
+	// while preserving the existing RouterOS and container defaults.
+	if binary := strings.TrimSpace(os.Getenv("MIHOMO_BINARY")); binary != "" {
+		return filepath.Clean(binary)
+	}
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("S5M_ROUTEROS")), "1") {
 		return filepath.Join(mihomoHome(), "bin", "mihomo")
 	}
