@@ -1181,7 +1181,7 @@ createApp({
     };
     const findYamlChild = (lines, bounds, key) => {
       const childIndent = yamlChildIndent(lines, bounds);
-      const keyPattern = new RegExp('^' + key + ':\\s*(?:#.*)?$');
+      const keyPattern = new RegExp('^' + key + ':(?:\\s|$)');
       const index = lines.findIndex((line, i) =>
         i > bounds.start && i < bounds.end &&
         yamlIndent(line) === childIndent &&
