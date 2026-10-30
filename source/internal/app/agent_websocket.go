@@ -902,7 +902,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	a.agentWSGeneration[machineCode]++
 	generation := a.agentWSGeneration[machineCode]
 	if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-		tracker.Acked && tracker.Disconnected && !tracker.Interrupted && generation > tracker.BaselineGeneration {
+		tracker.Acked && tracker.Disconnected && !tracker.Interrupted &&
+		tracker.Status != "timeout" && generation > tracker.BaselineGeneration {
 		tracker.ReconnectGeneration = generation
 		tracker.Status = "waiting_heartbeat"
 		if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
@@ -923,7 +924,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		a.agentWSMu.Lock()
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
-			tracker.Acked && tracker.BaselineGeneration == generation && !tracker.Interrupted {
+			tracker.Acked && tracker.BaselineGeneration == generation &&
+			!tracker.Interrupted && tracker.Status != "timeout" {
 			tracker.Disconnected = true
 			tracker.Status = "waiting_reconnect"
 			// A reconnect may register before this handler's deferred cleanup runs.
@@ -1081,6 +1083,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		rebootReconnected := false
 		if tracker := a.agentRebootTracking[machineCode]; tracker != nil &&
 			tracker.Acked && tracker.Disconnected && !tracker.Interrupted &&
+			tracker.Status != "timeout" &&
 			tracker.ReconnectGeneration == generation && generation > tracker.BaselineGeneration {
 			if persistErr := a.persistAgentRebootReconnect(machineCode, tracker, receivedAt.Unix()); persistErr != nil {
 				fmt.Printf("agent_ws: reboot reconnect result persist failed machine_code=%q command_id=%q: %v\\n", machineCode, tracker.CommandID, persistErr)
