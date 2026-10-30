@@ -294,6 +294,9 @@ createApp({
           try { message = JSON.parse(event.data); } catch (_) { return; }
           if (message.type === 'agent.binding.revoked' && message.machine_code) {
             const revokedCode = String(message.machine_code);
+            // Invalidate snapshots already in flight: an older agents.list.get
+            // response must never resurrect a binding removed by this event.
+            agentRevocationRevision++;
             agentEntries.value = agentEntries.value.filter(item => item.code !== revokedCode);
             loadAgentsData();
             return;
@@ -827,10 +830,13 @@ createApp({
     };
 
     const agentRefreshing = ref(false);
+    let agentRevocationRevision = 0;
     const loadAgentsData = async () => {
       // Never overlap instance requests. Once data exists, refresh silently so
       // the current list and expanded cards remain mounted while the request runs.
       if (agentLoading.value || agentRefreshing.value) return;
+      const revocationRevision = agentRevocationRevision;
+      let retryAfterRevocation = false;
       const hasExistingData = agentEntries.value.length > 0;
       if (hasExistingData) agentRefreshing.value = true;
       else agentLoading.value = true;
@@ -890,7 +896,13 @@ createApp({
           });
         });
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
-        agentEntries.value = list;
+        if (revocationRevision !== agentRevocationRevision) {
+          // A revoke event arrived while this snapshot was loading. Discard it
+          // and fetch a fresh authoritative snapshot after releasing the lock.
+          retryAfterRevocation = true;
+        } else {
+          agentEntries.value = list;
+        }
       } catch (e) {
         if (!hasExistingData) {
           agentLoadError.value = '读取实例失败：网络连接异常，请检查主控服务和浏览器连接。';
@@ -902,6 +914,9 @@ createApp({
       } finally {
         agentLoading.value = false;
         agentRefreshing.value = false;
+        if (retryAfterRevocation) {
+          Promise.resolve().then(() => loadAgentsData());
+        }
       }
     };
 
