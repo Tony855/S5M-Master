@@ -148,13 +148,13 @@ jobs:
           import re
 
           compose = Path("s5m-agent/docker-compose.yml").read_text(encoding="utf-8")
-          active_compose = "\\n".join(line.split("#", 1)[0] for line in compose.splitlines())
+          active_compose = "\n".join(line.split("#", 1)[0] for line in compose.splitlines())
           config = Path("s5m-agent/default-config.yaml").read_text(encoding="utf-8")
           tun = config.split("tun:", 1)[1].split("proxies:", 1)[0]
           assert re.search(r"(?m)^\s+cap_add:\s*\n\s+- NET_ADMIN$", compose), "Compose must grant NET_ADMIN for opt-in TUN"
           assert re.search(r"(?m)^\s+devices:\s*\n\s+- /dev/net/tun:/dev/net/tun$", compose), "Compose must map /dev/net/tun for opt-in TUN"
           assert re.search(r"(?m)^  enable: false$", tun), "first-boot Agent config must keep TUN disabled"
-          assert not re.search(r"(?m)^\\s*network_mode:\\s*host\\s*$", active_compose), "Agent must not use host networking"
+          assert not re.search(r"(?m)^\s*network_mode:\s*['\"]?host['\"]?\s*$", active_compose), "Agent must not use host networking"
           assert "Existing /data/config.yaml is intentionally preserved" in config, "existing runtime config must not be overwritten"
           print("PASS: first-boot TUN is disabled; opt-in permissions exist; host networking is forbidden")
           PY
