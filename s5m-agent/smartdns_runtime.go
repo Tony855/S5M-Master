@@ -237,15 +237,19 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		}
 		return "", fmt.Errorf("重启 SmartDNS 失败，已恢复原配置状态")
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		newPID, pidErr := exec.Command("pidof", "smartdns").Output()
-		if pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 && !bytes.Equal(bytes.TrimSpace(newPID), oldPID) {
+		processRestarted := pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 &&
+			(len(oldPID) == 0 || !bytes.Equal(bytes.TrimSpace(newPID), oldPID))
+		// A live PID is not proof that the new resolver config works. Require
+		// successful UDP and TCP DNS answers before reporting the command as applied.
+		if processRestarted && probeSmartDNSDNS() {
 			sum := sha256.Sum256(bytes.TrimSpace(data))
 			_ = os.Remove(backupPath)
 			return hex.EncodeToString(sum[:]), nil
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 	}
 	restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
 	if restoreErr != nil {
@@ -304,11 +308,16 @@ func safeSmartDNSDiagnostic(message string) string {
 }
 
 func probeSmartDNSDNS() bool {
-	return probeSmartDNSDNSAt("127.0.0.1:6053")
+	return probeSmartDNSDNSAt("127.0.0.1:6053") &&
+		probeSmartDNSDNSNetworkAt("tcp", "127.0.0.1:6053")
 }
 
 func probeSmartDNSDNSAt(address string) bool {
-	conn, err := net.DialTimeout("udp", address, 800*time.Millisecond)
+	return probeSmartDNSDNSNetworkAt("udp", address)
+}
+
+func probeSmartDNSDNSNetworkAt(network, address string) bool {
+	conn, err := net.DialTimeout(network, address, 800*time.Millisecond)
 	if err != nil {
 		return false
 	}
@@ -323,15 +332,28 @@ func probeSmartDNSDNSAt(address string) bool {
 		query = append(query, label...)
 	}
 	query = append(query, 0, 0, 1, 0, 1) // QNAME terminator, A, IN
+	if network == "tcp" {
+		framed := make([]byte, 2, len(query)+2)
+		binary.BigEndian.PutUint16(framed, uint16(len(query)))
+		framed = append(framed, query...)
+		query = framed
+	}
 	if _, err := conn.Write(query); err != nil {
 		return false
 	}
-	response := make([]byte, 1500)
+	response := make([]byte, 1502)
 	n, err := conn.Read(response)
-	if err != nil || n < 12 {
+	if err != nil {
 		return false
 	}
-	if binary.BigEndian.Uint16(response[0:2]) != 0x534d {
+	if network == "tcp" {
+		if n < 14 || int(binary.BigEndian.Uint16(response[:2])) > n-2 {
+			return false
+		}
+		response = response[2:]
+		n -= 2
+	}
+	if n < 12 || binary.BigEndian.Uint16(response[0:2]) != 0x534d {
 		return false
 	}
 	flags := binary.BigEndian.Uint16(response[2:4])
