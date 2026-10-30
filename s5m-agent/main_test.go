@@ -102,8 +102,12 @@ func TestAgentConnectedRequiresCurrentActiveWebSocket(t *testing.T) {
 		t.Fatal("rejected stale activation must not clear the current session state")
 	}
 	agentBindingGeneration.Add(1)
+	closeAgentActiveWebSocketForRebind()
 	if markAgentWebSocketConnected(conn, generation) {
 		t.Fatal("rebound credentials must reject activation of the old socket")
+	}
+	if agentConnected.Load() {
+		t.Fatal("rebind must immediately clear the old session connected state")
 	}
 }
 
