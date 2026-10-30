@@ -20,7 +20,7 @@ Agent and Mihomo run as separate native processes supervised by procd. Agent reg
 
 - No automatic edits to LAN/WAN interfaces, IP addresses, DHCP pools, firewall zones, default routes or SSH settings.
 - OpenWrt's default firewall policy remains responsible for WAN isolation; the Agent registration endpoint listens on TCP/80 and must only be reached from a trusted management LAN.
-- Mihomo TUN is disabled in the shipped default YAML. The firmware includes kmod-tun but does not enable TUN or install routes.
+- Mihomo TUN is enabled by default with auto-route and Linux auto-redirect. The image includes kmod-tun and firewall4/nftables. Private, CGNAT, loopback and link-local ranges are excluded from TUN routing; strict-route remains disabled to reduce management-path lockout risk. This is a safer baseline, not a guarantee for every public-WAN SSH topology. Test recovery access on the exact device before production deployment.
 - Mihomo controller remains bound to 127.0.0.1:8088 in the shipped default configuration.
 - First boot creates a per-device Mihomo API secret. Existing /etc/s5m-agent/config.yaml and Agent binding data are not overwritten on service restart.
 - Agent and Mihomo binaries are separate from the OpenWrt base system; the Agent updater must not overwrite kernel, bootloader, /etc/init.d, or network configuration files.
@@ -41,6 +41,6 @@ armsr/armv8 generic is an ARMv8 system target, not a board-specific image. Wi-Fi
 2. Confirm LAN/WAN and SSH access before binding the Agent.
 3. Open the Agent registration page from the trusted LAN at http://<router-lan-ip>/.
 4. Bind the device to S5M Master.
-5. Keep TUN disabled until exact hardware, kernel module and management-route rollback are validated.
+5. TUN starts enabled by default. Before production use, verify SSH from the actual management network, LAN forwarding, DNS and rollback access on the exact hardware; if the management path is unstable, disable TUN in /etc/s5m-agent/config.yaml and restart the service.
 
 This branch currently produces full firmware images, not standalone APK/IPK packages. A separately installable package can be added later if required; it is not needed for the selected full-firmware delivery.
