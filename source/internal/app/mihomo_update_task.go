@@ -41,7 +41,9 @@ func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string
 	id := fmt.Sprintf("mihomo-%x", time.Now().UnixNano())
 	task := &mihomoUpdateTask{ID: id, Status: "running", StartedAt: time.Now().Unix()}
 	a.mihomoUpdateTask = task
-	if a.mihomoUpdateTasks == nil {\n\t\ta.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask)\n\t}
+	if a.mihomoUpdateTasks == nil {
+		a.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask)
+	}
 	a.mihomoUpdateTasks[id] = task
 	a.mihomoUpdateOrder = append(a.mihomoUpdateOrder, id)
 	for len(a.mihomoUpdateOrder) > 10 {
