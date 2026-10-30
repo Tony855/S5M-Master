@@ -28,7 +28,6 @@ func (t mihomoUpdateTask) snapshot() map[string]any {
 	}
 }
 
-
 // rememberMihomoUpdateTaskLocked records a task and bounds in-memory history.
 // The caller must hold mihomoUpdateMu.
 func (a *App) rememberMihomoUpdateTaskLocked(task *mihomoUpdateTask) {
