@@ -301,11 +301,20 @@
           <div v-else class="instance-list">
             <div v-for="item in filteredAgentEntries" :key="item.code" class="agent-item instance-row">
               <div class="instance-main">
-                <div class="agent-code">{{ item.code }}</div>
-                <el-button size="small" plain @click="safeCopy(item.code)">复制机器码</el-button>
-                <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
-                <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
-                <span class="instance-host-system">主机与系统：<strong>{{ item.hostname || '主机未知' }} · {{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</strong></span>
+                <div class="instance-identity">
+                  <div class="instance-identity-top">
+                    <div class="agent-code">{{ item.code }}</div>
+                    <el-button size="small" plain class="instance-copy-button" @click="safeCopy(item.code)">复制</el-button>
+                  </div>
+                </div>
+                <div class="instance-statuses">
+                  <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
+                  <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
+                </div>
+                <div class="instance-host-system">
+                  <span class="instance-host-label">主机与系统</span>
+                  <strong>{{ item.hostname || '主机未知' }} · {{ item.os || '系统未知' }}{{ item.arch ? '/' + item.arch : '' }}</strong>
+                </div>
               </div>
               <div class="instance-summary">
                 <div class="instance-summary-secondary">
