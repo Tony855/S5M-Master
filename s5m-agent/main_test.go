@@ -1129,6 +1129,7 @@ func TestMachineIDHandler(t *testing.T) {
 }
 
 func TestMihomoBinaryPathForRouterOS(t *testing.T) {
+	t.Setenv("MIHOMO_BINARY", "")
 	t.Setenv("S5M_ROUTEROS", "1")
 	t.Setenv("MIHOMO_HOME", "/routeros-persist")
 	if got, want := mihomoBinaryPath(), "/routeros-persist/bin/mihomo"; got != want {
@@ -1137,6 +1138,18 @@ func TestMihomoBinaryPathForRouterOS(t *testing.T) {
 	t.Setenv("S5M_ROUTEROS", "0")
 	if got, want := mihomoBinaryPath(), "/usr/local/bin/mihomo"; got != want {
 		t.Fatalf("default mihomoBinaryPath() = %q, want %q", got, want)
+	}
+}
+
+func TestMihomoBinaryPathExplicitOverride(t *testing.T) {
+	t.Setenv("S5M_ROUTEROS", "0")
+	t.Setenv("MIHOMO_BINARY", "/usr/bin/mihomo")
+	if got, want := mihomoBinaryPath(), "/usr/bin/mihomo"; got != want {
+		t.Fatalf("mihomoBinaryPath() = %q, want explicit override %q", got, want)
+	}
+	t.Setenv("MIHOMO_BINARY", "  ")
+	if got, want := mihomoBinaryPath(), "/usr/local/bin/mihomo"; got != want {
+		t.Fatalf("mihomoBinaryPath() = %q, want default %q", got, want)
 	}
 }
 
