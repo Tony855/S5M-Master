@@ -132,3 +132,36 @@ func TestAckAgentCommandPreservesOpenWrtServiceActionMetadata(t *testing.T) {
 		t.Fatalf("OpenWrt action metadata was not retained: %#v", result)
 	}
 }
+
+
+func TestCreateAgentCommandWithTrackingIsAtomicOnPendingConflict(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "reboot-queue.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "atomic_reboot_node"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_command_" + machineCode: `{"id":"existing","type":"reboot_openwrt"}`,
+		"agent_reboot_tracking_" + machineCode: `{"command_id":"existing","status":"queued"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreateAgentCommandWithTracking(
+		machineCode,
+		`{"id":"replacement","type":"reboot_openwrt"}`,
+		`{"command_id":"replacement","status":"queued"}`,
+	)
+	if err != nil || created {
+		t.Fatalf("conflicting queue = created %v err %v; want false, nil", created, err)
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings["agent_command_"+machineCode] != `{"id":"existing","type":"reboot_openwrt"}` ||
+		settings["agent_reboot_tracking_"+machineCode] != `{"command_id":"existing","status":"queued"}` {
+		t.Fatalf("conflicting transaction changed existing command/tracking: %#v", settings)
+	}
+}
