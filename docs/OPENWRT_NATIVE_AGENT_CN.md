@@ -12,7 +12,7 @@
 - 配置管理：优先使用 UCI 配置文件管理 OpenWrt 服务参数；Agent 的授权数据与节点 Mihomo YAML 独立存放，避免 UCI reload 覆盖主控下发配置。
 - 持久化目录：默认使用 /etc/s5m-agent 保存设备授权与配置；/usr/bin/s5m-agent 和 /usr/bin/mihomo 保存可执行文件。需要可写 overlay 或 extroot；安装前检查剩余空间。
 - 网络：不自动改写 LAN/WAN、默认路由、DNS、DHCP 或防火墙规则。首次安装只提供 Agent Web 注册入口；代理端口由用户显式启用和配置。
-- TUN：默认关闭。仅在设备内核具备 tun 设备、所需内核模块与权限时才允许启用；必须先验证 SSH/LAN 管理可达性和路由回滚方案。
+- TUN：当前 OpenWrt 固件专用默认 YAML 实际启用 TUN（auto-route/auto-redirect 开启、strict-route 关闭），与共享容器默认配置相互隔离。该默认值可能影响部分设备的 SSH/LAN 管理路径；部署前必须核实设备型号、管理网段和回滚方式。若未完成该设备的专项验证，应先在 Mihomo YAML 中将 `tun.enable` 设为 `false`，确认后再启用。不得由 Agent 自动修改 OpenWrt 的 WAN/LAN、默认路由、DHCP 或防火墙。
 - API：Mihomo controller 只绑定 127.0.0.1；禁止默认暴露 controller API 到 LAN/WAN。
 
 ## 首批支持目标
