@@ -24,7 +24,9 @@ on:
 # Both resolve to refs/tags/s5m-agent-vX.Y.Z; ordinary branch builds remain
 # isolated by their own ref. Never cancel a run that may be publishing.
 concurrency:
-  group: s5m-agent-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '' && format('refs/tags/s5m-agent-v{0}', github.event.inputs.release_version) || github.ref }}
+  # Serialize all stable releases together so an older version cannot race a newer one
+  # while deciding whether it is allowed to update the mutable GHCR latest tag.
+  group: s5m-agent-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '') && 'stable-release' || (startsWith(github.ref, 'refs/tags/s5m-agent-v') && 'stable-release') || github.ref }}
   cancel-in-progress: false
 
 permissions:
