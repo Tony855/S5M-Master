@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -96,12 +97,12 @@ func TestProbeSmartDNSDNSOverTCPRequiresSuccessfulAnswer(t *testing.T) {
 				defer conn.Close()
 				_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 				header := make([]byte, 2)
-				if _, err := conn.Read(header); err != nil {
+				if _, err := io.ReadFull(conn, header); err != nil {
 					done <- err
 					return
 				}
 				query := make([]byte, int(binary.BigEndian.Uint16(header)))
-				if _, err := conn.Read(query); err != nil {
+				if _, err := io.ReadFull(conn, query); err != nil {
 					done <- err
 					return
 				}
