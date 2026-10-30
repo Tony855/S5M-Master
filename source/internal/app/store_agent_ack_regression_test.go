@@ -99,3 +99,35 @@ func TestAckAgentCommandDoesNotAcceptDuplicateWhenPendingRecordIsMalformed(t *te
 		t.Fatalf("ACK with malformed pending record = duplicate %v, matched %v; want both false", duplicate, matched)
 	}
 }
+func TestAckAgentCommandPreservesOpenWrtServiceActionMetadata(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "ack-openwrt-action.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "ack_openwrt"
+	const pending = `{"id":"cmd-agent-restart","type":"openwrt_service_action","service":"agent","action":"restart"}`
+	if err := store.UpdateSettings(map[string]string{
+		"agent_command_" + machineCode: pending,
+	}); err != nil {
+		t.Fatalf("seed pending command: %v", err)
+	}
+
+	duplicate, matched, err := store.AckAgentCommand(machineCode, "cmd-agent-restart", "success", "restart scheduled", 400)
+	if err != nil || duplicate || !matched {
+		t.Fatalf("AckAgentCommand = duplicate %v matched %v err %v; want false, true, nil", duplicate, matched, err)
+	}
+
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &result); err != nil {
+		t.Fatalf("decode command result: %v", err)
+	}
+	if result["service"] != "agent" || result["action"] != "restart" {
+		t.Fatalf("OpenWrt action metadata was not retained: %#v", result)
+	}
+}
