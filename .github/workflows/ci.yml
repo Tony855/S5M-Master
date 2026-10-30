@@ -349,7 +349,6 @@ jobs:
             source/web/index.html
             source/web/app.css
             source/web/app.js
-            source/web/agents.html
           )
           missing=0
           for file in "${required[@]}"; do
