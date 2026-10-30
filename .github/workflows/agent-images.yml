@@ -50,7 +50,7 @@ jobs:
             release_version="${RELEASE_VERSION_INPUT}"
           fi
 
-          if [[ -n "${release_version}" && ! "${release_version}" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]]; then
+          if [[ -n "${release_version}" && ! "${release_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error title=Invalid release version::Use semantic version X.Y.Z, for example 1.0.0."
             exit 1
           fi
