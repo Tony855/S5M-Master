@@ -691,10 +691,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 			return false, fmt.Errorf("新配置未通过 Mihomo 校验：%s", safeMihomoValidationDiagnostic(validationOutput))
 		}
 	}
-	if err := os.Rename(tmpPath, mainPath); err != nil {
+	if err := atomicWriteFile(mainPath, newNorm, 0600); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, err
 	}
+	_ = os.Remove(tmpPath)
 	if strings.TrimSpace(centralURL) != "" {
 		if len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
