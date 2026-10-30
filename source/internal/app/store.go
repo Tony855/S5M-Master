@@ -179,6 +179,41 @@ func (s *Store) GetSettings() (map[string]string, error) {
 	return res, nil
 }
 
+// CreateAgentCommandWithTracking atomically queues an Agent command and its
+// durable reboot-verification record. A pre-existing pending command prevents
+// either record from being overwritten.
+func (s *Store) CreateAgentCommandWithTracking(machineCode, commandPayload, trackingPayload string) (bool, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(
+		`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING`,
+		"agent_command_"+machineCode, commandPayload,
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n != 1 {
+		return false, nil
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		"agent_reboot_tracking_"+machineCode, trackingPayload,
+	); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // CreateSettingIfAbsent 原子创建配置项；若 key 已存在，不覆盖已有值。
 func (s *Store) CreateSettingIfAbsent(key, value string) (bool, error) {
 	result, err := s.db.Exec(
