@@ -81,8 +81,12 @@ jobs:
           {
             echo "tags<<EOF"
             if [[ -n "${release_version}" ]]; then
+              # Stable releases alone move the versioned and latest tags.
               echo "${IMAGE_NAME}:v${release_version}"
               echo "${IMAGE_NAME}:latest"
+            elif [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "main" ]]; then
+              # Keep ordinary main builds separate from development builds.
+              echo "${IMAGE_NAME}:main"
             else
               echo "${IMAGE_NAME}:dev"
             fi
