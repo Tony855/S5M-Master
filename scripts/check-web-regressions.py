@@ -442,7 +442,7 @@ checks["node YAML quick settings use real newlines, safe indentation, and reject
     and "yamlIndent(line) === childIndent" in quick_settings_js
     and "const childIndent = yamlChildIndent(lines, bounds);" in quick_settings_js
     and "if (line.trim() && yamlIndent(line) <= keyIndent) break;" in quick_settings_js
-    and "yamlIndent(line) > bounds.sectionIndent" in quick_settings_js
+    and "if (indent > bounds.sectionIndent) childIndent = Math.min(childIndent, indent);" in quick_settings_js
     and "yamlIndent(line) > bounds.sectionIndent &&" not in quick_settings_js
 )
 
