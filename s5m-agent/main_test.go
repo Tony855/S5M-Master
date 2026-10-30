@@ -55,7 +55,7 @@ func TestAtomicWriteFileReplacesFileWithSyncedPrivateFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("secret: old\\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	want := []byte("secret: new\\ntun:\\n  enable: true\\n")
+	want := []byte("secret: new\ntun:\n  enable: true\n")
 	if err := atomicWriteFile(path, want, 0600); err != nil {
 		t.Fatalf("atomicWriteFile() error = %v", err)
 	}
