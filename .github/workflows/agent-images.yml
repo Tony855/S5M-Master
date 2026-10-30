@@ -467,6 +467,23 @@ jobs:
         uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
+      - name: Recheck stable release tag before GHCR push
+        if: needs.build-and-publish.outputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          release_tag="s5m-agent-v${RELEASE_VERSION}"
+          if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+            echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to push release image."
+            exit 1
+          fi
+          if [[ -n "${existing_tag_refs}" ]]; then
+            echo "::error title=Release tag already exists::${release_tag} already exists; refusing to push or overwrite its image."
+            exit 1
+          fi
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
