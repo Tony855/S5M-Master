@@ -1891,9 +1891,11 @@ func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 	if welcome.Type != "welcome" || welcome.Protocol != 1 {
 		return fmt.Errorf("WebSocket 协议版本或欢迎消息无效")
 	}
-	// Report connected only while an authenticated, protocol-valid control-plane
-	// WebSocket session is active; a saved token alone only means "bound".
-	agentConnected.Store(true)
+	// A rebind can close the socket while the welcome frame is being processed.
+	// Publish connected only if this exact socket still owns the current binding.
+	if !markAgentWebSocketConnected(conn, bindingGeneration) {
+		return fmt.Errorf("绑定凭证已更新，拒绝激活旧 WebSocket 会话")
+	}
 	defer agentConnected.Store(false)
 
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalSec) * time.Second
@@ -2116,6 +2118,16 @@ func setAgentActiveWebSocket(conn *websocket.Conn, expectedGeneration uint64) bo
 		return false
 	}
 	agentActiveWSConn = conn
+	return true
+}
+
+func markAgentWebSocketConnected(conn *websocket.Conn, expectedGeneration uint64) bool {
+	agentActiveWSMu.Lock()
+	defer agentActiveWSMu.Unlock()
+	if agentActiveWSConn != conn || agentBindingGeneration.Load() != expectedGeneration {
+		return false
+	}
+	agentConnected.Store(true)
 	return true
 }
 
