@@ -1481,3 +1481,33 @@ func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testin
 		t.Fatalf("unexpected WebSocket close error: %v", err)
 	}
 }
+
+func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoundary(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	if err := app.queueOpenWrtReboot(code); err == nil {
+		t.Fatal("reboot must reject a node without OpenWrt platform status")
+	}
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code: `{"platform":"linux"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtReboot(code); err == nil {
+		t.Fatal("reboot must reject a non-OpenWrt node")
+	}
+	if err := app.store.UpdateSettings(map[string]string{
+		"agent_status_" + code: `{"platform":"openwrt"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtReboot(code); err != nil {
+		t.Fatalf("queue OpenWrt reboot: %v", err)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil { t.Fatal(err) }
+	var command map[string]string
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil { t.Fatal(err) }
+	if command["type"] != "reboot_openwrt" || command["id"] == "" {
+		t.Fatalf("unexpected queued command: %#v", command)
+	}
+}
