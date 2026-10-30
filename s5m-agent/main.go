@@ -558,6 +558,15 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 }
 
 func refreshAndApplyCentralRouteExclusions(centralURL string) error {
+	oldManaged := readManagedRouteCIDRs()
+	oldManagedValues := make([]string, 0, len(oldManaged))
+	for cidr := range oldManaged {
+		oldManagedValues = append(oldManagedValues, cidr)
+	}
+	restoreManagedRoutes := func() error {
+		return writeManagedRouteCIDRs(oldManagedValues)
+	}
+
 	changed, err := refreshCentralRouteExclusions(centralURL)
 	if err != nil {
 		// refreshCentralRouteExclusions may have committed the candidate config
@@ -583,7 +592,10 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 		if retryErr := reloadMihomo(); retryErr != nil {
 			return fmt.Errorf("动态路由已回滚，但旧配置重载失败: %w", retryErr)
 		}
-		return fmt.Errorf("动态路由重载失败，已恢复旧配置: %w", err)
+		if stateErr := restoreManagedRoutes(); stateErr != nil {
+			return fmt.Errorf("动态路由已恢复旧配置，但恢复管理地址记录失败: %w", stateErr)
+		}
+		return fmt.Errorf("动态路由重载失败，已恢复旧配置及管理地址记录: %w", err)
 	}
 	_ = os.Remove(mihomoConfigPath() + ".previous")
 	return nil
