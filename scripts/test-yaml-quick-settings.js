@@ -8,6 +8,11 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const source = fs.readFileSync('source/web/app.js', 'utf8');
+assert.match(source, /let nodeConfigLoadGeneration = 0;/, 'node config loads need a generation guard');
+assert.match(source, /generation !== nodeConfigLoadGeneration/, 'stale node config responses must be ignored');
+assert.match(source, /const data = result\.data \|\| result;/, 'load must support the WebSocket response envelope');
+assert.match(source, /编辑器内容在保存期间发生变化/, 'save must warn if editor changed during the request');
+assert.match(source, /String\(selectedConfigNode\.value \|\| ''\)\.trim\(\) !== code/, 'save/load results must not be applied to a different selected node');
 const start = source.indexOf('    const yamlIndent =');
 const end = source.indexOf('    const loadNodeConfig = async () => {', start);
 assert(start >= 0 && end > start, 'could not locate quick-settings implementation');
