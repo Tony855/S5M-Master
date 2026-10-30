@@ -3,6 +3,9 @@
 from pathlib import Path
 
 html = Path("source/web/index.html").read_text(encoding="utf-8")
+instance_card_start = html.index('v-for="item in filteredAgentEntries"')
+instance_card_end = html.index("page === 'config'", instance_card_start)
+instance_card_section = html[instance_card_start:instance_card_end]
 app_js = Path("source/web/app.js").read_text(encoding="utf-8")
 configgen = Path("source/internal/app/configgen.go").read_text(encoding="utf-8")
 handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
@@ -23,12 +26,11 @@ checks = {
     "Mihomo template version deletion has a protected current-version and node-binding guard": "handleDeleteMihomoTemplateVersion" in template_source and "不能删除当前发布版本" in template_source and "FROM node_template_bindings WHERE source='template' AND template_version=?" in template_source and '"DELETE /api/v1/mihomo/template/{version}"' in router,
     "Mihomo template history UI exposes guarded deletion with confirmation": "deleteMihomoTemplateVersion" in app_js and "ElMessageBox.confirm" in app_js and "scope.row.version === templateCurrentVersion" in html,
 
-    "Agent runtime status explains missing telemetry and reports last_error": "let runtimeMessage" in app_js and "runtimeMessage = last > 0" in app_js and "item.runtimeMessage" in html and "Agent 状态/错误信息：" in html and "有认证通信记录，但没有有效运行状态" in app_js,
+    "Agent runtime status explains missing telemetry and reports last_error": "let runtimeMessage" in app_js and "runtimeMessage = last > 0" in app_js and "runtimeMessage" in html and "Agent 状态/错误信息：" in html and "有认证通信记录，但没有有效运行状态" in app_js,
     "browser realtime WebSocket requires an authenticated one-time short-lived ticket": "POST /api/v1/events/ticket" in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "GET /api/v1/events/ws" in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "ExpiresAt: now.Add(30 * time.Second)" in handlers and "delete(a.browserTickets, ticket)" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "browser realtime WebSocket validates same-origin and current enabled admin account": "browserEventsUpgrader" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "strings.EqualFold(parsed.Host, r.Host)" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and 'u.Role != "admin"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "Agent heartbeats and command ACKs publish browser events only after persistence": '"type": "agent.status.updated"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and '"type": "agent.command.updated"' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "a.publishBrowserEvent" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "browser realtime client requests a ticket, reconnects, and locally expires stale Agent status": "api('/api/v1/events/ticket', { method: 'POST' })" in app_js and "new WebSocket(" in app_js and "browserEventsRetryTimer" in app_js and "age >= 90" in app_js and "realtimeStatus" in html,
-    "node configuration read, save, and read-back verification use the primary WebSocket RPC channel": "sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" in app_js and "type: 'node.config.save'" in app_js and "const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code })" in app_js and 'case "node.config.get":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and 'case "node.config.save":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "api('/api/v1/nodes/' + encodeURIComponent(code) + '/config?t=" not in app_js,
     "Agent online state rejects future heartbeat timestamps without container runtime API": "const ageSeconds = now - last;" in app_js and "const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;" in app_js and "/api/v1/container/" not in app_js and "dockerTask" not in app_js and "routerOSCommand" not in app_js,
     "container-management routes, handlers, and Agent task polling remain removed": not Path("source/internal/app/container_handlers.go").exists() and not Path("source/internal/app/container_auth.go").exists() and "/api/v1/container/" not in Path("source/internal/app/router.go").read_text(encoding="utf-8") and "processContainerTask" not in Path("s5m-agent/main.go").read_text(encoding="utf-8") and "reportContainerStatus" not in Path("s5m-agent/main.go").read_text(encoding="utf-8"),
     "mobile instance grid rule is not duplicated": Path("source/web/app.css").read_text(encoding="utf-8").count(".instance-list{grid-template-columns:minmax(0,1fr)}") == 1,
@@ -51,12 +53,12 @@ checks = {
     "proxy form retains mode and complete extra JSON": "extra_json: '{}'" in ui and "row.mode] || row.mode || 'return'" in ui and "extra_json: JSON.stringify(extra, null, 2)" in ui,
     "proxy save sends mode and parsed extra": "name: proxyForm.name, mode: proxyForm.mode || 'return'" in ui and "extra: extra" in ui and "extra = JSON.parse(proxyForm.extra_json || '{}')" in ui,
     "proxy editor rejects invalid/non-object JSON": "高级参数 JSON 格式无效" in ui and "高级参数必须是 JSON 对象" in ui,
-    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in ui and "同步失败" in ui,
+    "proxy sync failure is reported as partial success": "代理数据已保存，但节点配置同步失败" in app_js and "同步失败" in app_js,
     "proxy deletion sync failure refreshes list and offers retry": "if (message.includes('代理已删除'))" in app_js and "await loadProxies();" in app_js and "立即重试同步所有节点" in app_js,
     "bulk proxy import synchronizes authorized node configs and exposes partial failure": "if successCount > 0" in import_handler and "syncAuthorizedNodeConfigs()" in import_handler and '"sync_failed": syncFailed' in import_handler and "data.sync_failed" in app_js and "代理导入已完成" in app_js,
     "JSON proxy import inherits the top-level protocol without silently defaulting to SOCKS5": "parsedJSON.protocol || parsedJSON.type || parsedJSON.scheme" in app_js and "item.type || item.protocol || item.scheme || inheritedProtocol || ''" in app_js and "item.type || item.protocol || 'socks5'" not in app_js,
     "JSON proxy import preserves direct VMess links and protocol-specific VMess/SS options": "item.uri || item.url || item.link || item.proxy || item.vmess_link || item.vmessLink" in app_js and "if (type === 'vmess')" in app_js and "if (type === 'ss')" in app_js,
-    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "type: 'system.logs.get'" in app_js and "/api/v1/logs" not in app_js and "/api/v1/mihomo/update" in app_js and ("type: 'mihomo.status.get'" in app_js or "/api/v1/mihomo/status" in app_js),
+    "system operations page exposes protected logs and Mihomo update": 'index="system">系统运维</el-menu-item>' in ui and "loadSystemLogs" in ui and "type: 'system.logs.get'" in app_js and "/api/v1/logs" not in app_js and "type: 'mihomo.update.start'" in app_js and "type: 'mihomo.update.status.get'" in app_js and "mihomo.update.latest.get" in app_js and "recoverMihomoUpdateTask" in app_js and "/api/v1/mihomo/update" not in app_js and ("type: 'mihomo.status.get'" in app_js or "/api/v1/mihomo/status" in app_js),
     "master Mihomo update is distinguished from Agent updates and requires confirmation": "主控服务器 Mihomo 内核" in html and "当前 Mihomo 版本" in html and "systemd 服务状态" in html and "不会更新各个 Agent 节点" in html and "确认更新主控 Mihomo" in app_js and "ElementPlus.ElMessageBox.confirm" in app_js[app_js.index("const updateKernel ="):app_js.index("const loadSystemLogs")],
     "master Mihomo status distinguishes disk binary, systemd service, and live API version": '"api_version"' in handlers and '"api_online"' in handlers and '"version_mismatch"' in handlers and "runningMihomoAPIVersion" in handlers and "运行中 API 版本" in html and "mainMihomoStatus.api_error" in html,
     "system operations page is reachable through page navigation allowlist": "const PAGES = ['dashboard','proxies','instances','config','system']" in app_js and "if (v === 'system') { loadSystemLogs(); loadMainMihomoStatus(); }" in app_js,
@@ -155,22 +157,32 @@ instance_card_checks = {
     "instance cards use a two-column desktop grid and three columns on wide screens": "grid-template-columns: repeat(2, minmax(0, 1fr));" in css and "@media (min-width: 1500px)" in css and ".instance-panel .instance-list { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }" in css,
     "instance grid collapses to one column at medium and mobile widths": "@media (max-width: 1050px)" in css and ".instance-panel .instance-list { grid-template-columns: minmax(0, 1fr); }" in css and "@media (max-width: 760px)" in css,
     "instance action buttons become a two-column grid on mobile": ".instance-row .instance-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }" in css,
-    "instance details are collapsed by default and support expanded content": '<details class="instance-details">' in html and "<summary>展开详细状态</summary>" in html and ".instance-details[open] > summary" in css,
-    "Mihomo versions normalize repeated v/V prefixes before the UI display prefix": "const normalizeMihomoVersion = (value) => {" in app_js and "replace(/^(?:v)+/i, '')" in app_js and "normalizeMihomoVersion(status.mihomo_version)" in app_js and "item.online ? ' · v' : ' · 最后上报 v'" in html,
+    "instance card header groups machine code and copy action, aligns status chips, and presents host metadata as a compact row": "instance-identity-top" in html and "instance-copy-button" in html and "safeCopy(item.code)" in html and "instance-statuses" in html and "instance-host-label" in html and "主机与系统" in html and "instance-host-system" in html and "instance-summary-mihomo" in html and "instance-summary-update" in html and ".instance-identity-top" in css and ".instance-statuses" in css and "grid-template-areas: \"identity statuses\" \"host host\"" in css and "grid-template-areas: \"identity\" \"statuses\" \"host\"" in css and ".instance-host-system strong" in css,
+    "Mihomo versions normalize repeated v/V prefixes before the UI display prefix": "const normalizeMihomoVersion = (value) => {" in app_js and "replace(/^(?:v)+/i, '')" in app_js and "normalizeMihomoVersion(status.mihomo_version)" in app_js and "item.online ? 'v' : '最后上报 v'" in html,
     "offline Agent never presents cached Mihomo health as currently running": "mihomoRunning: online && status.mihomo_healthy === true" in app_js and "状态未知（Agent 离线）" in html and "最后上报 v" in html and "!item.online ? 'is-unknown'" in html,
     "Mihomo version normalization regression covers plain, single-prefix, and repeated-prefix values": "vv1.19.33" in Path("scripts/check-web-regressions.py").read_text(encoding="utf-8") and "1.19.33" in Path("scripts/check-web-regressions.py").read_text(encoding="utf-8"),
-    "instance cards show the status timestamp only in expanded details, not twice in the summary": "instance-detail-label\">状态更新时间" in html and "instance-summary-updated" not in html,
+    "instance cards show last-report timestamp once in the compact summary with no removed details panel": instance_card_section.count("最后上报：") == 1 and "状态更新时间" not in instance_card_section and "instance-detail-label" not in instance_card_section and "instance-summary-updated" not in instance_card_section,
+    "scheme A shows the full machine-code copy label and preserves the four original actions": "复制机器码" in instance_card_section and "safeCopy(item.code)" in instance_card_section and all(handler in instance_card_section for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
+    "scheme A combines Mihomo runtime state and version on one row, with update result on the next row": "Mihomo 运行状态" in instance_card_section and "instance-mihomo-runtime" in instance_card_section and "instance-summary-mihomo" in instance_card_section and "instance-mihomo-version" in instance_card_section and "instance-update-row" in instance_card_section and "instance-summary-update" in instance_card_section and "Mihomo：" not in instance_card_section and "Mihomo 更新：" not in instance_card_section,
+    "scheme A keeps host, authorization, Agent state, and live telemetry visible": "instance-host-system" in instance_card_section and "item.authorized" in instance_card_section and "item.online" in instance_card_section and "item.connections" in instance_card_section and "item.uploadSpeed" in instance_card_section and "item.downloadSpeed" in instance_card_section and "item.updated_at" in instance_card_section and "proxyCountForMachine(item.code)" in instance_card_section,
     "instance list refresh is manual and silent, with no 10-second polling timer": "const agentRefreshing = ref(false);" in app_js and "if (agentLoading.value || agentRefreshing.value) return;" in app_js and "静默刷新实例失败，保留现有列表" in app_js and "instanceRefreshTimer" not in app_js and ' :loading="agentLoading || agentRefreshing"' in html,
     "silent instance refresh keeps stable card identity and does not reset search/filter state": 'v-for="item in filteredAgentEntries" :key="item.code"' in html and "const agentSearch = ref('');" in app_js and "const agentStatusFilter = ref('all');" in app_js and "const loadAgentsData = async () => {" in app_js and "agentSearch.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000] and "agentStatusFilter.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000],
     "instance cards use tighter padding and restrained action-button colors": ".instance-row { padding: 13px; border-radius: 12px;" in css and "--el-button-bg-color: #f0f6ff" in css and "--el-button-bg-color: #fff8ed" in css,
     "runtime status palette includes online, offline, warning, and unknown states": all(token in css for token in (".status-badge.status-online", ".status-badge.status-offline", ".status-badge.status-warning", ".status-badge.status-unknown")),
-    "instance list does not expose token plaintext and keeps all four management actions": "列表不显示明文" in html and "{{ item.token }}" not in html and all(handler in html for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
+    "instance list does not expose token plaintext and keeps all four management actions": "{{ item.token }}" not in html and "item.token" not in html and all(handler in html for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
     "instance card layout prevents long machine identifiers from forcing overflow": ".instance-row {\n  min-width: 0;" in css and ".instance-row .agent-code {\n  min-width: 0;" in css and "overflow-wrap: anywhere;" in css,
 }
 checks.update(instance_card_checks)
 
 
 checks.update({
+    "Mihomo DNS/TUN quick toggles read only top-level YAML sections and normalize boolean values": (
+        "const start = lines.findIndex(line => new RegExp('^' + section" in app_js
+        and "const isYamlEnabled = value => /^(?:true|yes|on)$/i.test" in app_js
+        and "configDnsEnabled.value = isYamlEnabled(readYamlScalar(configYaml.value, 'dns', 'enable'))" in app_js
+    ),
+    "desktop proxy list displays the persisted source IP CIDR": 'prop="source_cidr" label="源 IP (CIDR)"' in html,
+    "mobile proxy cards display the persisted source IP CIDR with legacy fallback": 'proxy-mobile-label">源 IP (CIDR)' in html and "item.source_cidr ||" in html,
     "desktop proxy association label handles global sentinel before generic machine code": (
         'v-if="scope.row.machine_code === \'__GLOBAL__\'"' in html
         and html.index('v-if="scope.row.machine_code === \'__GLOBAL__\'"')
@@ -200,11 +212,14 @@ checks.update({
         and "立即重试同步所有节点" in app_js
         and "type: 'proxy.delete'" in app_js
     ),
+    "proxy create and update use authenticated WebSocket RPC while preserving partial-sync recovery": "type: 'proxy.save'" in app_js and "proxy_id: isEdit ? String(proxyForm.id) : ''" in app_js and "代理数据已保存，但节点配置同步失败" in app_js,
+    "Mihomo template validate and draft save use authenticated WebSocket RPC": "type: 'mihomo.template.validate'" in app_js and "type: 'mihomo.template.save'" in app_js and "/api/v1/mihomo/template/validate" not in app_js and "/api/v1/mihomo/template'" not in app_js,
+    "proxy import text payload uses authenticated WebSocket RPC with 1 MiB server bound": "type: 'proxies.import'" in app_js and "/api/v1/proxies/import" not in app_js and 'case "proxies.import":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8") and "len(message.ImportContent) > 1<<20" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8"),
     "Proxy deletion uses authenticated WebSocket RPC with validated numeric ID": (
         "type: 'proxy.delete'" in app_js
         and "api('/api/v1/proxies/' + encodeURIComponent(row.id)" not in app_js
         and 'case "proxy.delete":' in browser_ws_source
-        and 'ProxyID         string `json:"proxy_id"`' in browser_ws_source
+        and 'ProxyID         string          `json:"proxy_id"`' in browser_ws_source
         and 'req.SetPathValue("id", strconv.FormatInt(id, 10))' in browser_ws_source
         and "a.handleDeleteProxy" in browser_ws_source
         and "Revalidate the administrator session for every browser RPC" in browser_ws_source
@@ -218,39 +233,45 @@ checks.update({
 # Agent enrollment and authorization state must not depend on a forced browser reload.
 agent_registration_html = Path("s5m-agent/index.html").read_text(encoding="utf-8")
 agent_registration_main = Path("s5m-agent/main.go").read_text(encoding="utf-8")
-agent_list_html = Path("source/web/agents.html").read_text(encoding="utf-8")
 checks.update({
-    "Agent registration defaults to HTTPS and distinguishes saved credentials from a live connection": (
-        'value="https://bind.v2net.cc"' in agent_registration_html
-        and "else document.getElementById('url').value = 'https://bind.v2net.cc';" in agent_registration_html
-        and "url = 'https://' + url" in agent_registration_html
-        and "refreshBindingStatus" in agent_registration_html
-        and "location.reload()" not in agent_registration_html
-        and "normalizeCentralURLInput(in.CentralURL)" in agent_registration_main
-    ),
-    "Agent authorization changes are broadcast and handled by live management UIs": (
+    "Agent authorization changes are broadcast and handled by the primary management UI": (
         '"type": "agent.binding.revoked"' in handlers
         and '"type": "agent.binding.updated"' in handlers
         and "agent.binding.revoked" in app_js
         and "agent.binding.updated" in app_js
-        and "connectAgentEvents" in agent_list_html
-        and "agent.binding.revoked" in agent_list_html
     ),
-    "Agent management page keeps SmartDNS markup outside executable JavaScript and removes periodic HTTP polling fallback": (
-        agent_list_html.index('<div id="smartdnsModal"') < agent_list_html.index('<script>')
-        and "agentsRefreshTimer" not in agent_list_html
-        and "agent.status.updated" not in agent_list_html[agent_list_html.index("socket.onmessage"):agent_list_html.index("socket.onclose")]
+    "primary console WebSocket RPC covers agent list and node config read/save": (
+        "type: 'agents.list.get'" in app_js and "type: 'node.config.get'" in app_js
+        and "type: 'node.config.save'" in app_js
+        and 'case "agents.list.get":' in browser_ws_source
+        and 'case "node.config.get":' in browser_ws_source
+        and 'case "node.config.save":' in browser_ws_source
     ),
-    "Agent management configuration and SmartDNS actions use the authenticated browser WebSocket channel": (
-        "type: 'node.config.get'" in agent_list_html
-        and "type: 'node.config.save'" in agent_list_html
-        and "type: 'agent.smartdns.get'" in agent_list_html
-        and "type: 'agent.smartdns.configure'" in agent_list_html
-        and "case \"node.config.get\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
-        and "case \"node.config.save\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
-        and "case \"agent.smartdns.get\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
-        and "case \"agent.smartdns.configure\"" in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+    "primary instance cards show authorization, copy and per-node telemetry": (
+        "item.authorized" in html and "safeCopy(item.code)" in html
+        and "item.connections" in html and "item.uploadSpeed" in html
+        and "item.downloadSpeed" in html and "item.updated_at" in html
+        and "Number(status.upload_speed)" in app_js
+        and "Number(status.download_speed)" in app_js
+        and "Number(status.connections)" in app_js
     ),
+    "existing YAML editor provides TUN/DNS shortcuts on the same YAML model": (
+        "configTunEnabled" in html and "configDnsEnabled" in html
+        and 'v-model="configTunEnabled" @change="applyConfigQuickSettings"' in html
+        and 'v-model="configDnsEnabled" @change="applyConfigQuickSettings"' in html
+        and 'class="config-quick-toggle"><span>TUN</span>' in html
+        and 'class="config-quick-toggle"><span>DNS</span>' in html
+        and '<label style="display:flex;align-items:center;gap:8px;">TUN' not in html
+        and "configDnsNameservers" in html and "applyConfigQuickSettings" in html
+        and "setYamlScalar" in app_js
+        and "yamlChildIndent" in app_js and "findYamlChild" in app_js
+        and "yamlIndent(line)" in app_js
+    ),
+    "node config save and read-back verification use WebSocket only": (
+        "type: 'node.config.save'" in app_js and "type: 'node.config.get'" in app_js
+        and "/api/v1/nodes/" not in app_js[app_js.index("const saveNodeConfig = async () => {"):app_js.index("const safeCopy = async")]
+    ),
+    "retired standalone agent management page is removed": not Path("source/web/agents.html").exists(),
 })
 
 # Read-only control-plane snapshots continue migrating to the authenticated
@@ -299,7 +320,7 @@ checks["system logs snapshot uses allowlisted admin WebSocket RPC without HTTP f
 checks["Mihomo template publish/apply/rollback/delete mutations use explicit authenticated WebSocket RPC"] = (
     "type: 'mihomo.template.publish'" in app_js
     and "type: 'mihomo.template.apply'" in app_js
-    and 'TemplateVersion int    `json:"template_version"`' in browser_ws_source
+    and 'TemplateVersion int             `json:"template_version"`' in browser_ws_source
     and '"version": message.TemplateVersion' in browser_ws_source
     and "template_version: version" in app_js
     and "type: 'mihomo.template.rollback'" in app_js
@@ -321,6 +342,16 @@ checks["Mihomo template publish/apply/rollback/delete mutations use explicit aut
 )
 
 
+checks["Agent token generation uses authenticated WebSocket RPC and preserves admin context"] = (
+    "type: 'agent.binding.generate'" in app_js
+    and "api('/api/v1/agents/generate'" not in app_js
+    and 'case "agent.binding.generate":' in browser_ws_source
+    and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
+    and "a.handleGenerateAgentToken" in browser_ws_source
+    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
+)
+
+
 checks["Agent kernel release lookup and binding revocation use authenticated WebSocket RPC"] = (
     "type: 'agent.mihomo.update-info'" in app_js
     and "type: 'agent.binding.revoke'" in app_js
@@ -333,54 +364,17 @@ checks["Agent kernel release lookup and binding revocation use authenticated Web
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
-checks["main browser WebSocket rejects stale ticket/socket callbacks and settles pending RPCs on disconnect"] = (
-    "let browserEventsConnecting = false;" in app_js
-    and "let browserEventsGeneration = 0;" in app_js
-    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
-    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;" in app_js
-    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
-    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
-)
-
-checks["SmartDNS Agent management page stops stale WebSocket callbacks and reconnects after pagehide"] = (
-    "let agentsStopped = false;" in agent_list_html
-    and "let agentsGeneration = 0;" in agent_list_html
-    and "rejectPendingAgentWSRequests('页面已离开，实时操作结果未确认；重新进入后请刷新状态')" in agent_list_html
-    and "if (generation !== agentsGeneration || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;" in agent_list_html
-    and "if (!wasCurrentSocket || agentsStopped || !localStorage.getItem(TOKEN_KEY)) return;" in agent_list_html
-)
-
 checks["administrator password change uses authenticated WebSocket RPC, not HTTP"] = (
     "type: 'auth.password.change'" in app_js
     and "api('/api/v1/auth/password'" not in app_js
     and 'case "auth.password.change":' in browser_ws_source
-    and 'PasswordOld     string `json:"old"`' in browser_ws_source
-    and 'PasswordNew     string `json:"new"`' in browser_ws_source
+    and 'PasswordOld     string          `json:"old"`' in browser_ws_source
+    and 'PasswordNew     string          `json:"new"`' in browser_ws_source
+    and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
     and "a.handlePassword" in browser_ws_source
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
-checks["Agent token generation uses authenticated WebSocket RPC and preserves admin context"] = (
-    "type: 'agent.binding.generate'" in app_js
-    and "api('/api/v1/agents/generate'" not in app_js
-    and 'case "agent.binding.generate":' in browser_ws_source
-    and 'context.WithValue(req.Context(), userKey, u)' in browser_ws_source
-    and "a.handleGenerateAgentToken" in browser_ws_source
-    and "Revalidate the administrator session for every browser RPC" in browser_ws_source
-)
-
-checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes runtime status"] = (
-    "type: 'agent.smartdns.get'" in app_js
-    and "type: 'agent.smartdns.configure'" in app_js
-    and "saveSmartDNSConfig" in app_js
-    and "期望配置 SHA-256" in Path("source/web/index.html").read_text(encoding="utf-8")
-    and "Agent SmartDNS 配置与运行状态" in Path("source/web/index.html").read_text(encoding="utf-8")
-    and 'case "agent.smartdns.get":' in browser_ws_source
-    and 'case "agent.smartdns.configure":' in browser_ws_source
-    and "hashSmartDNSConfig(config)" in browser_ws_source
-    and '"command_result":         commandResult' in browser_ws_source
-    and "smartDNSStatus.command_result.status" in Path("source/web/index.html").read_text(encoding="utf-8")
-)
 
 checks["node config sync retry mutation uses explicit authenticated WebSocket RPC"] = (
     "type: 'nodes.config-sync.retry'" in app_js
@@ -390,12 +384,71 @@ checks["node config sync retry mutation uses explicit authenticated WebSocket RP
     and "Revalidate the administrator session for every browser RPC" in browser_ws_source
 )
 
-checks["Agent management list snapshot uses authenticated WebSocket RPC instead of HTTP"] = (
-    "sendAgentWSControl({ type: 'agents.list.get' })" in agent_list_html
-    and "fetch('/api/v1/agents'" not in agent_list_html
-    and "window.addEventListener('load', () => {\n            connectAgentEvents();" in agent_list_html
-    and "socket.onopen" in agent_list_html
+# Pending browser RPC promises must settle immediately when their socket closes.
+# Do not wait for the generic 15-second timeout; the remote write may already have run.
+checks["browser WebSocket close rejects pending RPCs immediately and marks write outcomes as unknown"] = (
+    "const rejectPendingBrowserWSRequests = (message) => {" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，请重新连接后重试')" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
+    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
+    and "pending.reject(new Error(message))" in app_js
 )
+
+checks["main browser WebSocket ignores stale ticket responses and stale socket events across logout/reconnect"] = (
+    "let browserEventsConnecting = false;" in app_js
+    and "let browserEventsGeneration = 0;" in app_js
+    and "browserEventsGeneration++;" in app_js
+    and "const generation = ++browserEventsGeneration;" in app_js
+    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value) return;" in app_js
+    and "if (generation !== browserEventsGeneration || browserEventsStopped || !token.value || browserEventsSocket !== socket) return;" in app_js
+    and "const wasCurrentSocket = browserEventsSocket === socket;" in app_js
+    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
+)
+
+checks["Primary console rejects pending WebSocket RPCs on disconnect and stops stale socket reconnects"] = (
+    "const rejectPendingBrowserWSRequests = (message) => {" in app_js
+    and "rejectPendingBrowserWSRequests('实时通道已断开，操作结果未确认；请刷新状态后再决定是否重试')" in app_js
+    and "let browserEventsStopped = false;" in app_js
+    and "browserEventsStopped = true;" in app_js
+    and "if (!wasCurrentSocket || browserEventsStopped || !token.value) return;" in app_js
+)
+checks["Primary console loads Agent list over authenticated WebSocket RPC"] = (
+    "sendBrowserWSControl({ type: 'agents.list.get' })" in app_js
+    and "api('/api/v1/agents'" not in app_js
+    and "const connectBrowserEvents = async () => {" in app_js
+    and "socket.onopen" in app_js
+)
+
+
+checks["Agent binding updates and revocations invalidate in-flight snapshots and force an authoritative list reload"] = (
+    "let agentBindingRevision = 0;" in app_js
+    and app_js.count("agentBindingRevision++;") >= 2
+    and "const revocationRevision = agentBindingRevision;" in app_js
+    and "if (revocationRevision !== agentBindingRevision)" in app_js
+    and "retryAfterRevocation = true;" in app_js
+    and "Promise.resolve().then(() => loadAgentsData());" in app_js
+)
+
+quick_settings_start = app_js.index("    const yamlIndent =")
+quick_settings_end = app_js.index("    const loadNodeConfig = async () => {", quick_settings_start)
+quick_settings_js = app_js[quick_settings_start:quick_settings_end]
+checks["node YAML quick settings use real newlines, safe indentation, and reject duplicate root blocks"] = (
+    quick_settings_start >= 0
+    and quick_settings_end > quick_settings_start
+    and r"split(/\r?\n/)" in quick_settings_js
+    and r"join('\n')" in quick_settings_js
+    and r"match(/^ */)" in quick_settings_js
+    and "assertUniqueYamlSections(lines, ['tun', 'dns'])" in quick_settings_js
+    and "快捷设置未写入：" in quick_settings_js
+    and r"split(/\\r?\\n/)" not in quick_settings_js
+    and r"join('\\n')" not in quick_settings_js
+    and "yamlIndent(line) === childIndent" in quick_settings_js
+    and "const childIndent = yamlChildIndent(lines, bounds);" in quick_settings_js
+    and "if (line.trim() && yamlIndent(line) <= keyIndent) break;" in quick_settings_js
+    and "if (indent > bounds.sectionIndent) childIndent = Math.min(childIndent, indent);" in quick_settings_js
+    and "yamlIndent(line) > bounds.sectionIndent &&" not in quick_settings_js
+)
+
 
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():

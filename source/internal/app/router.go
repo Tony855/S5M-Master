@@ -18,13 +18,18 @@ type App struct {
 	store  *Store
 	jwtKey []byte
 
-	agentWSMu         sync.Mutex
-	agentWSGeneration map[string]uint64
-	agentHeartbeatAt  map[string]int64
-	browserWSMu       sync.Mutex
-	browserWSClients  map[*browserEventClient]struct{}
-	browserTicketMu   sync.Mutex
-	browserTickets    map[string]browserWSTicket
+	agentWSMu          sync.Mutex
+	agentWSGeneration  map[string]uint64
+	agentWSConnections map[string]*agentWSConnection
+	agentHeartbeatAt   map[string]int64
+	browserWSMu        sync.Mutex
+	browserWSClients   map[*browserEventClient]struct{}
+	browserTicketMu    sync.Mutex
+	browserTickets     map[string]browserWSTicket
+	mihomoUpdateMu     sync.Mutex
+	mihomoUpdateTask   *mihomoUpdateTask
+	mihomoUpdateTasks  map[string]*mihomoUpdateTask
+	mihomoUpdateOrder  []string
 }
 
 func New(cfg Config) (*App, error) {
@@ -91,8 +96,6 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"POST /api/v1/agents/generate":             a.handleGenerateAgentToken,
 		"GET /api/v1/agents/kernel-update-info":    a.handleAgentMihomoUpdateInfo,
 		"POST /api/v1/agents/kernel-update":        a.handleQueueMihomoUpdate,
-		"GET /api/v1/agents/smartdns/config":       a.handleGetAgentSmartDNSConfig,
-		"POST /api/v1/agents/smartdns/config":      a.handleQueueAgentSmartDNSConfig,
 		"DELETE /api/v1/agents":                    a.handleDeleteAgent,
 		"PUT /api/v1/auth/password":                a.handlePassword,
 		"GET /api/v1/settings":                     a.handleGetSettings,

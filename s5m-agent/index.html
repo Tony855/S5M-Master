@@ -41,8 +41,8 @@
   <label>服务器地址</label>
   <input type="url" id="url" placeholder="https://bind.v2net.cc" value="https://bind.v2net.cc" autocomplete="url" inputmode="url">
   <label>注册密钥</label>
-  <input type="password" id="secret" placeholder="请输入 Token 绑定设备" autocomplete="off" required oninput="updateBindButton()">
-  <button id="btn" onclick="save()" disabled>一键绑定设备</button>
+  <input type="password" id="secret" placeholder="请输入<密钥>绑定设备" autocomplete="off" required oninput="updateBindButton()">
+  <button id="btn" onclick="save()" disabled>绑定设备</button>
   <div id="msg"></div>
   <div class="status">
     <div class="dot" id="statusDot"></div>
@@ -102,11 +102,11 @@
         btn.innerText = '重试绑定';
         setStatus('error', '绑定信息异常，请联系管理员处理');
       } else if (!data.has_token) {
-        btn.innerText = '一键绑定设备';
-        setStatus('', data.config_exists ? '未检测到有效绑定 Token，请重新绑定' : '设备尚未绑定');
+        btn.innerText = '绑定设备';
+        setStatus('', data.config_exists ? '未检测到有效绑定<密钥>，请重新绑定' : '设备尚未绑定');
       } else if (data.connected) {
         btn.innerText = '重新绑定';
-        setStatus('active', '已绑定，主控 WebSocket 已连接');
+        setStatus('active', '节点设备已绑定，已连接');
       } else {
         btn.innerText = '重新绑定';
         setStatus('', '已保存绑定信息，正在连接主控端…');
@@ -133,7 +133,7 @@
     if (!secret) { updateBindButton(); return; }
     if (!url) return showMsg('请输入服务器地址', false);
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    if (/^https?:\/\/$/i.test(url)) return showMsg('请输入有效的主控服务器域名或 IP 地址', false);
+    if (/^https?:\/\/$/i.test(url)) return showMsg('请输入有效的服务器域名或 IP 地址', false);
     document.getElementById('url').value = url;
     const btn = document.getElementById('btn'); bindingInProgress = true; btn.innerText = '正在绑定...'; updateBindButton(); setStatus('', '正在绑定设备…');
     try {
@@ -151,7 +151,7 @@
       // Do not expose backend validation details or security configuration to end users.
       showMsg('绑定失败，请检查服务器地址和注册密钥后重试；如持续失败，请联系管理员。', false);
       btn.innerText = '重试绑定';
-      setStatus('error', '绑定未成功，请检查填写内容');
+      setStatus('error', '绑定未成功，请检查填写的<密钥>或服务器地址是否正确');
     } finally {
       bindingInProgress = false;
       updateBindButton();

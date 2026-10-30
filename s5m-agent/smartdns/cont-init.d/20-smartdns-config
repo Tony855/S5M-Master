@@ -1,6 +1,0 @@
-#!/command/with-contenv sh
-set -eu
-mkdir -p /data
-if [ ! -s /data/smartdns.conf ]; then
-  install -m 0600 /etc/smartdns/smartdns.conf /data/smartdns.conf
-fi

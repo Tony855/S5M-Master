@@ -69,6 +69,19 @@ func mihomoHome() string {
 
 // normalizeCentralURLInput defaults bare hostnames and IP addresses to HTTPS.
 // Plain HTTP is only accepted when an operator explicitly opts in on a trusted network.
+// newAgentRegistrationHTTPClient deliberately refuses redirects. The
+// registration secret is in the POST body, so following a 307/308 redirect
+// could disclose it to a different origin even when Authorization headers are
+// stripped by net/http.
+func newAgentRegistrationHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 func normalizeCentralURLInput(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.ContainsAny(raw, "\r\n") {
@@ -168,7 +181,8 @@ func safeMihomoValidationDiagnostic(output []byte) string {
 		lines = lines[len(lines)-6:]
 	}
 	message = strings.Join(lines, " | ")
-	message = regexp.MustCompile(`(?i)(secret|token|password)([=:[:space:]]+)[^,;[:space:]]+`).ReplaceAllString(message, "$1$2[已隐藏]")
+	message = regexp.MustCompile(`(?i)(["']?(?:secret|token|password|api[_-]?key)["']?\s*[:=]\s*)("[^"\\]*(?:\\.[^"\\]*)*"|'[^'\\]*(?:\\.[^'\\]*)*'|[^"'[:space:],;}{]+)`).ReplaceAllString(message, "$1\"[已隐藏]\"")
+	message = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/=-]+`).ReplaceAllString(message, "$1[已隐藏]")
 	message = regexp.MustCompile(`([A-Za-z]:)?[/\\][^[:space:]\"']+`).ReplaceAllString(message, "[路径已隐藏]")
 	message = strings.Join(strings.Fields(message), " ")
 	if len(message) > 700 {
@@ -218,20 +232,31 @@ func configHashSource() ([]byte, error) {
 
 // controllerConfigHash follows the WebSocket contract: hash exact payload bytes.
 // Do not trim whitespace or re-serialize YAML before hashing.
+// controllerConfigNeedsApply reports whether the exact controller payload has
+// been committed as the last successfully reloaded configuration. A mismatch
+// requires a reload even when config.yaml already contains identical YAML:
+// the Agent may have restarted after the file rename but before Mihomo reload.
+func controllerConfigNeedsApply(config []byte) bool {
+	current, err := os.ReadFile(controllerConfigPath())
+	return err != nil || len(current) == 0 || string(current) != string(config)
+}
+
 func controllerConfigHash(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-func writeControllerConfig(data []byte) error {
-	path := controllerConfigPath()
-	tmp, err := os.CreateTemp(mihomoHome(), ".controller-config-*")
+// atomicWriteFile writes a complete file beside its destination, fsyncs it,
+// atomically renames it into place, then fsyncs the containing directory.
+func atomicWriteFile(path string, data []byte, mode os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".s5m-atomic-*")
 	if err != nil {
 		return err
 	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		_ = tmp.Close()
 		return err
 	}
@@ -246,7 +271,19 @@ func writeControllerConfig(data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+func writeControllerConfig(data []byte) error {
+	return atomicWriteFile(controllerConfigPath(), data, 0600)
 }
 
 func centralHostname(centralURL string) string {
@@ -323,28 +360,7 @@ func writeManagedRouteCIDRs(values []string) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(mihomoHome(), ".controller-routes-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, managedRouteCIDRsPath())
+	return atomicWriteFile(managedRouteCIDRsPath(), data, 0600)
 }
 
 // ensureV2NetDirectRule keeps the S5M controller domain family out of proxy-node routing.
@@ -542,12 +558,13 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 		return false, err
 	}
 	// Keep a rollback copy until Mihomo confirms the reload succeeded.
-	if err := os.WriteFile(path+".previous", data, 0600); err != nil {
+	if err := atomicWriteFile(path+".previous", data, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败: %w", err)
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := atomicWriteFile(path, normalized, 0600); err != nil {
 		return false, err
 	}
+	_ = os.Remove(tmpPath)
 	if err := writeManagedRouteCIDRs(cidrs); err != nil {
 		return true, fmt.Errorf("已更新 TUN 排除地址，但保存动态地址记录失败: %w", err)
 	}
@@ -555,6 +572,15 @@ func refreshCentralRouteExclusions(centralURL string) (bool, error) {
 }
 
 func refreshAndApplyCentralRouteExclusions(centralURL string) error {
+	oldManaged := readManagedRouteCIDRs()
+	oldManagedValues := make([]string, 0, len(oldManaged))
+	for cidr := range oldManaged {
+		oldManagedValues = append(oldManagedValues, cidr)
+	}
+	restoreManagedRoutes := func() error {
+		return writeManagedRouteCIDRs(oldManagedValues)
+	}
+
 	changed, err := refreshCentralRouteExclusions(centralURL)
 	if err != nil {
 		// refreshCentralRouteExclusions may have committed the candidate config
@@ -563,8 +589,11 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 				return fmt.Errorf("刷新路由后记录状态失败且回滚失败: %w", rollbackErr)
 			}
+			if stateErr := restoreManagedRoutes(); stateErr != nil {
+				return fmt.Errorf("刷新路由失败，旧配置已恢复但管理地址记录恢复失败: %w", stateErr)
+			}
 			if retryErr := reloadMihomo(); retryErr != nil {
-				return fmt.Errorf("刷新路由失败，旧配置已恢复但重载失败: %w", retryErr)
+				return fmt.Errorf("刷新路由失败，旧配置和管理地址记录已恢复但重载失败: %w", retryErr)
 			}
 		}
 		return err
@@ -573,14 +602,17 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 		return nil
 	}
 	if err := reloadMihomo(); err != nil {
-		fmt.Printf("Mihomo 重载动态主控路由失败，正在回滚配置: %v\n", err)
+		fmt.Printf("Mihomo 重载动态主控路由失败，正在回滚配置: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 		if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
 			return fmt.Errorf("动态路由重载失败且回滚失败: %w", rollbackErr)
 		}
-		if retryErr := reloadMihomo(); retryErr != nil {
-			return fmt.Errorf("动态路由已回滚，但旧配置重载失败: %w", retryErr)
+		if stateErr := restoreManagedRoutes(); stateErr != nil {
+			return fmt.Errorf("动态路由已恢复旧配置，但恢复管理地址记录失败: %w", stateErr)
 		}
-		return fmt.Errorf("动态路由重载失败，已恢复旧配置: %w", err)
+		if retryErr := reloadMihomo(); retryErr != nil {
+			return fmt.Errorf("动态路由已回滚配置和管理地址记录，但旧配置重载失败: %w", retryErr)
+		}
+		return fmt.Errorf("动态路由重载失败，已恢复旧配置及管理地址记录: %w", err)
 	}
 	_ = os.Remove(mihomoConfigPath() + ".previous")
 	return nil
@@ -617,7 +649,7 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		var routeErr error
 		managedCentralCIDRs, _, routeErr = setCentralRouteExclusions(nextCfg, centralURL)
 		if routeErr != nil {
-			fmt.Printf("主控直连排除地址暂未更新: %v\n", routeErr)
+			fmt.Printf("主控直连排除地址暂未更新: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
 		}
 	}
 
@@ -630,27 +662,30 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		return false, err
 	}
 	if string(oldNorm) == string(newNorm) {
-		if strings.TrimSpace(centralURL) != "" {
-			if len(managedCentralCIDRs) > 0 {
-				if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
-					return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
-				}
-			}
-			// Commit the source hash last so a metadata write failure cannot
-			// make the controller believe an unapplied config is already active.
-			if err := writeControllerConfig(agentYml); err != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %w", err)
+		// A matching runtime YAML may still need a reload after an interrupted
+		// apply. In that case create a fresh rollback point before returning
+		// changed=true; never let the caller restore a stale .previous file.
+		needsApply := controllerConfigNeedsApply(agentYml)
+		if needsApply {
+			if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
+				return false, fmt.Errorf("备份待重载的 Mihomo 配置失败: %w", err)
 			}
 		}
-		return false, nil
+		if strings.TrimSpace(centralURL) != "" && len(managedCentralCIDRs) > 0 {
+			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
+				return false, fmt.Errorf("保存动态主控地址记录失败: %w", err)
+			}
+		}
+		// The controller hash is committed only after Mihomo reload succeeds.
+		return needsApply, nil
 	}
-	if err := os.WriteFile(previousPath, oldData, 0600); err != nil {
+	if err := atomicWriteFile(previousPath, oldData, 0600); err != nil {
 		return false, fmt.Errorf("备份旧 Mihomo 配置失败")
 	}
 	tmpPath := mainPath + ".tmp"
 	// Write the normalized configuration so the preserved local secret is
 	// actually persisted; writing agentYml here would undo the protection above.
-	if err := os.WriteFile(tmpPath, newNorm, 0600); err != nil {
+	if err := atomicWriteFile(tmpPath, newNorm, 0600); err != nil {
 		return false, err
 	}
 	validationOutput, validationErr := exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
@@ -661,11 +696,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 		// configuration below always retains the operator's original setting.
 		if isGeoIPDownloadFailure(validationOutput) && disableGeoIPFallbackForValidation(nextCfg) {
 			validationOnly, marshalErr := yaml.Marshal(nextCfg)
-			if marshalErr == nil && os.WriteFile(tmpPath, validationOnly, 0600) == nil {
+			if marshalErr == nil && atomicWriteFile(tmpPath, validationOnly, 0600) == nil {
 				validationOutput, validationErr = exec.Command(mihomoBinaryPath(), "-t", "-d", mihomoHome(), "-f", tmpPath).CombinedOutput()
 				if validationErr == nil {
 					// Restore the exact original normalized config before committing it.
-					if writeErr := os.WriteFile(tmpPath, newNorm, 0600); writeErr != nil {
+					if writeErr := atomicWriteFile(tmpPath, newNorm, 0600); writeErr != nil {
 						_ = os.Remove(tmpPath)
 						return false, fmt.Errorf("恢复待写入的 Mihomo 配置失败")
 					}
@@ -677,10 +712,11 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 			return false, fmt.Errorf("新配置未通过 Mihomo 校验：%s", safeMihomoValidationDiagnostic(validationOutput))
 		}
 	}
-	if err := os.Rename(tmpPath, mainPath); err != nil {
+	if err := atomicWriteFile(mainPath, newNorm, 0600); err != nil {
 		_ = os.Remove(tmpPath)
 		return false, err
 	}
+	_ = os.Remove(tmpPath)
 	if strings.TrimSpace(centralURL) != "" {
 		if len(managedCentralCIDRs) > 0 {
 			if err := writeManagedRouteCIDRs(managedCentralCIDRs); err != nil {
@@ -690,16 +726,19 @@ func mergeConfigWithCentralURL(agentYml []byte, centralURL string) (bool, error)
 				return false, fmt.Errorf("保存动态主控地址记录失败，已恢复旧运行配置: %w", err)
 			}
 		}
-		// Write the hash source last. If this fails, the next config request
-		// still compares against the previously applied controller YAML.
-		if err := writeControllerConfig(agentYml); err != nil {
-			if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-				return false, fmt.Errorf("保存主控原始配置哈希源失败: %v；恢复旧运行配置失败: %w", err, rollbackErr)
-			}
-			return false, fmt.Errorf("保存主控原始配置哈希源失败，已恢复旧运行配置: %w", err)
-		}
+		// The controller hash is committed only after Mihomo reload succeeds.
+		// Keeping the old hash on reload failure makes the Agent retry the desired YAML.
 	}
 	return true, nil
+}
+
+// persistControllerConfigAfterReload keeps the desired-config hash aligned with
+// the runtime config: never commit the controller hash before reload succeeds.
+func persistControllerConfigAfterReload(config []byte, reload func() error, persist func([]byte) error) error {
+	if err := reload(); err != nil {
+		return err
+	}
+	return persist(config)
 }
 
 func rollbackConfigAfterReloadFailure() error {
@@ -708,15 +747,7 @@ func rollbackConfigAfterReloadFailure() error {
 	if err != nil {
 		return fmt.Errorf("读取旧配置备份失败")
 	}
-	tmpPath := mainPath + ".restore"
-	if err := os.WriteFile(tmpPath, oldData, 0600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, mainPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return err
-	}
-	return nil
+	return atomicWriteFile(mainPath, oldData, 0600)
 }
 
 // mihomoSecretCandidates returns unique secrets in previous-then-current order.
@@ -844,7 +875,6 @@ func collectMihomoStatus() map[string]any {
 		"upload_speed": float64(0), "download_speed": float64(0),
 		"connections": 0, "config_sha256": "", "last_error": "",
 	}
-	collectSmartDNSStatus(status)
 	if hostname, err := agentHostname(); err == nil {
 		status["hostname"] = hostname
 	}
@@ -858,7 +888,7 @@ func collectMihomoStatus() map[string]any {
 	if hashErr != nil {
 		hashData = data
 	}
-	status["config_sha256"] = controllerConfigHash([]byte(strings.TrimSpace(string(hashData))))
+	status["config_sha256"] = controllerConfigHash(hashData)
 	var cfg map[string]interface{}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		status["last_error"] = "解析配置失败: " + err.Error()
@@ -1092,7 +1122,6 @@ type agentCommand struct {
 	Type    string `json:"type"`
 	Version string `json:"version"`
 	SHA256  string `json:"sha256"`
-	Config  string `json:"config,omitempty"`
 }
 
 // processAgentCommandWebSocket polls and acknowledges commands through the authenticated WebSocket protocol.
@@ -1163,12 +1192,6 @@ func processAgentCommandWebSocket(cfg Config) error {
 	switch cmd.Type {
 	case "update_mihomo":
 		message, runErr = updateMihomoKernel(cmd)
-	case "configure_smartdns":
-		var configHash string
-		configHash, runErr = writeSmartDNSConfig([]byte(cmd.Config))
-		if runErr == nil {
-			message = "SmartDNS 配置已校验并应用，SHA-256: " + configHash
-		}
 	default:
 		runErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 	}
@@ -1281,8 +1304,18 @@ func validateKernelUpdateCommand(cmd agentCommand) error {
 	return nil
 }
 
-func updateMihomoKernel(cmd agentCommand) (string, error) {
+func updateMihomoKernel(cmd agentCommand) (result string, retErr error) {
+	started := time.Now()
+	stage := "start"
+	defer func() {
+		if retErr != nil {
+			fmt.Printf("mihomo_update: failed command_id=%q stage=%q duration_ms=%d error=%q\n", cmd.ID, stage, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(retErr.Error())))
+		}
+	}()
+	fmt.Printf("mihomo_update: started command_id=%q target_version=%q arch=%q\n", cmd.ID, cmd.Version, runtime.GOARCH)
+	stage = "validate"
 	if err := validateKernelUpdateCommand(cmd); err != nil {
+		fmt.Printf("mihomo_update: rejected command_id=%q stage=validate error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", err
 	}
 	cmd.Version = strings.TrimSpace(cmd.Version)
@@ -1291,9 +1324,12 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	// ACK delivery can fail after a successful update. If the same command is
 	// delivered again, recognize the already-installed target version and avoid
 	// downloading/replacing/restarting the kernel a second time.
+	stage = "check-current-version"
+	fmt.Printf("mihomo_update: checking current version command_id=%q\n", cmd.ID)
 	if output, err := exec.Command(mihomoBinaryPath(), "-v").CombinedOutput(); err == nil {
 		versionPattern := regexp.MustCompile(`\bv` + regexp.QuoteMeta(strings.TrimPrefix(cmd.Version, "v")) + `\b`)
 		if versionPattern.Match(output) {
+			fmt.Printf("mihomo_update: skipped command_id=%q reason=already-installed duration_ms=%d\n", cmd.ID, time.Since(started).Milliseconds())
 			return "Mihomo 已是目标版本 " + cmd.Version + "，按幂等重试跳过重复安装", nil
 		}
 	}
@@ -1307,6 +1343,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		return "", fmt.Errorf("当前架构 %s 暂不支持自动更新", runtime.GOARCH)
 	}
 	url := "https://github.com/MetaCubeX/mihomo/releases/download/" + cmd.Version + "/" + asset
+	stage = "download"
+	fmt.Printf("mihomo_update: downloading command_id=%q asset=%q\n", cmd.ID, asset)
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
@@ -1320,6 +1358,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("官方 Mihomo 下载返回 HTTP %d", response.StatusCode)
 	}
+	fmt.Printf("mihomo_update: download complete command_id=%q http_status=%d\n", cmd.ID, response.StatusCode)
+	stage = "read-download"
 	compressed, err := io.ReadAll(io.LimitReader(response.Body, 200<<20))
 	if err != nil {
 		return "", err
@@ -1327,10 +1367,14 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if len(compressed) == 0 || len(compressed) >= 200<<20 {
 		return "", fmt.Errorf("下载文件为空或超过 200 MiB 限制")
 	}
+	stage = "verify-sha256"
 	sum := sha256.Sum256(compressed)
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), cmd.SHA256) {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=sha256 error=mismatch\n", cmd.ID)
 		return "", fmt.Errorf("Mihomo 下载文件 SHA-256 不匹配，已拒绝安装")
 	}
+	fmt.Printf("mihomo_update: checksum verified command_id=%q bytes=%d\n", cmd.ID, len(compressed))
+	stage = "decompress"
 	gz, err := gzip.NewReader(bytes.NewReader(compressed))
 	if err != nil {
 		return "", fmt.Errorf("Mihomo 压缩包损坏: %w", err)
@@ -1356,13 +1400,17 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if err := os.Chmod(newPath, 0755); err != nil {
 		return "", err
 	}
+	stage = "binary-self-test"
 	if _, err := exec.Command(newPath, "-v").CombinedOutput(); err != nil {
 		return "", fmt.Errorf("新内核自检失败（已隐藏底层路径详情）")
 	}
+	stage = "config-validation"
 	configPath := mihomoConfigPath()
 	if _, err := exec.Command(newPath, "-t", "-d", mihomoHome(), "-f", configPath).CombinedOutput(); err != nil {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=config-validation error=%q\n", cmd.ID, safeMihomoValidationDiagnostic([]byte(err.Error())))
 		return "", fmt.Errorf("新内核未通过当前配置校验（已隐藏底层路径详情）")
 	}
+	fmt.Printf("mihomo_update: config validated command_id=%q\n", cmd.ID)
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return "", err
@@ -1375,6 +1423,7 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 	if strings.TrimSpace(secret) == "" {
 		return "", fmt.Errorf("当前配置没有 Mihomo API secret")
 	}
+	stage = "install-binary"
 	binaryPath := mihomoBinaryPath()
 	backupPath := binaryPath + ".previous"
 	_ = os.Remove(backupPath)
@@ -1385,6 +1434,8 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		_ = os.Rename(backupPath, binaryPath)
 		return "", fmt.Errorf("安装新 Mihomo 内核失败")
 	}
+	stage = "restart-health-check-rollback"
+	fmt.Printf("mihomo_update: binary installed command_id=%q stage=restart-and-health-check target_version=%q\n", cmd.ID, cmd.Version)
 	expectedVersion := strings.TrimPrefix(cmd.Version, "v")
 	upgradeErr := verifyKernelUpgrade(
 		func() error { return restartMihomo(secret) },
@@ -1392,11 +1443,15 @@ func updateMihomoKernel(cmd agentCommand) (string, error) {
 		func() error { return restoreMihomoKernel(binaryPath, backupPath, secret) },
 	)
 	if upgradeErr != nil {
+		fmt.Printf("mihomo_update: failed command_id=%q stage=restart-health-rollback duration_ms=%d error=%q\n", cmd.ID, time.Since(started).Milliseconds(), safeMihomoValidationDiagnostic([]byte(upgradeErr.Error())))
 		return "", upgradeErr
 	}
+	fmt.Printf("mihomo_update: health check passed command_id=%q version=%q\n", cmd.ID, cmd.Version)
+	stage = "remove-backup"
 	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("新内核已通过健康检查，但删除旧内核备份失败")
 	}
+	fmt.Printf("mihomo_update: completed command_id=%q version=%q duration_ms=%d\n", cmd.ID, cmd.Version, time.Since(started).Milliseconds())
 	return "Mihomo 内核已更新到 " + cmd.Version, nil
 }
 
@@ -1734,6 +1789,32 @@ func reconnectDelayWithJitter(current time.Duration) time.Duration {
 // apply/rollback and idempotent kernel-upgrade paths are reused.
 // applyAgentControlError exposes the most recent config-apply failure in the next
 // heartbeat, while preserving any independent Mihomo health diagnostic.
+var agentControlErrorMu sync.RWMutex
+var agentLastConfigSyncError string
+var agentLastRouteSyncError string
+
+func setAgentConfigSyncError(message string) {
+	agentControlErrorMu.Lock()
+	agentLastConfigSyncError = strings.TrimSpace(message)
+	agentControlErrorMu.Unlock()
+}
+
+func clearAgentConfigSyncError() {
+	setAgentConfigSyncError("")
+}
+
+func setAgentRouteSyncError(message string) {
+	agentControlErrorMu.Lock()
+	agentLastRouteSyncError = strings.TrimSpace(message)
+	agentControlErrorMu.Unlock()
+}
+
+func agentControlSyncErrors() (string, string) {
+	agentControlErrorMu.RLock()
+	defer agentControlErrorMu.RUnlock()
+	return agentLastConfigSyncError, agentLastRouteSyncError
+}
+
 func applyAgentControlError(status map[string]any, controlErr string) {
 	controlErr = strings.TrimSpace(controlErr)
 	if controlErr == "" {
@@ -1741,13 +1822,29 @@ func applyAgentControlError(status map[string]any, controlErr string) {
 	}
 	controlErr = safeMihomoValidationDiagnostic([]byte(controlErr))
 	if existing, ok := status["last_error"].(string); ok && strings.TrimSpace(existing) != "" {
-		status["last_error"] = controlErr + "; Mihomo: " + existing
+		status["last_error"] = safeMihomoValidationDiagnostic([]byte(controlErr + "; Mihomo: " + existing))
 		return
 	}
 	status["last_error"] = controlErr
 }
 
-func runAgentWebSocketSession(cfg Config) error {
+func recordAgentConfigSyncFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	setAgentConfigSyncError("Agent 配置同步失败: " + err.Error())
+	return err
+}
+
+func controllerWebSocketResponseError(operation, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		message = "主控端未提供错误详情"
+	}
+	return fmt.Errorf("主控端%s失败: %s", operation, message)
+}
+
+func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 	base, err := url.Parse(strings.TrimRight(cfg.CentralURL, "/"))
 	if err != nil || base.Host == "" {
 		return fmt.Errorf("主控地址无效")
@@ -1772,6 +1869,14 @@ func runAgentWebSocketSession(cfg Config) error {
 		}
 		return fmt.Errorf("WebSocket 连接失败：%w", err)
 	}
+	if !setAgentActiveWebSocket(conn, bindingGeneration) {
+		_ = conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Agent binding changed during connect"),
+			time.Now().Add(time.Second))
+		_ = conn.Close()
+		return fmt.Errorf("绑定凭证已更新，取消旧 WebSocket 会话")
+	}
+	defer clearAgentActiveWebSocket(conn)
 	defer conn.Close()
 	conn.SetReadLimit(3 << 20)
 	_ = conn.SetWriteDeadline(time.Now().Add(8 * time.Second))
@@ -1787,26 +1892,36 @@ func runAgentWebSocketSession(cfg Config) error {
 	if welcome.Type != "welcome" || welcome.Protocol != 1 {
 		return fmt.Errorf("WebSocket 协议版本或欢迎消息无效")
 	}
-	// Report connected only while an authenticated, protocol-valid control-plane
-	// WebSocket session is active; a saved token alone only means "bound".
-	agentConnected.Store(true)
-	defer agentConnected.Store(false)
+	// A rebind can close the socket while the welcome frame is being processed.
+	// Publish connected only if this exact socket still owns the current binding.
+	if !markAgentWebSocketConnected(conn, bindingGeneration) {
+		return fmt.Errorf("绑定凭证已更新，拒绝激活旧 WebSocket 会话")
+	}
 
 	heartbeatInterval := time.Duration(welcome.HeartbeatIntervalSec) * time.Second
 	if heartbeatInterval < 5*time.Second || heartbeatInterval > 60*time.Second {
 		heartbeatInterval = 30 * time.Second
 	}
-	var lastConfigSyncError string
-
 	for {
 		// Refresh the controller's resolved A/AAAA addresses on each heartbeat
 		// cycle, without changing the hash of the controller-provided YAML.
 		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败: %v\n", routeErr)
+			setAgentRouteSyncError("主控直连路由更新失败: " + routeErr.Error())
+			fmt.Printf("刷新主控直连排除地址失败: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
+		} else {
+			setAgentRouteSyncError("")
 		}
 		// 1. Status/heartbeat is WebSocket-only.
 		status := collectMihomoStatus()
-		applyAgentControlError(status, lastConfigSyncError)
+		configSyncError, routeSyncError := agentControlSyncErrors()
+		controlError := configSyncError
+		if routeSyncError != "" {
+			if controlError != "" {
+				controlError += "; "
+			}
+			controlError += routeSyncError
+		}
+		applyAgentControlError(status, controlError)
 		heartbeatID := fmt.Sprintf("hb-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]any{
 			"type": "heartbeat", "id": heartbeatID, "status": status,
@@ -1829,13 +1944,13 @@ func runAgentWebSocketSession(cfg Config) error {
 		// 2. Fetch config on the same socket. A hash prevents needless YAML transfers.
 		localHash := ""
 		if localData, readErr := configHashSource(); readErr == nil && len(localData) > 0 {
-			localHash = controllerConfigHash([]byte(strings.TrimSpace(string(localData))))
+			localHash = controllerConfigHash(localData)
 		}
 		configRequestID := fmt.Sprintf("cfg-%d", time.Now().UnixNano())
 		if err := writeAgentWSJSON(conn, map[string]string{
 			"type": "config.request", "id": configRequestID, "config_sha256": localHash,
 		}); err != nil {
-			return fmt.Errorf("请求配置失败：%w", err)
+			return recordAgentConfigSyncFailure(fmt.Errorf("请求配置失败：%w", err))
 		}
 		var configResponse struct {
 			Type    string `json:"type"`
@@ -1845,47 +1960,64 @@ func runAgentWebSocketSession(cfg Config) error {
 			Message string `json:"message"`
 		}
 		if err := readAgentWSJSON(conn, &configResponse, 90*time.Second); err != nil {
-			return fmt.Errorf("读取配置响应失败：%w", err)
+			return recordAgentConfigSyncFailure(fmt.Errorf("读取配置响应失败：%w", err))
 		}
 		if configResponse.ID != configRequestID {
-			return fmt.Errorf("WebSocket 配置响应 ID 不匹配")
+			return recordAgentConfigSyncFailure(fmt.Errorf("WebSocket 配置响应 ID 不匹配"))
+		}
+		if configResponse.Type == "error" {
+			return recordAgentConfigSyncFailure(controllerWebSocketResponseError("配置请求", configResponse.Message))
 		}
 		switch configResponse.Type {
 		case "config.unchanged":
-			lastConfigSyncError = ""
+			clearAgentConfigSyncError()
 		case "config.sync":
 			if strings.TrimSpace(configResponse.YAML) == "" {
-				return fmt.Errorf("主控端返回空配置")
+				return recordAgentConfigSyncFailure(fmt.Errorf("主控端返回空配置"))
 			}
-			if !strings.EqualFold(controllerConfigHash([]byte(strings.TrimSpace(configResponse.YAML))), strings.TrimSpace(configResponse.SHA256)) {
-				return fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用")
+			configHash := controllerConfigHash([]byte(configResponse.YAML))
+			if !strings.EqualFold(configHash, strings.TrimSpace(configResponse.SHA256)) {
+				// Keep strict verification, and expose hashes/size rather than the YAML
+				// body so operators can diagnose stale Agent builds or payload mutation.
+				return recordAgentConfigSyncFailure(fmt.Errorf("WebSocket 配置 SHA-256 不匹配，拒绝应用（收到=%s，计算=%s，字节数=%d）", strings.TrimSpace(configResponse.SHA256), configHash, len(configResponse.YAML)))
+			}
+			oldManagedRoutes := readManagedRouteCIDRs()
+			oldManagedRouteValues := make([]string, 0, len(oldManagedRoutes))
+			for cidr := range oldManagedRoutes {
+				oldManagedRouteValues = append(oldManagedRouteValues, cidr)
 			}
 			changed, applyErr := mergeConfigWithCentralURL([]byte(configResponse.YAML), cfg.CentralURL)
 			if applyErr != nil {
-				lastConfigSyncError = "主控配置应用失败: " + applyErr.Error()
-				fmt.Printf("WebSocket 配置校验/写入失败: %v\n", applyErr)
+				setAgentConfigSyncError("主控配置应用失败: " + applyErr.Error())
+				fmt.Printf("WebSocket 配置校验/写入失败: %s\n", safeMihomoValidationDiagnostic([]byte(applyErr.Error())))
 				break
 			}
 			if changed {
-				if reloadErr := reloadMihomo(); reloadErr != nil {
-					lastConfigSyncError = "Mihomo 配置重载失败，已尝试回滚: " + reloadErr.Error()
-					fmt.Printf("Mihomo 配置重载失败，正在回滚: %v\n", reloadErr)
+				if commitErr := persistControllerConfigAfterReload(
+					[]byte(configResponse.YAML), reloadMihomo, writeControllerConfig,
+				); commitErr != nil {
+					setAgentConfigSyncError("Mihomo 配置重载或配置哈希提交失败，已尝试回滚: " + commitErr.Error())
+					fmt.Printf("Mihomo 配置提交失败，正在回滚: %s\n", safeMihomoValidationDiagnostic([]byte(commitErr.Error())))
 					if rollbackErr := rollbackConfigAfterReloadFailure(); rollbackErr != nil {
-						return fmt.Errorf("配置重载失败且回滚失败: %w", rollbackErr)
+						return recordAgentConfigSyncFailure(fmt.Errorf("配置提交失败且回滚失败: %w", rollbackErr))
+					}
+					if stateErr := writeManagedRouteCIDRs(oldManagedRouteValues); stateErr != nil {
+						return recordAgentConfigSyncFailure(fmt.Errorf("配置已回滚，但动态主控地址记录恢复失败: %w", stateErr))
 					}
 					if retryErr := reloadMihomo(); retryErr != nil {
-						return fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr)
+						return recordAgentConfigSyncFailure(fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr))
 					}
 				} else {
-					lastConfigSyncError = ""
+					clearAgentConfigSyncError()
 					_ = os.Remove(mihomoConfigPath() + ".previous")
 					fmt.Println("WebSocket 下发的 Mihomo 配置已应用")
 				}
+
 			} else {
-				lastConfigSyncError = ""
+				clearAgentConfigSyncError()
 			}
 		default:
-			return fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type)
+			return recordAgentConfigSyncFailure(fmt.Errorf("未知的 WebSocket 配置响应类型: %s", configResponse.Type))
 		}
 
 		// 3. Fetch and acknowledge commands over this same persistent socket.
@@ -1907,6 +2039,9 @@ func runAgentWebSocketSession(cfg Config) error {
 		if commandEnvelope.ID != commandRequestID {
 			return fmt.Errorf("WebSocket 命令响应 ID 不匹配")
 		}
+		if commandEnvelope.Type == "error" {
+			return controllerWebSocketResponseError("命令请求", commandEnvelope.Message)
+		}
 		switch commandEnvelope.Type {
 		case "command.none":
 		case "command.deliver":
@@ -1919,19 +2054,13 @@ func runAgentWebSocketSession(cfg Config) error {
 			switch cmd.Type {
 			case "update_mihomo":
 				message, commandErr = updateMihomoKernel(cmd)
-			case "configure_smartdns":
-				var configHash string
-				configHash, commandErr = writeSmartDNSConfig([]byte(cmd.Config))
-				if commandErr == nil {
-					message = "SmartDNS 配置已校验并应用，SHA-256: " + configHash
-				}
 			default:
 				commandErr = fmt.Errorf("不支持的 Agent 命令类型: %s", cmd.Type)
 			}
 			commandStatus := "success"
 			if commandErr != nil {
 				commandStatus = "failed"
-				message = commandErr.Error()
+				message = safeMihomoValidationDiagnostic([]byte(commandErr.Error()))
 			}
 			if len(message) > 2048 {
 				message = message[:2048]
@@ -1955,7 +2084,7 @@ func runAgentWebSocketSession(cfg Config) error {
 				return fmt.Errorf("主控端命令 ACK 确认无效: %s", ack.Message)
 			}
 			if commandErr != nil {
-				fmt.Printf("Agent 命令 %s 执行失败: %v\n", cmd.ID, commandErr)
+				fmt.Printf("Agent 命令 %s 执行失败: %s\n", cmd.ID, message)
 			}
 		default:
 			return fmt.Errorf("未知的 WebSocket 命令响应类型: %s", commandEnvelope.Type)
@@ -1964,6 +2093,66 @@ func runAgentWebSocketSession(cfg Config) error {
 		// Heartbeats on every cycle keep the socket alive; no HTTP status/config/command fallback.
 		time.Sleep(heartbeatInterval)
 	}
+}
+
+// Serialize the complete registration exchange and credential commit. Concurrent
+// bind requests must not interleave controller registrations and local token writes.
+var agentBindMu sync.Mutex
+
+func lockAgentBind() func() {
+	agentBindMu.Lock()
+	return agentBindMu.Unlock
+}
+
+// Track the single active control-plane socket so a successful rebind can
+// terminate the old authenticated session immediately. The reconnect loop then
+// rereads agent.json and authenticates with the newly committed token.
+var agentActiveWSMu sync.Mutex
+var agentActiveWSConn *websocket.Conn
+var agentBindingGeneration atomic.Uint64
+
+func setAgentActiveWebSocket(conn *websocket.Conn, expectedGeneration uint64) bool {
+	agentActiveWSMu.Lock()
+	defer agentActiveWSMu.Unlock()
+	if agentBindingGeneration.Load() != expectedGeneration {
+		return false
+	}
+	agentActiveWSConn = conn
+	return true
+}
+
+func markAgentWebSocketConnected(conn *websocket.Conn, expectedGeneration uint64) bool {
+	agentActiveWSMu.Lock()
+	defer agentActiveWSMu.Unlock()
+	if agentActiveWSConn != conn || agentBindingGeneration.Load() != expectedGeneration {
+		return false
+	}
+	agentConnected.Store(true)
+	return true
+}
+
+func clearAgentActiveWebSocket(conn *websocket.Conn) {
+	agentActiveWSMu.Lock()
+	if agentActiveWSConn == conn {
+		agentActiveWSConn = nil
+		agentConnected.Store(false)
+	}
+	agentActiveWSMu.Unlock()
+}
+
+func closeAgentActiveWebSocketForRebind() {
+	agentActiveWSMu.Lock()
+	conn := agentActiveWSConn
+	agentActiveWSConn = nil
+	agentConnected.Store(false)
+	agentActiveWSMu.Unlock()
+	if conn == nil {
+		return
+	}
+	_ = conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Agent credentials rebound"),
+		time.Now().Add(time.Second))
+	_ = conn.Close()
 }
 
 var agentConnected atomic.Bool
@@ -2027,6 +2216,11 @@ func main() {
 				http.Error(w, "仅允许 POST", http.StatusMethodNotAllowed)
 				return
 			}
+			// Hold the lock through remote registration and the atomic local commit:
+			// otherwise overlapping requests can leave the controller and agent.json
+			// referring to different registration tokens.
+			unlockBind := lockAgentBind()
+			defer unlockBind()
 			r.Body = http.MaxBytesReader(w, r.Body, 8<<10)
 			var in struct {
 				CentralURL string `json:"central_url"`
@@ -2057,7 +2251,7 @@ func main() {
 				return
 			}
 			registerReq.Header.Set("Content-Type", "application/json")
-			resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(registerReq)
+			resp, err := newAgentRegistrationHTTPClient().Do(registerReq)
 			if err != nil {
 				http.Error(w, "连接主控端失败，请检查地址和网络", http.StatusBadGateway)
 				return
@@ -2084,17 +2278,17 @@ func main() {
 				http.Error(w, "序列化绑定配置失败", http.StatusInternalServerError)
 				return
 			}
-			configPath := mihomoHome() + "/agent.json"
-			tmpPath := configPath + ".tmp"
-			if err := os.WriteFile(tmpPath, b, 0600); err != nil {
-				http.Error(w, "写入绑定配置失败", http.StatusInternalServerError)
-				return
-			}
-			if err := os.Rename(tmpPath, configPath); err != nil {
-				_ = os.Remove(tmpPath)
+			configPath := filepath.Join(mihomoHome(), "agent.json")
+			// The binding token is a credential: use the same fsync + atomic
+			// replacement path as controller-managed configuration writes.
+			if err := atomicWriteFile(configPath, b, 0600); err != nil {
 				http.Error(w, "保存绑定配置失败", http.StatusInternalServerError)
 				return
 			}
+			// Only after the new token is durably committed do we close the old
+			// session. Failed registration or disk writes leave it untouched.
+			agentBindingGeneration.Add(1)
+			closeAgentActiveWebSocketForRebind()
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"message": "绑定成功"})
 		})
@@ -2111,6 +2305,7 @@ func main() {
 	// HTTP 仅用于主控连通性探测和首次注册；绝不通过 HTTP 回退传输状态/配置/命令。
 	backoff := 2 * time.Second
 	for {
+		bindingGeneration := agentBindingGeneration.Load()
 		data, readErr := os.ReadFile(filepath.Join(mihomoHome(), "agent.json"))
 		if readErr != nil || len(data) == 0 {
 			time.Sleep(5 * time.Second)
@@ -2122,17 +2317,23 @@ func main() {
 			continue
 		}
 		if routeErr := refreshAndApplyCentralRouteExclusions(cfg.CentralURL); routeErr != nil {
-			fmt.Printf("刷新主控直连排除地址失败（将继续重试）: %v\n", routeErr)
+			fmt.Printf("刷新主控直连排除地址失败（将继续重试）: %s\n", safeMihomoValidationDiagnostic([]byte(routeErr.Error())))
 		}
 		if err := probeControllerHTTP(cfg); err != nil {
-			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %v\n", err)
-			time.Sleep(backoff)
+			fmt.Printf("主控 HTTP 连通性探测失败（仅用于诊断，不传输状态/配置/命令）: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
+			// Jitter probe failures too, so large Agent fleets do not retry in lockstep.
+			time.Sleep(reconnectDelayWithJitter(backoff))
 			backoff = nextReconnectDelay(backoff)
 			continue
 		}
+		// A bind may complete while the HTTP probe is running. Never start a
+		// session using credentials read before the latest successful bind.
+		if agentBindingGeneration.Load() != bindingGeneration {
+			continue
+		}
 		sessionStarted := time.Now()
-		if err := runAgentWebSocketSession(cfg); err != nil {
-			fmt.Printf("Agent WebSocket 会话断开: %v\n", err)
+		if err := runAgentWebSocketSession(cfg, bindingGeneration); err != nil {
+			fmt.Printf("Agent WebSocket 会话断开: %s\n", safeMihomoValidationDiagnostic([]byte(err.Error())))
 		}
 		// A session that stayed healthy for at least two minutes resets the
 		// exponential backoff; short-lived sessions continue backing off.

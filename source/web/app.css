@@ -66,6 +66,7 @@
   .import-note{margin:0 0 16px;padding:11px 13px;background:#eff6ff;border:1px solid #dbeafe;border-radius:9px;color:#1e40af;font-size:12px;line-height:1.6}
   .instance-link-summary{display:flex;gap:16px;flex-wrap:wrap;margin:9px 0;padding:9px 11px;background:var(--surface-soft,var(--surface));border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--sub)}
   .instance-link-summary strong{color:var(--text)}
+  .config-quick-toggle{display:flex;align-items:center;gap:8px;min-height:36px;padding:2px 4px;color:var(--sub);font-size:14px;white-space:nowrap}
   @media(max-width:1100px){.grid-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.aside{width:218px!important;flex-basis:218px}}
   @media(max-width:760px){
     .layout{min-height:100dvh;min-height:100svh;flex-direction:column;overflow:visible}.aside{width:100%!important;flex:0 0 auto;position:relative;top:auto;z-index:2;flex-direction:column;border-right:0;border-bottom:1px solid #273449}
@@ -759,6 +760,12 @@ html, body, #app {
 .instance-summary-secondary strong { color: var(--text); }
 .instance-summary-mihomo.is-running { color: #16a36a; }
 .instance-summary-mihomo.is-stopped { color: #d97706; }
+.instance-summary-update { flex-basis: 100%; overflow-wrap: anywhere; }
+.instance-summary-update.is-pending { color: #b45309; }
+.instance-summary-update.is-success { color: #15803d; }
+.instance-summary-update.is-failed { color: #b91c1c; }
+.instance-summary-update.is-unknown { color: #64748b; }
+.instance-summary-error { flex-basis: 100%; color: #b91c1c; overflow-wrap: anywhere; }
 .instance-summary-updated { margin-top: 5px; color: var(--sub); font-size: 11px; }
 .instance-details { margin-top: 8px; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .instance-details > summary {
@@ -1009,3 +1016,107 @@ html, body, #app {
 /* Browser-to-master realtime channel state. */
 .topbar-status .topbar-dot.realtime-online { background: #16a34a; box-shadow: 0 0 0 3px rgba(22,163,74,.14); }
 .topbar-status .topbar-dot.realtime-pending { background: #d97706; box-shadow: 0 0 0 3px rgba(217,119,6,.14); }
+
+/* Registered-instance card header: identity, state chips, and host metadata. */
+.instance-row .instance-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "identity statuses" "host host";
+  align-items: center;
+  gap: 10px 12px;
+  min-width: 0;
+  margin: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #edf1f7;
+}
+.instance-identity { grid-area: identity; min-width: 0; }
+.instance-identity-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; min-width: 0; }
+.instance-row .instance-identity-top .agent-code { min-width: 0; font-size: 15px; line-height: 1.35; font-weight: 750; letter-spacing: -.015em; overflow-wrap: anywhere; }
+.instance-row .instance-copy-button.el-button { height: 29px; margin: 0; padding: 0 10px; border-radius: 8px; font-size: 11px; }
+.instance-statuses { grid-area: statuses; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.instance-row .instance-statuses .status-badge { margin: 0; white-space: nowrap; }
+.instance-row .instance-host-system {
+  grid-area: host;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #edf1f7;
+  border-radius: 9px;
+  background: #f8fafc;
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.instance-host-label { flex: 0 0 auto; color: #667085; font-weight: 600; }
+.instance-row .instance-host-system strong { min-width: 0; color: var(--text); font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .instance-row .instance-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "statuses" "host";
+    align-items: start;
+    gap: 9px;
+    padding-bottom: 11px;
+  }
+  .instance-row .instance-identity-top .agent-code { font-size: 14px; }
+  .instance-row .instance-statuses { justify-content: flex-start; }
+  .instance-row .instance-host-system { padding: 8px 9px; font-size: 11px; }
+  .instance-row .instance-host-system strong { font-size: 11px; }
+}
+@media (max-width: 380px) {
+  .instance-row .instance-identity-top { gap: 7px; }
+  .instance-row .instance-identity-top .agent-code { font-size: 13px; }
+  .instance-row .instance-copy-button.el-button { height: 27px; padding: 0 8px; }
+}
+
+
+/* Scheme A: integrated, single-module Mihomo runtime and update status. */
+.instance-row .instance-copy-button.el-button { min-height: 30px; padding: 0 11px; font-size: 11px; font-weight: 650; }
+.instance-row .instance-mihomo-status {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 9px;
+  padding: 10px 12px;
+  border: 1px solid #e6ebf3;
+  border-radius: 10px;
+  background: #fff;
+}
+.instance-row .instance-mihomo-runtime {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  min-width: 0;
+}
+.instance-row .instance-mihomo-label { color: var(--text); font-size: 12px; font-weight: 750; }
+.instance-row .instance-summary-mihomo { font-size: 12px; font-weight: 750; }
+.instance-row .instance-mihomo-version { color: var(--text); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.instance-row .instance-mihomo-version.is-unknown { color: var(--sub); font-weight: 500; }
+.instance-row .instance-update-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  padding-top: 8px;
+  border-top: 1px solid #edf1f6;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.instance-row .instance-update-label { flex: 0 0 auto; color: var(--sub); font-weight: 650; }
+.instance-row .instance-summary-update { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; }
+.instance-row .instance-summary-secondary { gap: 7px 15px; }
+@media (max-width: 760px) {
+  .instance-row .instance-mihomo-status { margin-top: 8px; padding: 9px 10px; }
+  .instance-row .instance-mihomo-runtime { gap: 6px 9px; }
+  .instance-row .instance-mihomo-label { font-size: 11px; }
+  .instance-row .instance-summary-mihomo,
+  .instance-row .instance-mihomo-version { font-size: 11px; }
+  .instance-row .instance-update-row { gap: 4px 8px; }
+  .instance-row .instance-summary-update { flex-basis: 100%; }
+  .instance-row .instance-copy-button.el-button { padding: 0 9px; }
+}
