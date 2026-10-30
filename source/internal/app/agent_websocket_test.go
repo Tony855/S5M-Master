@@ -1496,7 +1496,15 @@ func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoun
 		t.Fatal("reboot must reject a non-OpenWrt node")
 	}
 	if err := app.store.UpdateSettings(map[string]string{
-		"agent_status_" + code: `{"platform":"openwrt"}`,
+		"agent_status_" + code:   `{"platform":"openwrt"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Add(-agentWSHeartbeatTTL-time.Minute).Unix(), 10),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.queueOpenWrtReboot(code); err == nil {
+		t.Fatal("reboot must reject a stale OpenWrt heartbeat")
+	}
+	if err := app.store.UpdateSettings(map[string]string{
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
 	}); err != nil {
 		t.Fatal(err)
