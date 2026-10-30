@@ -28,6 +28,22 @@ func (t mihomoUpdateTask) snapshot() map[string]any {
 	}
 }
 
+
+// rememberMihomoUpdateTaskLocked records a task and bounds in-memory history.
+// The caller must hold mihomoUpdateMu.
+func (a *App) rememberMihomoUpdateTaskLocked(task *mihomoUpdateTask) {
+	if a.mihomoUpdateTasks == nil {
+		a.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask)
+	}
+	a.mihomoUpdateTasks[task.ID] = task
+	a.mihomoUpdateOrder = append(a.mihomoUpdateOrder, task.ID)
+	for len(a.mihomoUpdateOrder) > 10 {
+		oldest := a.mihomoUpdateOrder[0]
+		a.mihomoUpdateOrder = a.mihomoUpdateOrder[1:]
+		delete(a.mihomoUpdateTasks, oldest)
+	}
+}
+
 // startMihomoUpdateTask acknowledges quickly; the update itself is detached from
 // the browser socket and survives browser disconnects for the lifetime of S5M.
 func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string) {
@@ -44,13 +60,7 @@ func (a *App) startMihomoUpdateTask(client *browserEventClient, requestID string
 	if a.mihomoUpdateTasks == nil {
 		a.mihomoUpdateTasks = make(map[string]*mihomoUpdateTask)
 	}
-	a.mihomoUpdateTasks[id] = task
-	a.mihomoUpdateOrder = append(a.mihomoUpdateOrder, id)
-	for len(a.mihomoUpdateOrder) > 10 {
-		oldest := a.mihomoUpdateOrder[0]
-		a.mihomoUpdateOrder = a.mihomoUpdateOrder[1:]
-		delete(a.mihomoUpdateTasks, oldest)
-	}
+	a.rememberMihomoUpdateTaskLocked(task)
 	startedSnapshot := task.snapshot()
 	a.mihomoUpdateMu.Unlock()
 	if err := client.writeJSON(map[string]any{"type": "request.result", "request_id": requestID, "ok": true, "data": startedSnapshot}); err != nil {

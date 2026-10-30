@@ -92,17 +92,14 @@ func TestMihomoUpdateTaskSnapshotIncludesTerminalMetadata(t *testing.T) {
 }
 
 func TestMihomoUpdateTaskHistoryKeepsLatestTen(t *testing.T) {
-	app := &App{mihomoUpdateTasks: make(map[string]*mihomoUpdateTask)}
+	app := &App{}
+	app.mihomoUpdateMu.Lock()
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("task-%d", i)
-		app.mihomoUpdateTasks[id] = &mihomoUpdateTask{ID: id, Status: "completed"}
-		app.mihomoUpdateOrder = append(app.mihomoUpdateOrder, id)
-		if len(app.mihomoUpdateOrder) > 10 {
-			oldest := app.mihomoUpdateOrder[0]
-			app.mihomoUpdateOrder = app.mihomoUpdateOrder[1:]
-			delete(app.mihomoUpdateTasks, oldest)
-		}
+		app.rememberMihomoUpdateTaskLocked(&mihomoUpdateTask{ID: id, Status: "completed"})
 	}
+	app.mihomoUpdateMu.Unlock()
+
 	if len(app.mihomoUpdateTasks) != 10 || app.mihomoUpdateTasks["task-0"] != nil || app.mihomoUpdateTasks["task-11"] == nil {
 		t.Fatalf("unexpected bounded task history: %#v", app.mihomoUpdateOrder)
 	}
