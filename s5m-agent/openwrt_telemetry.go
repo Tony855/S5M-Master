@@ -34,6 +34,17 @@ func collectOpenWrtTelemetry() map[string]any {
 	if networkOK {
 		result["interfaces"] = compactOpenWrtInterfaces(network)
 	}
+	// UCI inspection is read-only and limited to the three requested network
+	// domains. Potential credentials are redacted before leaving the device.
+	uci := map[string]string{}
+	for _, section := range []string{"network", "dhcp", "firewall"} {
+		if value, ok := openWrtUCIShow(section); ok {
+			uci[section] = value
+		}
+	}
+	if len(uci) > 0 {
+		result["uci_readonly"] = uci
+	}
 	encoded, err := json.Marshal(result)
 	if err != nil || len(encoded) > openWrtTelemetryMaxBytes {
 		return map[string]any{"available": true, "truncated": true}
@@ -86,4 +97,45 @@ func compactOpenWrtInterfaces(source map[string]any) []map[string]any {
 		result = append(result, compact)
 	}
 	return result
+}
+
+func openWrtUCIShow(section string) (string, bool) {
+	switch section {
+	case "network", "dhcp", "firewall":
+	default:
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/sbin/uci", "-q", "show", section)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &bytes.Buffer{}
+	if err := cmd.Run(); err != nil || stdout.Len() == 0 || stdout.Len() > 4<<10 {
+		return "", false
+	}
+	lines := strings.Split(stdout.String(), "\n")
+	redacted := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if len(line) > 1024 {
+			continue
+		}
+		left, _, hasValue := strings.Cut(line, "=")
+		if !hasValue {
+			continue
+		}
+		option := strings.ToLower(left[strings.LastIndex(left, ".")+1:])
+		for _, sensitive := range []string{"password", "passwd", "secret", "token", "key", "psk", "private_key", "auth"} {
+			if option == sensitive || strings.Contains(option, sensitive) {
+				line = left + "='[REDACTED]'"
+				break
+			}
+		}
+		redacted = append(redacted, line)
+	}
+	value := strings.Join(redacted, "\n")
+	if len(value) == 0 || len(value) > 4<<10 {
+		return "", false
+	}
+	return value, true
 }
