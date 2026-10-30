@@ -270,3 +270,46 @@ func TestStoreMigrationPreservesExistingLegacyAgentTasksTable(t *testing.T) {
 		t.Fatal("migration removed the existing legacy agent_tasks table")
 	}
 }
+
+
+func TestSaveNodeConfigIfUnchangedRejectsStaleSnapshot(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-cas.db"))
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	defer store.db.Close()
+
+	const machine = "node-cas"
+	original := "secret: old\ntun:\n  enable: false\ndns:\n  enable: false\n"
+	manual := "secret: new\ntun:\n  enable: true\ndns:\n  enable: false\n"
+	staleNormalized := "secret: old\nmixed-port: 7890\ntun:\n  enable: false\ndns:\n  enable: false\n"
+
+	if err := store.SaveNodeConfig(machine, original); err != nil { t.Fatalf("initial save: %v", err) }
+	if ok, err := store.SaveNodeConfigIfUnchanged(machine, original, manual); err != nil || !ok {
+		t.Fatalf("manual update = (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, err := store.SaveNodeConfigIfUnchanged(machine, original, staleNormalized); err != nil || ok {
+		t.Fatalf("stale update = (%v, %v), want (false, nil)", ok, err)
+	}
+	got, err := store.GetNodeConfig(machine)
+	if err != nil { t.Fatalf("read config: %v", err) }
+	if got == nil || got.YAML != manual {
+		t.Fatalf("stale normalization overwrote newer config: %#v", got)
+	}
+}
+
+func TestSaveNodeConfigIfUnchangedCanInitializeMissingNode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-cas-init.db"))
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	defer store.db.Close()
+
+	want := "secret: init\ntun:\n  enable: false\ndns:\n  enable: false\n"
+	if ok, err := store.SaveNodeConfigIfUnchanged("node-new", "", want); err != nil || !ok {
+		t.Fatalf("initialize = (%v, %v), want (true, nil)", ok, err)
+	}
+	if ok, err := store.SaveNodeConfigIfUnchanged("node-new", "", "secret: stale\n"); err != nil || ok {
+		t.Fatalf("duplicate initialization = (%v, %v), want (false, nil)", ok, err)
+	}
+	got, err := store.GetNodeConfig("node-new")
+	if err != nil || got == nil || got.YAML != want {
+		t.Fatalf("initialized config = %#v, err=%v", got, err)
+	}
+}
