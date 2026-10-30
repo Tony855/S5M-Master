@@ -2466,8 +2466,12 @@ func (a *App) handleSaveNodeConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var cfg map[string]any
-	if err := yaml.Unmarshal([]byte(in.YAML), &cfg); err != nil || len(cfg) == 0 {
-		writeErr(w, 400, "Mihomo YAML 格式错误或配置为空")
+	if err := yaml.Unmarshal([]byte(in.YAML), &cfg); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("Mihomo YAML 解析失败：%v", err))
+		return
+	}
+	if len(cfg) == 0 {
+		writeErr(w, http.StatusBadRequest, "Mihomo YAML 配置为空：至少需要一个顶层配置项")
 		return
 	}
 	secret, _ := cfg["secret"].(string)
