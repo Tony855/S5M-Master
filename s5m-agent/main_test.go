@@ -50,7 +50,7 @@ func TestControllerConfigHashUsesExactPayloadBytes(t *testing.T) {
 }
 
 func TestPersistControllerConfigAfterReloadOnlyCommitsAfterSuccess(t *testing.T) {
-	payload := []byte("mixed-port: 7890\\nsecret: test-secret\\n")
+	payload := []byte("mixed-port: 7890\nsecret: test-secret\n")
 	persisted := false
 	reloadErr := errors.New("simulated Mihomo reload failure")
 	err := persistControllerConfigAfterReload(payload, func() error {
