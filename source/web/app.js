@@ -1340,7 +1340,7 @@ createApp({
       }
     };
 
-    const saveNodeConfig = async () =>
+    const saveNodeConfig = async () => {
       const code = String(selectedConfigNode.value || '').trim(), yaml = String(configYaml.value || '');
       if (!code) return showMsg('保存失败：请先选择节点机器码', 'warning');
       if (!yaml.trim()) return showMsg('保存失败：YAML 配置不能为空', 'warning');
