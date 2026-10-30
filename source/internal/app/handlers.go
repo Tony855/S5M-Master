@@ -2156,7 +2156,7 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if session := a.agentWSConnections[code]; session != nil {
 		delete(a.agentWSConnections, code)
 		if session.conn != nil {
-			_ = session.conn.Close()
+			closeAgentWebSocket(session.conn, "Agent authorization revoked")
 		}
 	}
 	a.agentWSMu.Unlock()
