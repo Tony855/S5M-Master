@@ -1178,7 +1178,9 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if tracker := a.agentRebootTracking[machineCode]; tracker != nil && tracker.CommandID == commandID {
 		if status == "success" {
 			tracker.Acked = true
-			tracker.Status = "waiting_disconnect"
+			if !tracker.Interrupted && tracker.Status != "timeout" {
+				tracker.Status = "waiting_disconnect"
+			}
 			if err := a.saveAgentRebootTracker(machineCode, tracker); err != nil {
 				return fmt.Errorf("保存重启 ACK 跟踪状态失败: %w", err)
 			}
