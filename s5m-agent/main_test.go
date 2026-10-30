@@ -82,6 +82,28 @@ func TestAtomicWriteFileReplacesFileWithSyncedPrivateFile(t *testing.T) {
 	}
 }
 
+func TestControllerConfigNeedsApplyAfterInterruptedCommit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MIHOMO_HOME", home)
+	payload := []byte("mixed-port: 7890\nsecret: local-secret\n")
+	if err := os.WriteFile(mihomoConfigPath(), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !controllerConfigNeedsApply(payload) {
+		t.Fatal("missing controller hash must require reload even when runtime YAML matches")
+	}
+	if err := writeControllerConfig(payload); err != nil {
+		t.Fatal(err)
+	}
+	if controllerConfigNeedsApply(payload) {
+		t.Fatal("matching committed controller payload must not require reload")
+	}
+	changed := []byte("mixed-port: 7891\nsecret: local-secret\n")
+	if !controllerConfigNeedsApply(changed) {
+		t.Fatal("different controller payload must require reload")
+	}
+}
+
 func TestPersistControllerConfigAfterReloadOnlyCommitsAfterSuccess(t *testing.T) {
 	payload := []byte("mixed-port: 7890\nsecret: test-secret\n")
 	persisted := false
