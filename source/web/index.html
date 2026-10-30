@@ -373,7 +373,7 @@
                         <el-tag size="small" :type="item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running ? 'success' : 'danger'">{{ item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running ? '运行中' : '未检测到进程' }}</el-tag>
                         <strong v-if="item.openwrt.services && item.openwrt.services.agent && item.openwrt.services.agent.running">PID {{ item.openwrt.services.agent.pid }}</strong>
                       </span>
-                      <span>Mihomo：
+                      <span>Mihomo 进程：
                         <el-tag size="small" :type="item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running ? 'success' : 'danger'">{{ item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running ? '运行中' : '未检测到进程' }}</el-tag>
                         <strong v-if="item.openwrt.services && item.openwrt.services.mihomo && item.openwrt.services.mihomo.running">PID {{ item.openwrt.services.mihomo.pid }}</strong>
                       </span>
