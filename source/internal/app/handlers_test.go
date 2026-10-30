@@ -1198,31 +1198,45 @@ func TestGetNodeConfigRepairsStaleAgentPort(t *testing.T) {
 
 func TestSaveNodeConfigReportsYAMLParseError(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-yaml-error.db"))
-	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
 	defer store.db.Close()
 	const code = "node_yaml_error"
-	if err := store.UpdateSettings(map[string]string{"agent_token":"global-secret", "agent_machine_"+code:"dedicated-secret"}); err != nil { t.Fatalf("UpdateSettings: %v", err) }
+	if err := store.UpdateSettings(map[string]string{"agent_token": "global-secret", "agent_machine_" + code: "dedicated-secret"}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
 	app := &App{store: store}
 	body := `{"config_yaml":"secret: node-secret\ntun:\n  enable: [invalid\ndns:\n  enable: true\n"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+code+"/config", strings.NewReader(body))
 	req.SetPathValue("code", code)
 	rec := httptest.NewRecorder()
 	app.handleSaveNodeConfig(rec, req)
-	if rec.Code != http.StatusBadRequest { t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String()) }
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
 	if !strings.Contains(rec.Body.String(), "Mihomo YAML 解析失败") || !strings.Contains(rec.Body.String(), "line") {
 		t.Fatalf("response should include parser detail and line: %s", rec.Body.String())
 	}
 	cfg, err := store.GetNodeConfig(code)
-	if err != nil { t.Fatalf("GetNodeConfig: %v", err) }
-	if cfg != nil { t.Fatal("invalid YAML unexpectedly persisted") }
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg != nil {
+		t.Fatal("invalid YAML unexpectedly persisted")
+	}
 }
 
 func TestSaveNodeConfigDistinguishesEmptyYAMLDocument(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-config-yaml-empty.db"))
-	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
 	defer store.db.Close()
 	const code = "node_yaml_empty"
-	if err := store.UpdateSettings(map[string]string{"agent_token":"global-secret", "agent_machine_"+code:"dedicated-secret"}); err != nil { t.Fatalf("UpdateSettings: %v", err) }
+	if err := store.UpdateSettings(map[string]string{"agent_token": "global-secret", "agent_machine_" + code: "dedicated-secret"}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
 	app := &App{store: store}
 	body := `{"config_yaml":"---\n# empty\n"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/nodes/"+code+"/config", strings.NewReader(body))
