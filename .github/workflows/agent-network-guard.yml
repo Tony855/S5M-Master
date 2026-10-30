@@ -32,7 +32,7 @@ jobs:
               for line in compose.splitlines()
           ]
           host_network = re.compile(
-              r"^\\s*network_mode\\s*:\\s*['\\\"]?host['\\\"]?\\s*$"
+              r"^\s*network_mode\s*:\s*['\"]?host['\"]?\s*$"
           )
           matches = [
               f"{compose_path}:{number}: {line.strip()}"
@@ -41,8 +41,8 @@ jobs:
           ]
           if matches:
               raise SystemExit(
-                  "FAIL: Agent Compose must not use host networking:\\n"
-                  + "\\n".join(matches)
+                  "FAIL: Agent Compose must not use host networking:\n"
+                  + "\n".join(matches)
               )
 
           deploy_path = Path("scripts/s5m-deploy.sh")
@@ -52,7 +52,7 @@ jobs:
               raise SystemExit("FAIL: deployment script has no docker run command")
           end = deploy.find('|| die "容器启动失败"', start)
           run_block = deploy[start:end if end >= 0 else len(deploy)]
-          if re.search(r"(^|\\s)--network(?:=|\\s+)host(?:\\s|$)", run_block):
+          if re.search(r"(^|\s)--network(?:=|\s+)host(?:\s|$)", run_block):
               raise SystemExit("FAIL: Agent deployment must not use --network host")
 
           if "--network bridge" not in run_block:
