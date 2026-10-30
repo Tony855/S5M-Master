@@ -46,6 +46,41 @@ func TestAgentBindRequestsAreSerialized(t *testing.T) {
 	}
 }
 
+func TestCloseAgentWebSocketForRebind(t *testing.T) {
+	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	serverRead := make(chan error, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			serverRead <- err
+			return
+		}
+		defer conn.Close()
+		_, _, err = conn.ReadMessage()
+		serverRead <- err
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial test websocket: %v", err)
+	}
+	setAgentActiveWebSocket(conn)
+	closeAgentActiveWebSocketForRebind()
+	clearAgentActiveWebSocket(conn)
+
+	select {
+	case readErr := <-serverRead:
+		closeErr, ok := readErr.(*websocket.CloseError)
+		if !ok || closeErr.Code != websocket.CloseNormalClosure {
+			t.Fatalf("server read error = %v, want normal websocket close", readErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("active websocket was not closed after rebind")
+	}
+}
+
 func TestAgentRegistrationClientDoesNotFollowRedirectWithSecretBody(t *testing.T) {
 	var redirectTargetHits atomic.Int32
 	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
