@@ -1504,9 +1504,13 @@ func TestQueueOpenWrtRebootRequiresOpenWrtAndConfirmationIsEnforcedAtBrowserBoun
 		t.Fatalf("queue OpenWrt reboot: %v", err)
 	}
 	settings, err := app.store.GetSettings()
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	var command map[string]string
-	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal([]byte(settings["agent_command_"+code]), &command); err != nil {
+		t.Fatal(err)
+	}
 	if command["type"] != "reboot_openwrt" || command["id"] == "" {
 		t.Fatalf("unexpected queued command: %#v", command)
 	}
