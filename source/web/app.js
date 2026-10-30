@@ -47,6 +47,9 @@ createApp({
     const subUrl = ref('');
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
+    const configTunEnabled = ref(false);
+    const configDnsEnabled = ref(false);
+    const configDnsNameservers = ref('');
     const selectedConfigNode = ref('');
     const savingConfig = ref(false);
     const templateYaml = ref('');
@@ -861,7 +864,11 @@ createApp({
 
           list.push({
             code,
+            authorized: item.authorized === true,
             tokenConfigured: item.token_configured === true,
+            connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : null,
+            uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
+            downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
             online,
             last_seen: last,
             hostname,
@@ -1118,7 +1125,149 @@ createApp({
       finally { applyingTemplate.value = false; }
     };
 
-    const loadNodeConfig = async () => {
+    const yamlSectionRange = (lines, section) => {
+      const start = lines.findIndex(line => new RegExp('^' + section + ':\\s*(?:#.*)?
+      const code = selectedConfigNode.value;
+      configYaml.value = '';
+      if (!code) return;
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        configYaml.value = result.config_yaml || '';
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+      } catch (e) {
+        configYaml.value = '';
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+      }
+    };
+
+    const saveNodeConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim(), yaml = String(configYaml.value || '');
+      if (!code) return showMsg('保存失败：请先选择节点机器码', 'warning');
+      if (!yaml.trim()) return showMsg('保存失败：YAML 配置不能为空', 'warning');
+      if (savingConfig.value) return;
+      savingConfig.value = true;
+      showMsg('正在通过 WebSocket 保存节点 ' + code + ' 的 YAML…', 'info');
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.save', machine_code: code, config_yaml: yaml });
+        const data = result.data || result;
+        if (result.ok === false || data.ok === false || data.error) throw new Error(result.error || data.error || data.message || '服务器拒绝保存配置');
+        const verify = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        const savedYaml = String(verify.config_yaml || (verify.data && verify.data.config_yaml) || '');
+        if (savedYaml !== yaml) {
+          showMsg('保存请求已返回，但 WebSocket 回读内容不一致，请检查节点配置存储', 'error');
+          console.error('[S5M node config] WebSocket verification mismatch', { code }); return;
+        }
+        showMsg(data.message || ('节点 ' + code + ' 的 YAML 已保存并验证成功'), 'success');
+      } catch (e) {
+        showMsg('保存失败：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] WebSocket save/verification failed', { code, error: e });
+      } finally { savingConfig.value = false; }
+    };
+
+const safeCopy = async (text) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(String(text ?? ''));
+        } else {
+          const t = document.createElement('textarea');
+          t.value = String(text ?? '');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          if (!ok) throw new Error('浏览器复制操作失败');
+        }
+        showMsg('复制成功', 'success');
+      } catch (e) {
+        showMsg('复制失败：' + (e.message || '请检查浏览器权限'), 'error');
+      }
+    };
+
+    const retryNodeConfigSync = async () => {
+      if (retryingNodeConfigSync.value) return;
+      retryingNodeConfigSync.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
+        showMsg(data.message || '节点配置已重新生成', 'success');
+      } catch (e) {
+        showMsg(e.message || '节点配置同步失败', 'error');
+      } finally {
+        retryingNodeConfigSync.value = false;
+      }
+    };
+
+    const loadSettings = async () => {
+      // Always show a usable absolute subscription URL. Older servers may omit
+      // subscribe_url, and settings may contain an empty/whitespace value.
+      const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
+      subUrl.value = fallback;
+      try {
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
+        const configured = String(s.subscribe_url || s.sub_url || '').trim();
+        subUrl.value = configured || fallback;
+      } catch (e) {
+        subUrl.value = fallback;
+      }
+    };
+
+    onMounted(() => {
+      if (token.value) {
+        fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
+        switchPage('dashboard');
+        loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        browserEventsStopped = false;
+        connectBrowserEvents();
+        startStaleStatusTimer();
+      }
+    });
+
+    onUnmounted(() => {
+      if (overviewTimer !== null) clearInterval(overviewTimer);
+      overviewTimer = null;
+      if (staleStatusTimer !== null) clearInterval(staleStatusTimer);
+      staleStatusTimer = null;
+      stopBrowserEvents();
+    });
+
+    return {
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
+      overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      retryingNodeConfigSync, retryNodeConfigSync,
+      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importTab, importText, importing, importMachineCode,
+      switchPage, doLogin, logout, loadOverview,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeed
+    };
+  }
+}).use(ElementPlus).mount('#app');).test(line));
+      if (start < 0) return null;
+      let end = start + 1;
+      while (end < lines.length && (!lines[end].trim() || /^\\s/.test(lines[end]) || /^\\s*#/.test(lines[end]))) end++;
+      return { start, end };
+    };
+    const readYamlScalar = (yaml, section, key) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), range = yamlSectionRange(lines, section);
+      if (!range) return '';
+      const re = new RegExp('^\\s{2}' + key + ':\\s*(.*?)\\s*(?:#.*)?
       const code = selectedConfigNode.value;
       configYaml.value = '';
       if (!code) return;
@@ -1277,6 +1426,403 @@ const safeCopy = async (text) => {
       newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importTab, importText, importing, importMachineCode,
+      switchPage, doLogin, logout, loadOverview,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeed
+    };
+  }
+}).use(ElementPlus).mount('#app'););
+      for (let i = range.start + 1; i < range.end; i++) { const m = lines[i].match(re); if (m) return m[1].replace(/^['"]|['"]$/g, '').trim(); }
+      return '';
+    };
+    const writeYamlScalar = (yaml, section, key, value) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), range = yamlSectionRange(lines, section);
+      if (!range) { if (lines.length && lines[lines.length - 1].trim()) lines.push(''); lines.push(section + ':', '  ' + key + ': ' + value); }
+      else {
+        const re = new RegExp('^(\\s{2})' + key + ':.*
+      const code = selectedConfigNode.value;
+      configYaml.value = '';
+      if (!code) return;
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        configYaml.value = result.config_yaml || '';
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+      } catch (e) {
+        configYaml.value = '';
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+      }
+    };
+
+    const saveNodeConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const yaml = String(configYaml.value || '');
+
+      if (!code) {
+        showMsg('保存失败：请先选择节点机器码', 'warning');
+        return;
+      }
+      if (!yaml.trim()) {
+        showMsg('保存失败：YAML 配置不能为空', 'warning');
+        return;
+      }
+      if (savingConfig.value) return;
+
+      savingConfig.value = true;
+      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
+
+      try {
+        const path = '/api/v1/nodes/' +
+          encodeURIComponent(code) + '/config';
+
+        const res = await api(path, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: yaml })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const message = data.error || data.message ||
+            ('HTTP ' + res.status);
+          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
+          console.error('[S5M node config] PUT failed', {
+            code, status: res.status, message
+          });
+          return;
+        }
+
+        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
+        const verify = await api(path + '?t=' + Date.now());
+        const saved = await verify.json().catch(() => ({}));
+
+        if (!verify.ok) {
+          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
+            verify.status + '）', 'warning');
+          console.error('[S5M node config] verification failed', {
+            code, status: verify.status, response: saved
+          });
+          return;
+        }
+
+        if (String(saved.config_yaml || '') !== yaml) {
+          showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
+          console.error('[S5M node config] verification mismatch', { code });
+          return;
+        }
+
+        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+      } catch (e) {
+        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] request exception', e);
+      } finally {
+        savingConfig.value = false;
+      }
+    };
+
+const safeCopy = async (text) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(String(text ?? ''));
+        } else {
+          const t = document.createElement('textarea');
+          t.value = String(text ?? '');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          if (!ok) throw new Error('浏览器复制操作失败');
+        }
+        showMsg('复制成功', 'success');
+      } catch (e) {
+        showMsg('复制失败：' + (e.message || '请检查浏览器权限'), 'error');
+      }
+    };
+
+    const retryNodeConfigSync = async () => {
+      if (retryingNodeConfigSync.value) return;
+      retryingNodeConfigSync.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
+        showMsg(data.message || '节点配置已重新生成', 'success');
+      } catch (e) {
+        showMsg(e.message || '节点配置同步失败', 'error');
+      } finally {
+        retryingNodeConfigSync.value = false;
+      }
+    };
+
+    const loadSettings = async () => {
+      // Always show a usable absolute subscription URL. Older servers may omit
+      // subscribe_url, and settings may contain an empty/whitespace value.
+      const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
+      subUrl.value = fallback;
+      try {
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
+        const configured = String(s.subscribe_url || s.sub_url || '').trim();
+        subUrl.value = configured || fallback;
+      } catch (e) {
+        subUrl.value = fallback;
+      }
+    };
+
+    onMounted(() => {
+      if (token.value) {
+        fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
+        switchPage('dashboard');
+        loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        browserEventsStopped = false;
+        connectBrowserEvents();
+        startStaleStatusTimer();
+      }
+    });
+
+    onUnmounted(() => {
+      if (overviewTimer !== null) clearInterval(overviewTimer);
+      overviewTimer = null;
+      if (staleStatusTimer !== null) clearInterval(staleStatusTimer);
+      staleStatusTimer = null;
+      stopBrowserEvents();
+    });
+
+    return {
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
+      overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      retryingNodeConfigSync, retryNodeConfigSync,
+      configYaml, selectedConfigNode, savingConfig, publishing, updatingKernel,
+      templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
+      selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
+      loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
+      kernelUpdateDialog, kernelUpdateMachineCode, kernelUpdateVersion, kernelUpdateSHA256, queueingKernelUpdate, kernelUpdateInfo, kernelUpdateInfoLoading,
+      openAgentKernelUpdate, loadAgentKernelUpdateInfo, queueAgentKernelUpdate,
+      systemLogs, loadingSystemLogs, restoringBackup, loadSystemLogs, downloadBackup, restoreBackup,
+      mainMihomoStatus, loadMainMihomoStatus,
+      proxyDialog, proxyForm, savingProxy,
+      showImport, importTab, importText, importing, importMachineCode,
+      switchPage, doLogin, logout, loadOverview,
+      updateKernel, loadProxies, openCreateProxy, openEditProxy, saveProxy, deleteProxy, importProxies, handleFileUpload,
+      loadAgentsData, generateAgentToken, deleteAgent, safeCopy,
+      loadNodeConfig, loadSettings, saveNodeConfig,
+      fmtBytes, fmtSpeed
+    };
+  }
+}).use(ElementPlus).mount('#app');); let found = false;
+        for (let i = range.start + 1; i < range.end; i++) { const m = lines[i].match(re); if (m) { lines[i] = m[1] + key + ': ' + value; found = true; break; } }
+        if (!found) lines.splice(range.start + 1, 0, '  ' + key + ': ' + value);
+      }
+      return lines.join('\\n');
+    };
+    const readYamlNameservers = yaml => {
+      const lines = String(yaml || '').split(/\\r?\\n/), range = yamlSectionRange(lines, 'dns');
+      if (!range) return '';
+      const i = lines.findIndex((line, n) => n > range.start && n < range.end && /^\\s{2}nameserver:\s*(?:#.*)?$/.test(line));
+      if (i < 0) return '';
+      const values = []; for (let n = i + 1; n < range.end && /^\\s{4}-\\s*/.test(lines[n]); n++) values.push(lines[n].replace(/^\\s{4}-\\s*/, '').trim().replace(/^['"]|['"]$/g, ''));
+      return values.join('\\n');
+    };
+    const writeYamlNameservers = (yaml, value) => {
+      const lines = String(yaml || '').split(/\\r?\\n/), values = String(value || '').split(/\\r?\\n/).map(v => v.trim()).filter(Boolean);
+      const range = yamlSectionRange(lines, 'dns');
+      if (!range) { if (lines.length && lines[lines.length - 1].trim()) lines.push(''); lines.push('dns:', '  nameserver:', ...values.map(v => '    - ' + v)); return lines.join('\\n'); }
+      let i = lines.findIndex((line, n) => n > range.start && n < range.end && /^\\s{2}nameserver:/.test(line));
+      if (i < 0) { lines.splice(range.end, 0, '  nameserver:'); i = range.end; }
+      let end = i + 1; while (end < lines.length && /^\\s{4}-\\s*/.test(lines[end])) end++;
+      lines.splice(i + 1, end - i - 1, ...values.map(v => '    - ' + v)); return lines.join('\\n');
+    };
+    const syncConfigQuickSettingsFromYaml = () => {
+      configTunEnabled.value = readYamlScalar(configYaml.value, 'tun', 'enable').toLowerCase() === 'true';
+      configDnsEnabled.value = readYamlScalar(configYaml.value, 'dns', 'enable').toLowerCase() === 'true';
+      configDnsNameservers.value = readYamlNameservers(configYaml.value);
+    };
+    const applyConfigQuickSettings = () => {
+      if (!selectedConfigNode.value) return showMsg('请先选择节点', 'warning');
+      let yaml = writeYamlScalar(configYaml.value, 'tun', 'enable', configTunEnabled.value ? 'true' : 'false');
+      yaml = writeYamlScalar(yaml, 'dns', 'enable', configDnsEnabled.value ? 'true' : 'false');
+      configYaml.value = writeYamlNameservers(yaml, configDnsNameservers.value);
+      showMsg('TUN/DNS 快捷设置已写入当前 YAML，请检查后保存', 'success');
+    };
+
+    const loadNodeConfig = async () => {
+      const code = selectedConfigNode.value;
+      configYaml.value = '';
+      if (!code) return;
+      try {
+        const result = await sendBrowserWSControl({ type: 'node.config.get', machine_code: code });
+        configYaml.value = result.config_yaml || '';
+        syncConfigQuickSettingsFromYaml();
+        showMsg('已加载节点 ' + code + ' 的独立 YAML', 'success');
+      } catch (e) {
+        configYaml.value = '';
+        syncConfigQuickSettingsFromYaml();
+        showMsg(e.message || '该节点尚无独立 YAML，请编辑后保存', 'warning');
+      }
+    };
+
+    const saveNodeConfig = async () => {
+      const code = String(selectedConfigNode.value || '').trim();
+      const yaml = String(configYaml.value || '');
+
+      if (!code) {
+        showMsg('保存失败：请先选择节点机器码', 'warning');
+        return;
+      }
+      if (!yaml.trim()) {
+        showMsg('保存失败：YAML 配置不能为空', 'warning');
+        return;
+      }
+      if (savingConfig.value) return;
+
+      savingConfig.value = true;
+      showMsg('正在保存节点 ' + code + ' 的 YAML…', 'info');
+
+      try {
+        const path = '/api/v1/nodes/' +
+          encodeURIComponent(code) + '/config';
+
+        const res = await api(path, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config_yaml: yaml })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const message = data.error || data.message ||
+            ('HTTP ' + res.status);
+          showMsg('保存失败（HTTP ' + res.status + '）：' + message, 'error');
+          console.error('[S5M node config] PUT failed', {
+            code, status: res.status, message
+          });
+          return;
+        }
+
+        // 保存成功后重新读取，验证后端确实返回了已保存的配置。
+        const verify = await api(path + '?t=' + Date.now());
+        const saved = await verify.json().catch(() => ({}));
+
+        if (!verify.ok) {
+          showMsg('服务器已接受保存请求，但回读验证失败（HTTP ' +
+            verify.status + '）', 'warning');
+          console.error('[S5M node config] verification failed', {
+            code, status: verify.status, response: saved
+          });
+          return;
+        }
+
+        if (String(saved.config_yaml || '') !== yaml) {
+          showMsg('保存请求成功，但回读内容不一致，请检查后端存储', 'error');
+          console.error('[S5M node config] verification mismatch', { code });
+          return;
+        }
+
+        showMsg('节点 ' + code + ' 的 YAML 已保存并验证成功', 'success');
+      } catch (e) {
+        showMsg('保存请求异常：' + (e.message || String(e)), 'error');
+        console.error('[S5M node config] request exception', e);
+      } finally {
+        savingConfig.value = false;
+      }
+    };
+
+const safeCopy = async (text) => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(String(text ?? ''));
+        } else {
+          const t = document.createElement('textarea');
+          t.value = String(text ?? '');
+          t.style.position = 'fixed';
+          t.style.left = '-9999px';
+          document.body.appendChild(t);
+          t.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(t);
+          if (!ok) throw new Error('浏览器复制操作失败');
+        }
+        showMsg('复制成功', 'success');
+      } catch (e) {
+        showMsg('复制失败：' + (e.message || '请检查浏览器权限'), 'error');
+      }
+    };
+
+    const retryNodeConfigSync = async () => {
+      if (retryingNodeConfigSync.value) return;
+      retryingNodeConfigSync.value = true;
+      try {
+        const result = await sendBrowserWSControl({ type: 'nodes.config-sync.retry' });
+        const data = result.data || {};
+        if (!result.ok || data.ok === false) throw new Error(result.error || data.error || data.message || '节点配置同步失败');
+        showMsg(data.message || '节点配置已重新生成', 'success');
+      } catch (e) {
+        showMsg(e.message || '节点配置同步失败', 'error');
+      } finally {
+        retryingNodeConfigSync.value = false;
+      }
+    };
+
+    const loadSettings = async () => {
+      // Always show a usable absolute subscription URL. Older servers may omit
+      // subscribe_url, and settings may contain an empty/whitespace value.
+      const fallback = new URL('/api/v1/subscribe', window.location.href).toString();
+      subUrl.value = fallback;
+      try {
+        const result = await sendBrowserWSControl({ type: 'settings.get' });
+        const s = result.data || {};
+        const configured = String(s.subscribe_url || s.sub_url || '').trim();
+        subUrl.value = configured || fallback;
+      } catch (e) {
+        subUrl.value = fallback;
+      }
+    };
+
+    onMounted(() => {
+      if (token.value) {
+        fetch('/api/v1/auth/me', { headers: authHeaders() }).then(r => { if (r.status === 401) logout(); }).catch(() => {});
+        switchPage('dashboard');
+        loadAgentsData(); // 预加载一次 Agent 列表，以便下拉框有数据
+        browserEventsStopped = false;
+        connectBrowserEvents();
+        startStaleStatusTimer();
+      }
+    });
+
+    onUnmounted(() => {
+      if (overviewTimer !== null) clearInterval(overviewTimer);
+      overviewTimer = null;
+      if (staleStatusTimer !== null) clearInterval(staleStatusTimer);
+      staleStatusTimer = null;
+      stopBrowserEvents();
+    });
+
+    return {
+      page, token, loginUser, loginPass, loggingIn, currentUser,
+      pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
+      overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
+      getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
+      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      retryingNodeConfigSync, retryNodeConfigSync,
+      configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
+      selectedConfigNode, savingConfig, publishing, updatingKernel,
       templateYaml, templateNote, templateVersions, templateCurrentVersion, templateNodes,
       selectedTemplateNode, selectedTemplateVersion, savingTemplate, validatingTemplate, publishingTemplate, applyingTemplate, deletingTemplateVersion,
       loadMihomoTemplate, loadTemplateNodeStatus, saveMihomoTemplate, validateMihomoTemplateRuntime, publishMihomoTemplate, deleteMihomoTemplateVersion, applyMihomoTemplate, rollbackMihomoTemplate,
