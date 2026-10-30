@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -342,16 +343,25 @@ func probeSmartDNSDNSNetworkAt(network, address string) bool {
 		return false
 	}
 	response := make([]byte, 1502)
-	n, err := conn.Read(response)
-	if err != nil {
-		return false
-	}
+	n := 0
 	if network == "tcp" {
-		if n < 14 || int(binary.BigEndian.Uint16(response[:2])) > n-2 {
+		frameHeader := make([]byte, 2)
+		if _, err := io.ReadFull(conn, frameHeader); err != nil {
 			return false
 		}
-		response = response[2:]
-		n -= 2
+		responseLength := int(binary.BigEndian.Uint16(frameHeader))
+		if responseLength < 12 || responseLength > 1500 {
+			return false
+		}
+		n, err = io.ReadFull(conn, response[:responseLength])
+		if err != nil {
+			return false
+		}
+	} else {
+		n, err = conn.Read(response)
+		if err != nil {
+			return false
+		}
 	}
 	if n < 12 || binary.BigEndian.Uint16(response[0:2]) != 0x534d {
 		return false
