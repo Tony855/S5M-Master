@@ -344,6 +344,16 @@
                       <span class="instance-summary-update" :class="item.pendingCommand ? 'is-pending' : (item.commandResult && item.commandResult.status === 'success' ? 'is-success' : (item.commandResult && item.commandResult.status === 'failed' ? 'is-failed' : 'is-unknown'))">
                         <template v-if="item.pendingCommand && item.pendingCommand.type === 'openwrt_service_action'">{{ item.pendingCommand.service === 'agent' ? 'Agent' : 'Mihomo' }} {{ ({start:'启动',stop:'停止',restart:'重启'})[item.pendingCommand.action] || '服务操作' }} · 等待 Agent 执行并回报</template>
                         <template v-else-if="item.pendingCommand && item.pendingCommand.type === 'reboot_openwrt'">路由器重启命令已排队 · 等待设备离线并重新上线</template>
+                        <template v-else-if="item.commandResult && item.commandResult.type === 'reboot_openwrt' && item.commandResult.status === 'success'">
+                          <template v-if="item.last_seen > Number(item.commandResult.updated_at || 0)">路由器已重新上线 · {{ item.commandResult.message || '重启命令已完成' }}</template>
+                          <template v-else>重启已安排 · 等待路由器重新上线</template>
+                          {{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
+                        </template>
+                        <template v-else-if="item.commandResult && item.commandResult.type === 'openwrt_service_action' && item.commandResult.service === 'agent' && item.commandResult.action === 'restart' && item.commandResult.status === 'success'">
+                          <template v-if="item.last_seen > Number(item.commandResult.updated_at || 0)">Agent 已重新连接 · {{ item.commandResult.message || '重启命令已完成' }}</template>
+                          <template v-else>Agent 重启已安排 · 等待重新连接</template>
+                          {{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}
+                        </template>
                         <template v-else-if="item.commandResult">{{ item.commandResult.status === 'success' ? 'Agent 已回报成功' : (item.commandResult.status === 'failed' ? 'Agent 已回报失败' : (item.commandResult.status || '状态未知')) }} · {{ item.commandResult.message || '无详细信息' }}{{ item.commandResult.updated_at ? ' · ' + new Date(Number(item.commandResult.updated_at) * 1000).toLocaleString() : '' }}</template>
                       </span>
                     </div>
