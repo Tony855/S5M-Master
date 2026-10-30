@@ -5,7 +5,7 @@ on:
     branches: [main, dev]
     tags: ["s5m-agent-v*"]
   pull_request:
-    branches: [main, dev]
+    branches: [main, dev, S5M-SmartDNS]
     paths:
       - "s5m-agent/**"
       - "go.mod"
