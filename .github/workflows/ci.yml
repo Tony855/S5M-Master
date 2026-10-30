@@ -32,8 +32,8 @@ jobs:
           import sys
 
           script = Path(sys.argv[1]).read_text(encoding="utf-8")
-          detection = script.index("Resolve an existing S5M TLS virtual host BEFORE prompting")
-          prompt = script.index('read -r -p "请输入面板域名')
+          detection = script.index("# 解析 nginx -T 输出，查找已存在的 S5M HTTPS 虚拟主机")
+          prompt = script.index('read -r -p "请输入面板域名（留空则暂不配置 HTTPS）: "')
           cert_issue = script.index('certbot --nginx --non-interactive')
           assert detection < prompt < cert_issue, "TLS detection must happen before prompting and certificate issuance"
           for marker in (
