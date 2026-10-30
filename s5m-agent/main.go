@@ -1247,7 +1247,6 @@ func processAgentCommandWebSocket(cfg Config) error {
 	return nil
 }
 
-
 // scheduleOpenWrtReboot acknowledges first, then invokes the fixed OpenWrt
 // reboot binary after a short delay so the command ACK can reach the controller.
 var openWrtRebootMu sync.Mutex
