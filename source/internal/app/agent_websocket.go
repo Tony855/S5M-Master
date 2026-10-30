@@ -800,7 +800,7 @@ func (a *App) queueOpenWrtServiceAction(machineCode, service, action string) err
 		tracker := &agentRebootTracker{
 			CommandID: command["id"], CommandType: command["type"],
 			BaselineGeneration: a.agentWSGeneration[machineCode],
-			QueuedAt: time.Now().Unix(), Status: "queued",
+			QueuedAt:           time.Now().Unix(), Status: "queued",
 		}
 		trackingPayload, marshalErr := json.Marshal(tracker)
 		if marshalErr != nil {
