@@ -68,7 +68,6 @@ func TestProbeSmartDNSDNSAtRequiresSuccessfulAnswer(t *testing.T) {
 	}
 }
 
-
 func TestProbeSmartDNSDNSOverTCPRequiresSuccessfulAnswer(t *testing.T) {
 	tests := []struct {
 		name        string
