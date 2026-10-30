@@ -142,7 +142,7 @@ jobs:
           grep -q '^kmod-tun ' "$manifest"
           grep -q '^firewall4 ' "$manifest"
           grep -q '^dropbear ' "$manifest"
-          images="$(find bin/targets -type f \\( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \\))"
+          images="$(find bin/targets -type f \( -name '*combined*.img.gz' -o -name '*combined*.img' -o -name '*squashfs-combined*.img.gz' -o -name '*squashfs-combined*.img' -o -name '*sysupgrade*.bin' \))"
           test -n "$images"
           mkdir -p "$RUNNER_TEMP/s5m-openwrt-output"
           cp -a bin/targets/. "$RUNNER_TEMP/s5m-openwrt-output/"
