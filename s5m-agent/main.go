@@ -2190,14 +2190,10 @@ func main() {
 				http.Error(w, "序列化绑定配置失败", http.StatusInternalServerError)
 				return
 			}
-			configPath := mihomoHome() + "/agent.json"
-			tmpPath := configPath + ".tmp"
-			if err := os.WriteFile(tmpPath, b, 0600); err != nil {
-				http.Error(w, "写入绑定配置失败", http.StatusInternalServerError)
-				return
-			}
-			if err := os.Rename(tmpPath, configPath); err != nil {
-				_ = os.Remove(tmpPath)
+			configPath := filepath.Join(mihomoHome(), "agent.json")
+			// The binding token is a credential: use the same fsync + atomic
+			// replacement path as controller-managed configuration writes.
+			if err := atomicWriteFile(configPath, b, 0600); err != nil {
 				http.Error(w, "保存绑定配置失败", http.StatusInternalServerError)
 				return
 			}
