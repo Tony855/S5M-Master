@@ -368,6 +368,19 @@ createApp({
             }
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
             const code = String(message.machine_code);
+            if (String(selectedConfigNode.value || '').trim() === code && message.command_type === 'configure_smartdns') {
+              const previousSmartDNS = smartDNSStatus.value || {};
+              smartDNSStatus.value = {
+                ...previousSmartDNS,
+                command_result: {
+                  type: 'configure_smartdns',
+                  status: message.type === 'agent.command.queued' ? 'queued' : String(message.status || 'unknown'),
+                  message: String(message.message || (message.type === 'agent.command.queued' ? '命令已排队' : '')),
+                  command_id: String(message.command_id || '')
+                }
+              };
+              smartDNSQueued.value = message.type === 'agent.command.queued';
+            }
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
               const previous = agentEntries.value[index];
