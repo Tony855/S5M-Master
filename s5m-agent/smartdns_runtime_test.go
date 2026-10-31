@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"strings"
 )
 
 func TestBackupSmartDNSConfigMissingLiveFileIsSupported(t *testing.T) {
@@ -80,7 +79,7 @@ func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T)
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if len(entries) != 3 {
+	if len(entries) != 2 {
 		t.Fatalf("unexpected leftover files after failed atomic replacement: %#v", entries)
 	}
 	for _, entry := range entries {
@@ -150,6 +149,31 @@ func TestRestartAndVerifySmartDNSRollbackFailsWhenOldDNSIsNotHealthy(t *testing.
 	got, readErr := os.ReadFile(live)
 	if readErr != nil || !bytes.Equal(got, old) {
 		t.Fatalf("old config should remain restored despite DNS probe failure: got=%q err=%v", got, readErr)
+	}
+}
+
+func TestRestartAndVerifySmartDNSRollbackRemovesNewFileWhenNoOldConfigExisted(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "smartdns.conf")
+	if err := os.WriteFile(live, []byte("failed-new-config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restarted, probed := false, false
+	err := restartAndVerifySmartDNSRollback(live, nil, false, func() error {
+		restarted = true
+		return nil
+	}, func() bool {
+		probed = true
+		return true
+	})
+	if err != nil {
+		t.Fatalf("rollback without previous config error = %v", err)
+	}
+	if !restarted || !probed {
+		t.Fatalf("expected restart and DNS probe, got restarted=%v probed=%v", restarted, probed)
+	}
+	if _, err := os.Stat(live); !os.IsNotExist(err) {
+		t.Fatalf("new config must be removed when no old config existed; stat error=%v", err)
 	}
 }
 
