@@ -172,6 +172,25 @@ func TestRestoreSmartDNSConfig(t *testing.T) {
 	}
 }
 
+func TestRestoreSmartDNSConfigReportsDirectorySyncFailureAfterRestore(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	if err := os.WriteFile(path, []byte("new config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalSync := smartDNSDirectorySync
+	smartDNSDirectorySync = func(string) error { return os.ErrInvalid }
+	defer func() { smartDNSDirectorySync = originalSync }()
+
+	err := restoreSmartDNSConfig(path, []byte("old config"), true)
+	if err == nil {
+		t.Fatal("expected directory sync failure")
+	}
+	if !smartDNSConfigMatches(path, []byte("old config"), true) {
+		t.Fatal("rollback did not restore the old file despite sync failure")
+	}
+}
+
 func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
 	config := []byte("bind 127.0.0.1:6053\nbind-tcp 127.0.0.1:6053\nserver include.example\n")
 	if err := validateSmartDNSConfig(config); err != nil {
