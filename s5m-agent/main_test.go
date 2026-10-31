@@ -1131,6 +1131,36 @@ func TestTrafficCounter(t *testing.T) {
 		t.Fatal("trafficCounter should reject string counters")
 	}
 }
+func TestRollbackAndVerifyConfig(t *testing.T) {
+	writeFixture := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(path, []byte("secret: new\ntun: {}\ndns: {}\n"), 0600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path+".previous", []byte("secret: old\ntun: {}\ndns: {}\n"), 0600); err != nil { t.Fatal(err) }
+		return path
+	}
+	t.Run("reload and runtime verification succeed", func(t *testing.T) {
+		path := writeFixture(t)
+		reloaded, verified := false, false
+		err := rollbackAndVerifyConfig(path, func() error { reloaded = true; return nil }, func(data []byte) error {
+			verified = true
+			if !strings.Contains(string(data), "secret: old") { t.Fatalf("verification received non-restored config: %s", data) }
+			return nil
+		})
+		if err != nil || !reloaded || !verified { t.Fatalf("rollback err=%v reloaded=%v verified=%v", err, reloaded, verified) }
+	})
+	t.Run("reload failure is not reported as success", func(t *testing.T) {
+		path := writeFixture(t)
+		err := rollbackAndVerifyConfig(path, func() error { return errors.New("reload failed") }, func([]byte) error { t.Fatal("verify must not run"); return nil })
+		if err == nil || !strings.Contains(err.Error(), "重载失败") { t.Fatalf("expected explicit reload failure, got %v", err) }
+	})
+	t.Run("runtime verification failure is not reported as success", func(t *testing.T) {
+		path := writeFixture(t)
+		err := rollbackAndVerifyConfig(path, func() error { return nil }, func([]byte) error { return errors.New("rules mismatch") })
+		if err == nil || !strings.Contains(err.Error(), "运行规则验证失败") { t.Fatalf("expected explicit verification failure, got %v", err) }
+	})
+}
+
 func TestRollbackConfigAfterReloadFailure(t *testing.T) {
 	t.Run("restores previous config atomically", func(t *testing.T) {
 		home := t.TempDir()
