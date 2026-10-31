@@ -743,6 +743,7 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 		mode string
 		want []string
 	}{
+		{mode: "rule", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
 		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
