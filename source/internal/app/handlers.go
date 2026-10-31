@@ -296,7 +296,33 @@ func (a *App) handleListProxies(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "读取代理列表失败")
 		return
 	}
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		writeErr(w, http.StatusInternalServerError, "读取代理运行模式失败")
+		return
+	}
+	globalMode := strings.TrimSpace(settings[proxyRoutingModeSettingKey("__GLOBAL__")])
+	for i := range list {
+		key := proxyRoutingModeSettingKey(list[i].MachineCode)
+		if list[i].MachineCode == "" {
+			continue
+		}
+		if mode := strings.TrimSpace(settings[key]); mode != "" {
+			list[i].Mode = normalizeProxyRoutingMode(mode)
+		} else if globalMode != "" {
+			list[i].Mode = normalizeProxyRoutingMode(globalMode)
+		}
+	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (a *App) persistProxyRoutingMode(p *Proxy) error {
+	if p == nil || strings.TrimSpace(p.MachineCode) == "" {
+		return nil // Unbound proxy rows must not change any node's routing policy.
+	}
+	return a.store.UpdateSettings(map[string]string{
+		proxyRoutingModeSettingKey(p.MachineCode): normalizeProxyRoutingMode(p.Mode),
+	})
 }
 
 func (a *App) validateProxy(p *Proxy) string {
@@ -358,6 +384,10 @@ func (a *App) handleCreateProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 409, err.Error())
 		return
 	}
+	if err := a.persistProxyRoutingMode(&p); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已保存，但节点运行模式保存失败: "+err.Error())
+		return
+	}
 	if err := a.syncAuthorizedNodeConfigs(); err != nil {
 		writeErr(w, http.StatusInternalServerError, "代理已保存，但节点配置同步失败: "+err.Error())
 		return
@@ -387,6 +417,10 @@ func (a *App) handleUpdateProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.store.UpdateProxy(&p); err != nil {
 		writeErr(w, 409, err.Error())
+		return
+	}
+	if err := a.persistProxyRoutingMode(&p); err != nil {
+		writeErr(w, http.StatusInternalServerError, "代理已更新，但节点运行模式保存失败: "+err.Error())
 		return
 	}
 	if err := a.syncAuthorizedNodeConfigs(); err != nil {
