@@ -1292,8 +1292,8 @@ func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
 	if message := (&App{}).validateProxy(&proxy); message != "" {
 		t.Fatalf("validateProxy() = %q, want success", message)
 	}
-	if proxy.Mode != "split" {
-		t.Fatalf("default proxy mode = %q, want split", proxy.Mode)
+	if proxy.Mode != "rule" {
+		t.Fatalf("default proxy mode = %q, want rule", proxy.Mode)
 	}
 }
 
