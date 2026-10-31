@@ -84,6 +84,8 @@ COPY --from=smartdns-builder /out/usr/sbin/smartdns /usr/sbin/smartdns
 COPY --from=smartdns-builder /out/usr/share/licenses/smartdns /usr/share/licenses/smartdns
 COPY s5m-agent/index.html /app/index.html
 COPY s5m-agent/smartdns/healthcheck.sh /healthcheck.sh
+COPY s5m-agent/smartdns/tests/startup-recovery.sh /app/smartdns/tests/startup-recovery.sh
+COPY s5m-agent/smartdns/cont-init.d/15-smartdns-recovery /etc/cont-init.d/15-smartdns-recovery
 COPY s5m-agent/smartdns/tests/rollback-integration.sh /app/smartdns/tests/rollback-integration.sh
 COPY s5m-agent/smartdns/default-config-smartdns.yaml /app/default-config.yaml
 COPY s5m-agent/smartdns/smartdns.conf /etc/smartdns/smartdns.conf
@@ -93,7 +95,7 @@ COPY s5m-agent/services/ /etc/s6-overlay/s6-rc.d/
 COPY s5m-agent/smartdns/services/smartdns/ /etc/s6-overlay/s6-rc.d/smartdns/
 COPY s5m-agent/smartdns/services/mihomo/dependencies.d/smartdns /etc/s6-overlay/s6-rc.d/mihomo/dependencies.d/smartdns
 COPY s5m-agent/smartdns/services/user/contents.d/smartdns /etc/s6-overlay/s6-rc.d/user/contents.d/smartdns
-RUN chmod 0755 /healthcheck.sh /app/smartdns/tests/rollback-integration.sh /etc/cont-init.d/10-mihomo-config /etc/cont-init.d/20-smartdns-config \
+RUN chmod 0755 /healthcheck.sh /app/smartdns/tests/rollback-integration.sh /app/smartdns/tests/startup-recovery.sh /etc/cont-init.d/15-smartdns-recovery /etc/cont-init.d/10-mihomo-config /etc/cont-init.d/20-smartdns-config \
     /etc/s6-overlay/s6-rc.d/mihomo/run \
     /etc/s6-overlay/s6-rc.d/agent/run \
     /etc/s6-overlay/s6-rc.d/smartdns/run \
