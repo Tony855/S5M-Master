@@ -390,7 +390,6 @@ func probeSmartDNSDNSAt(address string) bool {
 	return flags&0x8000 != 0 && flags&0x000f == 0 && answerCount > 0
 }
 
-
 // probeSmartDNSDNSTCPAt verifies a complete DNS-over-TCP response, including
 // the two-byte message length and matching transaction ID.
 func probeSmartDNSDNSTCPAt(address string) bool {
