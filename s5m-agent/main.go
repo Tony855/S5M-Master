@@ -747,7 +747,13 @@ func rollbackConfigFromPaths(mainPath string) error {
 }
 
 func rollbackConfigAfterReloadFailure() error {
-	return rollbackAndVerifyConfig(mihomoConfigPath(), reloadMihomo, func([]byte) error {
+	return rollbackConfigAtPath(mihomoConfigPath(), reloadMihomo)
+}
+
+// rollbackConfigAtPath keeps rollback behavior testable without requiring a
+// live Mihomo API in unit tests. Production always supplies reloadMihomo.
+func rollbackConfigAtPath(configPath string, reload func() error) error {
+	return rollbackAndVerifyConfig(configPath, reload, func([]byte) error {
 		// reloadMihomo performs an authenticated /rules read-back and strict
 		// comparison against the restored YAML before returning nil.
 		return nil
