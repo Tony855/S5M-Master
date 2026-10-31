@@ -228,8 +228,8 @@ func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testin
 			t.Errorf("Agent initial rule-mode config missing %q:\\n%s", want, agentYAML)
 		}
 	}
-	if strings.Contains(agentYAML, ",DIRECT") {
-		t.Fatalf("default rule mode must not contain direct routes:\\n%s", agentYAML)
+	if !strings.Contains(agentYAML, "DOMAIN-SUFFIX,v2net.cc,DIRECT") {
+		t.Fatalf("default rule mode must preserve the S5M controller domain direct exception:\\n%s", agentYAML)
 	}
 }
 
