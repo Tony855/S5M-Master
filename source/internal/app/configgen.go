@@ -534,14 +534,14 @@ func proxyRoutingModeSettingKey(machineCode string) string {
 
 func normalizeProxyRoutingMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "global", "split", "return", "game", "legacy":
+	case "global", "split", "return", "game", "rule", "legacy":
 		return strings.ToLower(strings.TrimSpace(raw))
 	case "proxy":
 		return "return"
 	case "china":
 		return "split"
 	default:
-		return "split"
+		return "rule"
 	}
 }
 
@@ -558,7 +558,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(p.Mode)) {
-		case "global", "split", "return", "game":
+		case "global", "split", "return", "game", "rule":
 			return strings.ToLower(strings.TrimSpace(p.Mode))
 		case "proxy":
 			return "return"
@@ -566,7 +566,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			return "split"
 		}
 	}
-	return "split"
+	return "rule"
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
@@ -696,7 +696,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			return "", fmt.Errorf("代理名称不能为空且不能超过 100 个字符")
 		}
 		switch p.Mode {
-		case "proxy", "china", "global", "split", "return", "game":
+		case "proxy", "china", "global", "split", "return", "game", "rule":
 		default:
 			return "", fmt.Errorf("代理 %q 的运行模式无效：%q", p.Name, p.Mode)
 		}
@@ -741,7 +741,10 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{"DOMAIN-SUFFIX,v2net.cc,DIRECT"}
+	rules := []string{}
+	if routingMode != "rule" {
+		rules = append(rules, "DOMAIN-SUFFIX,v2net.cc,DIRECT")
+	}
 	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
 	if controllerHost != "" {
 		if ip := net.ParseIP(controllerHost); ip != nil {
@@ -820,6 +823,14 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		}
 	}
 	switch routingMode {
+	case "rule":
+		// Rule mode is fail-closed: preserve explicit source/domain rules and send
+		// every unmatched connection through the selected proxy. Never fall back to DIRECT.
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,REJECT")
+		}
 	case "global":
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
