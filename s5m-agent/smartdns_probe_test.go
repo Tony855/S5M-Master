@@ -271,6 +271,48 @@ func TestBackupSmartDNSConfigPreservesLiveFileOnBackupFailure(t *testing.T) {
 	})
 }
 
+func TestBackupSmartDNSConfigRemovesStaleBackupWhenLiveConfigMissing(t *testing.T) {
+	dir := t.TempDir()
+	livePath := filepath.Join(dir, "smartdns.conf")
+	backupPath := livePath + ".previous"
+	if err := os.WriteFile(backupPath, []byte("stale backup"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data, hadOld, err := backupSmartDNSConfig(livePath, backupPath)
+	if err != nil {
+		t.Fatalf("backup missing live config: %v", err)
+	}
+	if hadOld || data != nil {
+		t.Fatalf("expected no previous live config, hadOld=%v data=%q", hadOld, data)
+	}
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Fatalf("stale backup still exists, stat err=%v", err)
+	}
+}
+
+func TestBackupSmartDNSConfigDoesNotProceedWhenStaleBackupCleanupCannotSync(t *testing.T) {
+	dir := t.TempDir()
+	livePath := filepath.Join(dir, "smartdns.conf")
+	backupPath := livePath + ".previous"
+	if err := os.WriteFile(backupPath, []byte("stale backup"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalSync := smartDNSDirectorySync
+	smartDNSDirectorySync = func(string) error { return os.ErrInvalid }
+	defer func() { smartDNSDirectorySync = originalSync }()
+
+	_, hadOld, err := backupSmartDNSConfig(livePath, backupPath)
+	if err == nil {
+		t.Fatal("expected stale backup cleanup directory sync failure")
+	}
+	if hadOld {
+		t.Fatal("missing live config must not be reported as having an old config")
+	}
+	if _, statErr := os.Stat(backupPath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale backup unexpectedly remains, stat err=%v", statErr)
+	}
+}
+
 func TestWriteSmartDNSFileAtomicallyFailureModes(t *testing.T) {
 	t.Run("backup directory unavailable", func(t *testing.T) {
 		root := t.TempDir()
