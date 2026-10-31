@@ -252,6 +252,22 @@ createApp({
           }
           return item;
         });
+        const smartDNS = smartDNSStatus.value;
+        if (smartDNS && smartDNS.machine_code &&
+            String(selectedConfigNode.value || '').trim() === String(smartDNS.machine_code)) {
+          const age = now - (Number(smartDNS.last_seen) || 0);
+          if (age < 0 || age >= 90) {
+            smartDNSStatus.value = {
+              ...smartDNS,
+              online: false,
+              telemetry_received: false,
+              available: false,
+              running: false,
+              dns_healthy: false,
+              last_error: 'Agent 心跳已过期，SmartDNS 状态暂不可用'
+            };
+          }
+        }
       }, 5000);
     };
 
@@ -330,7 +346,8 @@ createApp({
             // Keep the SmartDNS panel live from the same authenticated Agent
             // heartbeat; do not require a manual reload after Agent reconnects.
             if (String(selectedConfigNode.value || '').trim() === code &&
-                typeof status.smartdns_available === 'boolean') {
+                typeof status.smartdns_available === 'boolean' &&
+                receivedAt >= Number((smartDNSStatus.value || {}).last_seen || 0)) {
               smartDNSStatus.value = {
                 ...(smartDNSStatus.value || {}),
                 machine_code: code,
@@ -341,6 +358,7 @@ createApp({
                 reported_config_sha256: String(status.smartdns_config_sha256 || ''),
                 last_error: String(status.smartdns_last_error || ''),
                 last_seen: receivedAt,
+                online: true,
                 telemetry_received: true
               };
             }
