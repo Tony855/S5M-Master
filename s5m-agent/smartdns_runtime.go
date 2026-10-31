@@ -247,7 +247,10 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		if restartErr != nil {
 			return "", fmt.Errorf("重启 SmartDNS 失败；已恢复原配置，但再次启动服务失败: %w", restartErr)
 		}
-		return "", fmt.Errorf("重启 SmartDNS 失败，已恢复原配置状态")
+		if !waitForSmartDNSHealthy(5 * time.Second) {
+			return "", fmt.Errorf("重启新配置失败；旧配置文件已恢复，但旧服务仍未通过 UDP/TCP DNS 验证")
+		}
+		return "", fmt.Errorf("重启新配置失败，已恢复旧配置且 UDP/TCP DNS 验证通过")
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -255,9 +258,12 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		if pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 && !bytes.Equal(bytes.TrimSpace(newPID), oldPID) && probeSmartDNSDNS() {
 			sum := sha256.Sum256(bytes.TrimSpace(data))
 			if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
-				return "", fmt.Errorf("SmartDNS 已启动且 DNS 正常，但清理旧配置备份失败: %w", err)
+				// The new configuration is already proven healthy. Keep the backup
+				// for manual recovery and do not report an applied config as failed.
+				fmt.Printf("SmartDNS: 无法清理旧配置备份: %v\\n", err)
+			} else {
+				_ = syncSmartDNSDirectory(filepath.Dir(livePath))
 			}
-			_ = syncSmartDNSDirectory(filepath.Dir(livePath))
 			return hex.EncodeToString(sum[:]), nil
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -283,7 +289,7 @@ func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
 		if err := os.Remove(livePath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return nil
+		return syncSmartDNSDirectory(filepath.Dir(livePath))
 	}
 	return writeSmartDNSFileAtomically(livePath, oldData, 0600)
 }
