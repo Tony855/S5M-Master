@@ -223,10 +223,13 @@ func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testin
 	if strings.Contains(agentYAML, "mixed-port: 8080") {
 		t.Fatalf("Agent config unexpectedly retained controller port 8080:\n%s", agentYAML)
 	}
-	for _, want := range []string{"listen: 127.0.0.1:5353", "DOMAIN-SUFFIX,v2net.cc,DIRECT", "enable: false"} {
+	for _, want := range []string{"listen: 127.0.0.1:5353", "MATCH,REJECT", "enable: false"} {
 		if !strings.Contains(agentYAML, want) {
-			t.Errorf("Agent initial config missing %q:\\n%s", want, agentYAML)
+			t.Errorf("Agent initial rule-mode config missing %q:\\n%s", want, agentYAML)
 		}
+	}
+	if strings.Contains(agentYAML, ",DIRECT") {
+		t.Fatalf("default rule mode must not contain direct routes:\\n%s", agentYAML)
 	}
 }
 
@@ -743,6 +746,7 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 		mode string
 		want []string
 	}{
+		{mode: "rule", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
 		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
@@ -770,6 +774,44 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 	}
 	if !strings.Contains(ipConfig, "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve") {
 		t.Fatal("controller IPv4 must be explicitly routed direct")
+	}
+}
+
+func TestBuildConfigRuleModeIsFailClosed(t *testing.T) {
+	proxies := []Proxy{{
+		Name: "rule-proxy", Mode: "proxy", Type: "socks5",
+		Server: "192.0.2.10", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true,
+	}}
+	got, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", "rule", "")
+	if err != nil {
+		t.Fatalf("build rule config: %v", err)
+	}
+	var config struct {
+		Rules []string `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &config); err != nil {
+		t.Fatalf("parse generated config: %v", err)
+	}
+	if len(config.Rules) == 0 || config.Rules[len(config.Rules)-1] != "MATCH,rule-proxy" {
+		t.Fatalf("rule mode must end with proxy MATCH fallback, got %#v", config.Rules)
+	}
+	for _, rule := range config.Rules {
+		if strings.HasSuffix(rule, ",DIRECT") || strings.Contains(rule, ",DIRECT,") {
+			t.Fatalf("rule mode must not generate DIRECT rules: %q", rule)
+		}
+	}
+	withoutProxy, err := buildConfigFromProxiesWithMode(nil, "", "test-secret", "rule", "")
+	if err != nil {
+		t.Fatalf("build rule config without proxy: %v", err)
+	}
+	if !strings.Contains(withoutProxy, "MATCH,REJECT") || strings.Contains(withoutProxy, "MATCH,DIRECT") {
+		t.Fatalf("rule mode without an available proxy must fail closed with REJECT:\n%s", withoutProxy)
+	}
+	if got := normalizeProxyRoutingMode(""); got != "rule" {
+		t.Fatalf("empty routing mode default = %q, want rule", got)
+	}
+	if got := routingModeForMachine(nil, "unconfigured-node"); got != "rule" {
+		t.Fatalf("unconfigured node routing mode = %q, want rule", got)
 	}
 }
 

@@ -211,11 +211,16 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if mode, ok := in["proxy_routing_mode"]; ok {
 		switch strings.TrimSpace(mode) {
-		case "global", "split", "return", "game":
+		case "global", "split", "return", "game", "rule":
 		default:
-			writeErr(w, http.StatusBadRequest, "代理模式必须是 global、split、return 或 game")
+			writeErr(w, http.StatusBadRequest, "代理模式必须是 rule、global、split、return 或 game")
 			return
 		}
+	}
+	// Keep the legacy public setting key for compatibility, but also persist the
+	// canonical global routing-mode key consumed by node config generation.
+	if mode, ok := in["proxy_routing_mode"]; ok {
+		in[proxyRoutingModeSettingKey("__GLOBAL__")] = strings.TrimSpace(mode)
 	}
 	if err := a.store.UpdateSettings(in); err != nil {
 		writeErr(w, http.StatusInternalServerError, "设置保存失败")
@@ -343,10 +348,10 @@ func (a *App) validateProxy(p *Proxy) string {
 	}
 	p.Mode = strings.TrimSpace(p.Mode)
 	if p.Mode == "" {
-		p.Mode = "split"
+		p.Mode = "rule"
 	}
 	switch p.Mode {
-	case "proxy", "china", "global", "split", "return", "game":
+	case "proxy", "china", "global", "split", "return", "game", "rule":
 		p.Type = strings.ToLower(strings.TrimSpace(p.Type))
 		p.Server = strings.TrimSpace(p.Server)
 		switch p.Type {
