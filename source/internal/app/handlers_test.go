@@ -1296,4 +1296,3 @@ func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
 		t.Fatalf("default proxy mode = %q, want split", proxy.Mode)
 	}
 }
-
