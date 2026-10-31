@@ -1,9 +1,9 @@
 #!/command/with-contenv sh
 set -eu
 
-CONFIG_PATH="/data/smartdns.conf"
-DEFAULT_CONFIG="/etc/smartdns/smartdns.conf"
-TEMP_CONFIG="/data/.smartdns.conf.new"
+CONFIG_PATH="${SMARTDNS_CONFIG_PATH:-/data/smartdns.conf}"
+DEFAULT_CONFIG="${SMARTDNS_DEFAULT_CONFIG:-/etc/smartdns/smartdns.conf}"
+TEMP_CONFIG="${CONFIG_PATH}.new"
 
 mkdir -p /data
 
