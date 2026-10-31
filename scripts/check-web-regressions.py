@@ -10,6 +10,8 @@ app_js = Path("source/web/app.js").read_text(encoding="utf-8")
 configgen = Path("source/internal/app/configgen.go").read_text(encoding="utf-8")
 handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
 handlers_test = Path("source/internal/app/handlers_test.go").read_text(encoding="utf-8")
+smartdns_source = Path("source/internal/app/smartdns.go").read_text(encoding="utf-8")
+smartdns_runtime = Path("s5m-agent/smartdns_runtime.go").read_text(encoding="utf-8")
 template_source = Path("source/internal/app/template.go").read_text(encoding="utf-8")
 router = Path("source/internal/app/router.go").read_text(encoding="utf-8")
 import_handler = handlers[handlers.index("func (a *App) handleImportProxies"):handlers.index("func (a *App) handleAgentRegister")]
