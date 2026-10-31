@@ -134,10 +134,17 @@ if ! apt-get install -y -qq "${apt_packages[@]}" > /dev/null; then
 fi
 
 # 同步独立的 S5M Agent + SmartDNS 源码仓库
-# 固定安装目录：/root/S5M-SmartDNS；跟踪仓库 main 最新提交。
+# 必须与当前主控源码目录分离：/root/S5M-SmartDNS 是主控仓库工作区时，
+# Agent/SmartDNS 仓库使用 /root/S5M-Agent-SmartDNS，禁止覆盖主控仓库。
 SMARTDNS_REPO="https://github.com/Tony855/S5M-Agent-SmartDNS.git"
 SMARTDNS_BRANCH="main"
-SMARTDNS_DIR="/root/S5M-SmartDNS"
+SMARTDNS_DIR="/root/S5M-Agent-SmartDNS"
+
+if [[ "$(realpath -m "$SMARTDNS_DIR")" == "$(realpath -m "$ROOT")" ]]; then
+  echo "❌ SmartDNS 同步目录与主控源码目录相同：$SMARTDNS_DIR" >&2
+  echo "   请使用独立目录，避免覆盖主控仓库。" >&2
+  exit 1
+fi
 
 sync_smartdns_source() {
   echo "⬇️ 正在同步 S5M Agent + SmartDNS 最新源码..."
