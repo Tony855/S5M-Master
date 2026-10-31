@@ -592,9 +592,6 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 			if stateErr := restoreManagedRoutes(); stateErr != nil {
 				return fmt.Errorf("刷新路由失败，旧配置已恢复但管理地址记录恢复失败: %w", stateErr)
 			}
-			if retryErr := reloadMihomo(); retryErr != nil {
-				return fmt.Errorf("刷新路由失败，旧配置和管理地址记录已恢复但重载失败: %w", retryErr)
-			}
 		}
 		return err
 	}
@@ -608,9 +605,6 @@ func refreshAndApplyCentralRouteExclusions(centralURL string) error {
 		}
 		if stateErr := restoreManagedRoutes(); stateErr != nil {
 			return fmt.Errorf("动态路由已恢复旧配置，但恢复管理地址记录失败: %w", stateErr)
-		}
-		if retryErr := reloadMihomo(); retryErr != nil {
-			return fmt.Errorf("动态路由已回滚配置和管理地址记录，但旧配置重载失败: %w", retryErr)
 		}
 		return fmt.Errorf("动态路由重载失败，已恢复旧配置及管理地址记录: %w", err)
 	}
@@ -753,7 +747,11 @@ func rollbackConfigFromPaths(mainPath string) error {
 }
 
 func rollbackConfigAfterReloadFailure() error {
-	return rollbackConfigFromPaths(mihomoConfigPath())
+	return rollbackAndVerifyConfig(mihomoConfigPath(), reloadMihomo, func([]byte) error {
+		// reloadMihomo performs an authenticated /rules read-back and strict
+		// comparison against the restored YAML before returning nil.
+		return nil
+	})
 }
 
 // rollbackAndVerifyConfig restores the last known-good file, reloads Mihomo,
@@ -2148,9 +2146,6 @@ func runAgentWebSocketSession(cfg Config, bindingGeneration uint64) error {
 					}
 					if stateErr := writeManagedRouteCIDRs(oldManagedRouteValues); stateErr != nil {
 						return recordAgentConfigSyncFailure(fmt.Errorf("配置已回滚，但动态主控地址记录恢复失败: %w", stateErr))
-					}
-					if retryErr := reloadMihomo(); retryErr != nil {
-						return recordAgentConfigSyncFailure(fmt.Errorf("旧配置已恢复但重载失败: %w", retryErr))
 					}
 				} else {
 					clearAgentConfigSyncError()
