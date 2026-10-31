@@ -17,7 +17,7 @@ func TestValidateControllerSmartDNSConfig(t *testing.T) {
 	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig); err != nil {
 		t.Fatalf("default SmartDNS config rejected: %v", err)
 	}
-	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig + "\\nserver include.example"); err != nil {
+	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig + "\nserver include.example"); err != nil {
 		t.Fatalf("safe upstream hostname containing the word include rejected: %v", err)
 	}
 	for _, config := range []string{
@@ -172,7 +172,7 @@ func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigCo
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			config := defaultAgentSmartDNSConfig + fmt.Sprintf("\n# contender %d\n", i)
+	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig + "\nserver include.example"); err != nil {
 			<-start
 			results <- a.queueAgentSmartDNSConfig(code, config)
 		}(i)
