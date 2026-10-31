@@ -215,6 +215,7 @@
             <el-form-item label="名称"><el-input v-model="proxyForm.name"></el-input></el-form-item>
             <el-form-item label="运行模式">
               <el-select v-model="proxyForm.mode" style="width:100%">
+                <el-option label="规则模式（全部按规则匹配，未命中默认走代理）" value="rule"></el-option>
                 <el-option label="全局模式（全部走代理）" value="global"></el-option>
                 <el-option label="分流模式（全部按规则匹配）" value="split"></el-option>
                 <el-option label="回国模式（大陆走代理，境外直连）" value="return"></el-option>
