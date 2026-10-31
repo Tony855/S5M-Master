@@ -1,6 +1,6 @@
 services:
   s5m-agent:
-    image: ghcr.io/tony855/s5m-agent:dev
+    image: ghcr.io/tony855/s5m-agent-smartdns:dev
     container_name: s5m-agent
     restart: unless-stopped
     environment:
