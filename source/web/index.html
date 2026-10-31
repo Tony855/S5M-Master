@@ -389,9 +389,10 @@
           <div class="card-title">Agent SmartDNS 配置与运行状态</div>
           <p class="import-note">SmartDNS 配置通过主控 WebSocket 下发到所选 Agent；监听地址由服务端校验并限制为容器回环地址。提交后显示“已排队”，请刷新状态确认 Agent 是否已应用，失败原因会显示在下方。</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
-            <el-tag :type="smartDNSStatus && smartDNSStatus.available ? 'success' : 'info'">程序：{{ smartDNSStatus ? (smartDNSStatus.available ? '可用' : '未上报/不可用') : '未知' }}</el-tag>
-            <el-tag :type="smartDNSStatus && smartDNSStatus.running ? 'success' : 'warning'">服务：{{ smartDNSStatus ? (smartDNSStatus.running ? '运行中' : '未运行') : '未知' }}</el-tag>
-            <el-tag :type="smartDNSStatus && smartDNSStatus.dns_healthy ? 'success' : 'warning'">DNS：{{ smartDNSStatus ? (smartDNSStatus.dns_healthy ? '健康' : '异常/未上报') : '未知' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.telemetry_received && smartDNSStatus.available ? 'success' : 'info'">程序：{{ smartDNSStatus && smartDNSStatus.telemetry_received ? (smartDNSStatus.available ? '已安装' : '未安装') : '未知/未上报' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.telemetry_received ? (smartDNSStatus.running ? 'success' : 'warning') : 'info'">服务：{{ smartDNSStatus && smartDNSStatus.telemetry_received ? (smartDNSStatus.running ? '运行中' : '已停止') : '未知' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.telemetry_received ? (smartDNSStatus.dns_healthy ? 'success' : 'danger') : 'info'">DNS：{{ smartDNSStatus && smartDNSStatus.telemetry_received ? (smartDNSStatus.dns_healthy ? 'UDP/TCP 正常' : '异常') : '未知' }}</el-tag>
+            <el-tag :type="smartDNSStatus && smartDNSStatus.online ? 'success' : 'warning'">Agent：{{ smartDNSStatus && smartDNSStatus.online ? '在线' : '离线' }}</el-tag>
             <span v-if="smartDNSStatus && smartDNSStatus.version" class="section-hint">版本 {{ smartDNSStatus.version }}</span>
             <el-button size="small" :disabled="!selectedConfigNode" :loading="loadingSmartDNS" @click="loadSmartDNSConfig">刷新 SmartDNS 状态/配置</el-button>
           </div>
