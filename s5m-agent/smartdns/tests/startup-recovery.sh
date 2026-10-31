@@ -16,10 +16,19 @@ cmp -s "$LIVE" "$PENDING"
 grep -qx 'known-good-config' "$LIVE"
 [ ! -e "$BACKUP" ]
 
-# A second startup before DNS becomes healthy must retry the same recovery.
+# If another update is interrupted before health verification, its newer backup
+# must supersede the older pending recovery copy.
+printf 'newer-known-good-config\n' > "$BACKUP"
 printf 'broken-after-restart\n' > "$LIVE"
 S5M_DATA_DIR="$TEST_DIR" SMARTDNS_CONFIG_PATH="$LIVE" "$SCRIPT"
-grep -qx 'known-good-config' "$LIVE"
+grep -qx 'newer-known-good-config' "$LIVE"
+grep -qx 'newer-known-good-config' "$PENDING"
+[ ! -e "$BACKUP" ]
+
+# A second startup before DNS becomes healthy must retry the latest recovery.
+printf 'broken-after-second-restart\n' > "$LIVE"
+S5M_DATA_DIR="$TEST_DIR" SMARTDNS_CONFIG_PATH="$LIVE" "$SCRIPT"
+grep -qx 'newer-known-good-config' "$LIVE"
 [ -f "$PENDING" ]
 
 # No pending backup means a normal startup must leave the current config alone.
