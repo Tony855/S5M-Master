@@ -116,6 +116,7 @@ jobs:
 
           # Exercise an actual SmartDNS process failure and restore the previous config.
           docker exec "$container" /app/smartdns/tests/rollback-integration.sh
+          docker exec "$container" /app/smartdns/tests/startup-recovery.sh
 
           # The private Mihomo controller API must remain unpublished.
           if docker port "$container" 8088/tcp 2>/dev/null | grep -q .; then
