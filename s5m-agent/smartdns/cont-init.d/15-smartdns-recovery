@@ -14,6 +14,8 @@ mkdir -p "$DATA_DIR"
 if [ -f "$BACKUP_CONFIG" ]; then
   # A newer interrupted transaction supersedes an older pending recovery copy.
   mv -f "$BACKUP_CONFIG" "$PENDING_CONFIG"
+  # Persist the recovery journal rename before replacing the live config.
+  sync
 fi
 
 if [ -f "$PENDING_CONFIG" ]; then
@@ -21,5 +23,7 @@ if [ -f "$PENDING_CONFIG" ]; then
   trap 'rm -f "$restore_tmp"' EXIT INT TERM
   install -m 0600 "$PENDING_CONFIG" "$restore_tmp"
   mv -f "$restore_tmp" "$LIVE_CONFIG"
+  # Persist the restored directory entry before SmartDNS starts.
+  sync
   trap - EXIT INT TERM
 fi
