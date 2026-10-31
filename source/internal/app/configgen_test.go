@@ -28,7 +28,7 @@ func TestNormalizeAgentMixedPort(t *testing.T) {
 				t.Fatalf("mixed-port = %#v, want 7890\n%s", config["mixed-port"], got)
 			}
 		})
-	} 
+	}
 }
 
 func TestNormalizeAgentPortsAndTUNSafety(t *testing.T) {
@@ -1076,4 +1076,3 @@ func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
 		}
 	}
 }
-
