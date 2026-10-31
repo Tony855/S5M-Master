@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"os"
 	"path/filepath"
 	"testing"
@@ -438,5 +439,43 @@ func TestBackupSmartDNSConfigConcurrentWritersLeaveCompleteBackup(t *testing.T) 
 	}
 	if len(entries) != 2 {
 		t.Fatalf("concurrent backup left temporary files: %#v", entries)
+	}
+}
+
+
+func TestWithSmartDNSConfigUpdateLockSerializesConcurrentTransactions(t *testing.T) {
+	const workers = 12
+	var countersMu sync.Mutex
+	active := 0
+	maxActive := 0
+	start := make(chan struct{})
+	done := make(chan struct{}, workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			<-start
+			withSmartDNSConfigUpdateLock(func() {
+				countersMu.Lock()
+				active++
+				if active > maxActive {
+					maxActive = active
+				}
+				countersMu.Unlock()
+
+				time.Sleep(2 * time.Millisecond)
+
+				countersMu.Lock()
+				active--
+				countersMu.Unlock()
+			})
+			done <- struct{}{}
+		}()
+	}
+	close(start)
+	for i := 0; i < workers; i++ {
+		<-done
+	}
+	if maxActive != 1 {
+		t.Fatalf("maximum concurrent SmartDNS config transactions = %d, want 1", maxActive)
 	}
 }
