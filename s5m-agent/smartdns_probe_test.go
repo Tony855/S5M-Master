@@ -146,6 +146,42 @@ func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
 	}
 }
 
+func TestBackupSmartDNSConfigPreservesLiveFileOnBackupFailure(t *testing.T) {
+	t.Run("existing live config remains unchanged", func(t *testing.T) {
+		root := t.TempDir()
+		livePath := filepath.Join(root, "smartdns.conf")
+		if err := os.WriteFile(livePath, []byte("old live config"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		blocker := filepath.Join(root, "not-a-directory")
+		if err := os.WriteFile(blocker, []byte("blocker"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		_, _, err := backupSmartDNSConfig(livePath, filepath.Join(blocker, "backup.conf"))
+		if err == nil {
+			t.Fatal("expected backup failure")
+		}
+		got, readErr := os.ReadFile(livePath)
+		if readErr != nil {
+			t.Fatalf("live config became unreadable: %v", readErr)
+		}
+		if string(got) != "old live config" {
+			t.Fatalf("live config changed after backup failure: %q", got)
+		}
+	})
+
+	t.Run("missing live config needs no backup", func(t *testing.T) {
+		livePath := filepath.Join(t.TempDir(), "missing.conf")
+		data, hadOld, err := backupSmartDNSConfig(livePath, livePath+".previous")
+		if err != nil {
+			t.Fatalf("backup missing config: %v", err)
+		}
+		if hadOld || data != nil {
+			t.Fatalf("expected no previous config, got hadOld=%v data=%q", hadOld, data)
+		}
+	})
+}
+
 func TestWriteSmartDNSFileAtomicallyFailureModes(t *testing.T) {
 	t.Run("backup directory unavailable", func(t *testing.T) {
 		root := t.TempDir()
