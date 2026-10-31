@@ -6,9 +6,9 @@ import (
 	"errors"
 	"io"
 	"net"
-	"sync"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -326,7 +326,6 @@ func TestRestartAndVerifySmartDNSRollbackReportsRestartFailure(t *testing.T) {
 		t.Fatal("DNS probe must not run when service restart fails")
 	}
 }
-
 
 func TestWriteSmartDNSFileAtomicallySetsPrivateModeAndCleansTemporaryFile(t *testing.T) {
 	dir := t.TempDir()
