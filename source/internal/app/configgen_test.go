@@ -228,8 +228,8 @@ func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testin
 			t.Errorf("Agent initial rule-mode config missing %q:\\n%s", want, agentYAML)
 		}
 	}
-	if strings.Contains(agentYAML, ",DIRECT") {
-		t.Fatalf("default rule mode must not contain direct routes:\\n%s", agentYAML)
+	if !strings.Contains(agentYAML, "DOMAIN-SUFFIX,v2net.cc,DIRECT") {
+		t.Fatalf("default rule mode must preserve the S5M controller domain direct exception:\\n%s", agentYAML)
 	}
 }
 
@@ -795,10 +795,18 @@ func TestBuildConfigRuleModeIsFailClosed(t *testing.T) {
 	if len(config.Rules) == 0 || config.Rules[len(config.Rules)-1] != "MATCH,rule-proxy" {
 		t.Fatalf("rule mode must end with proxy MATCH fallback, got %#v", config.Rules)
 	}
+	controllerBypassFound := false
 	for _, rule := range config.Rules {
-		if strings.HasSuffix(rule, ",DIRECT") || strings.Contains(rule, ",DIRECT,") {
-			t.Fatalf("rule mode must not generate DIRECT rules: %q", rule)
+		if rule == "DOMAIN-SUFFIX,v2net.cc,DIRECT" {
+			controllerBypassFound = true
+			continue
 		}
+		if strings.HasSuffix(rule, ",DIRECT") || strings.Contains(rule, ",DIRECT,") {
+			t.Fatalf("rule mode must not generate other DIRECT rules: %q", rule)
+		}
+	}
+	if !controllerBypassFound {
+		t.Fatalf("rule mode must preserve DOMAIN-SUFFIX,v2net.cc,DIRECT, got %#v", config.Rules)
 	}
 	withoutProxy, err := buildConfigFromProxiesWithMode(nil, "", "test-secret", "rule", "")
 	if err != nil {
@@ -806,6 +814,9 @@ func TestBuildConfigRuleModeIsFailClosed(t *testing.T) {
 	}
 	if !strings.Contains(withoutProxy, "MATCH,REJECT") || strings.Contains(withoutProxy, "MATCH,DIRECT") {
 		t.Fatalf("rule mode without an available proxy must fail closed with REJECT:\n%s", withoutProxy)
+	}
+	if !strings.Contains(withoutProxy, "DOMAIN-SUFFIX,v2net.cc,DIRECT") {
+		t.Fatalf("rule mode without a proxy must still preserve the controller domain bypass:\\n%s", withoutProxy)
 	}
 	if got := normalizeProxyRoutingMode(""); got != "rule" {
 		t.Fatalf("empty routing mode default = %q, want rule", got)
