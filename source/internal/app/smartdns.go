@@ -157,7 +157,6 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 	return nil
 }
 
-
 const smartDNSHeartbeatFreshness = 90 * time.Second
 
 // smartDNSStatusFromSettings never presents persisted telemetry as live after
