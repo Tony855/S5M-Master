@@ -7,16 +7,20 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 const smartDNSConfigPath = "/data/smartdns.conf"
+
+var smartDNSConfigMu sync.Mutex
 
 var smartDNSDirectiveAllowlist = map[string]bool{
 	"bind": true, "bind-tcp": true,
@@ -121,12 +125,14 @@ func collectSmartDNSStatus(status map[string]any) {
 		if probeSmartDNSDNS() {
 			status["smartdns_dns_healthy"] = true
 		} else if status["smartdns_last_error"] == "" {
-			status["smartdns_last_error"] = "SmartDNS DNS 查询探测失败"
+			status["smartdns_last_error"] = "SmartDNS UDP/TCP DNS 查询探测失败"
 		}
 	}
 }
 
 func writeSmartDNSConfig(data []byte) (string, error) {
+	smartDNSConfigMu.Lock()
+	defer smartDNSConfigMu.Unlock()
 	if err := validateSmartDNSConfig(data); err != nil {
 		return "", err
 	}
@@ -196,7 +202,9 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		return "", fmt.Errorf("读取旧 SmartDNS 配置失败: %w", oldErr)
 	}
 	if hadOldConfig {
-		if err := os.WriteFile(backupPath, oldData, 0600); err != nil {
+		// The rollback copy must be complete and durable before the live file is
+		// touched. A direct WriteFile could truncate the only backup on failure.
+		if err := writeSmartDNSFileAtomically(backupPath, oldData, 0600); err != nil {
 			return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", err)
 		}
 	}
@@ -224,6 +232,10 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	if err := os.Rename(liveTmpPath, livePath); err != nil {
 		return "", err
 	}
+	if err := syncSmartDNSDirectory(filepath.Dir(livePath)); err != nil {
+		_ = restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
+		return "", fmt.Errorf("提交 SmartDNS 配置目录失败: %w", err)
+	}
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
@@ -240,9 +252,12 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		newPID, pidErr := exec.Command("pidof", "smartdns").Output()
-		if pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 && !bytes.Equal(bytes.TrimSpace(newPID), oldPID) {
+		if pidErr == nil && len(bytes.TrimSpace(newPID)) > 0 && !bytes.Equal(bytes.TrimSpace(newPID), oldPID) && probeSmartDNSDNS() {
 			sum := sha256.Sum256(bytes.TrimSpace(data))
-			_ = os.Remove(backupPath)
+			if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+				return "", fmt.Errorf("SmartDNS 已启动且 DNS 正常，但清理旧配置备份失败: %w", err)
+			}
+			_ = syncSmartDNSDirectory(filepath.Dir(livePath))
 			return hex.EncodeToString(sum[:]), nil
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -252,9 +267,12 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		return "", fmt.Errorf("SmartDNS 重载后未恢复运行，且回滚失败: %w", restoreErr)
 	}
 	if restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); restartErr != nil {
-		return "", fmt.Errorf("SmartDNS 重载后未恢复运行；已恢复原配置，但再次启动服务失败: %w", restartErr)
+		return "", fmt.Errorf("SmartDNS 重载后 DNS 健康检查失败；已恢复原配置，但再次启动服务失败: %w", restartErr)
 	}
-	return "", fmt.Errorf("SmartDNS 重载后未恢复运行，已恢复原配置状态")
+	if !waitForSmartDNSHealthy(5 * time.Second) {
+		return "", fmt.Errorf("新配置 DNS 验证失败；已恢复旧配置，但旧配置 DNS 仍未通过 UDP/TCP 验证")
+	}
+	return "", fmt.Errorf("新配置 DNS 验证失败，已恢复旧配置且 UDP/TCP DNS 已恢复")
 }
 
 // restoreSmartDNSConfig restores the previous file atomically. If there was no
@@ -292,7 +310,30 @@ func writeSmartDNSFileAtomically(path string, data []byte, mode os.FileMode) err
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	return syncSmartDNSDirectory(filepath.Dir(path))
+}
+
+func syncSmartDNSDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+func waitForSmartDNSHealthy(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if exec.Command("pidof", "smartdns").Run() == nil && probeSmartDNSDNS() {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 func safeSmartDNSDiagnostic(message string) string {
@@ -304,7 +345,8 @@ func safeSmartDNSDiagnostic(message string) string {
 }
 
 func probeSmartDNSDNS() bool {
-	return probeSmartDNSDNSAt("127.0.0.1:6053")
+	return probeSmartDNSDNSAt("127.0.0.1:6053") &&
+		probeSmartDNSDNSTCPAt("127.0.0.1:6053")
 }
 
 func probeSmartDNSDNSAt(address string) bool {
@@ -340,4 +382,49 @@ func probeSmartDNSDNSAt(address string) bool {
 	// must not be reported as a successful resolver probe.
 	answerCount := binary.BigEndian.Uint16(response[6:8])
 	return flags&0x8000 != 0 && flags&0x000f == 0 && answerCount > 0
+}
+
+
+// probeSmartDNSDNSTCPAt verifies a complete DNS-over-TCP response, including
+// the two-byte message length and matching transaction ID.
+func probeSmartDNSDNSTCPAt(address string) bool {
+	conn, err := net.DialTimeout("tcp", address, 800*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(800 * time.Millisecond))
+	query := make([]byte, 12)
+	binary.BigEndian.PutUint16(query[0:2], 0x534d)
+	binary.BigEndian.PutUint16(query[2:4], 0x0100)
+	binary.BigEndian.PutUint16(query[4:6], 1)
+	for _, label := range []string{"example", "com"} {
+		query = append(query, byte(len(label)))
+		query = append(query, label...)
+	}
+	query = append(query, 0, 0, 1, 0, 1)
+	frame := make([]byte, 2+len(query))
+	binary.BigEndian.PutUint16(frame[:2], uint16(len(query)))
+	copy(frame[2:], query)
+	if _, err := conn.Write(frame); err != nil {
+		return false
+	}
+	var length [2]byte
+	if _, err := io.ReadFull(conn, length[:]); err != nil {
+		return false
+	}
+	n := int(binary.BigEndian.Uint16(length[:]))
+	if n < 12 || n > 4096 {
+		return false
+	}
+	response := make([]byte, n)
+	if _, err := io.ReadFull(conn, response); err != nil {
+		return false
+	}
+	if binary.BigEndian.Uint16(response[:2]) != 0x534d {
+		return false
+	}
+	flags := binary.BigEndian.Uint16(response[2:4])
+	return flags&0x8000 != 0 && flags&0x000f == 0 &&
+		binary.BigEndian.Uint16(response[6:8]) > 0
 }
