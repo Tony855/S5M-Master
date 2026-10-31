@@ -525,6 +525,10 @@ func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 		{name: "invalid hash", mutate: func(s map[string]any) { s["config_sha256"] = "abc" }, wantErr: true},
 		{name: "oversized error", mutate: func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }, wantErr: true},
 		{name: "missing field", mutate: func(s map[string]any) { delete(s, "connections") }, wantErr: true},
+		{name: "smartdns telemetry accepted", mutate: func(s map[string]any) { s["smartdns_available"] = true; s["smartdns_running"] = true; s["smartdns_dns_healthy"] = true; s["smartdns_version"] = "SmartDNS 48.4"; s["smartdns_config_sha256"] = strings.Repeat("b", 64); s["smartdns_last_error"] = "" }},
+		{name: "invalid smartdns boolean", mutate: func(s map[string]any) { s["smartdns_running"] = "true" }, wantErr: true},
+		{name: "invalid smartdns hash", mutate: func(s map[string]any) { s["smartdns_config_sha256"] = "bad" }, wantErr: true},
+		{name: "oversized smartdns error", mutate: func(s map[string]any) { s["smartdns_last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
