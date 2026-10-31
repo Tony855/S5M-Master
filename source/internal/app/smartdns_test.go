@@ -17,6 +17,9 @@ func TestValidateControllerSmartDNSConfig(t *testing.T) {
 	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig); err != nil {
 		t.Fatalf("default SmartDNS config rejected: %v", err)
 	}
+	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig + "\\nserver include.example"); err != nil {
+		t.Fatalf("safe upstream hostname containing the word include rejected: %v", err)
+	}
 	for _, config := range []string{
 		"",
 		"include /etc/passwd\n",
