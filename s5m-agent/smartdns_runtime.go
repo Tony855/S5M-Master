@@ -14,10 +14,21 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 const smartDNSConfigPath = "/data/smartdns.conf"
+
+// Serialize configuration updates so backup, replacement, restart, verification,
+// and backup cleanup form one transaction across concurrent API requests.
+var smartDNSConfigUpdateMu sync.Mutex
+
+func withSmartDNSConfigUpdateLock(fn func()) {
+	smartDNSConfigUpdateMu.Lock()
+	defer smartDNSConfigUpdateMu.Unlock()
+	fn()
+}
 
 var smartDNSDirectiveAllowlist = map[string]bool{
 	"bind": true, "bind-tcp": true,
@@ -128,6 +139,15 @@ func collectSmartDNSStatus(status map[string]any) {
 }
 
 func writeSmartDNSConfig(data []byte) (string, error) {
+	var configHash string
+	var updateErr error
+	withSmartDNSConfigUpdateLock(func() {
+		configHash, updateErr = writeSmartDNSConfigLocked(data)
+	})
+	return configHash, updateErr
+}
+
+func writeSmartDNSConfigLocked(data []byte) (string, error) {
 	if err := validateSmartDNSConfig(data); err != nil {
 		return "", err
 	}
