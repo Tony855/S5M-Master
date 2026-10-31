@@ -5,7 +5,7 @@ CONFIG_PATH="${SMARTDNS_CONFIG_PATH:-/data/smartdns.conf}"
 DEFAULT_CONFIG="${SMARTDNS_DEFAULT_CONFIG:-/etc/smartdns/smartdns.conf}"
 TEMP_CONFIG="${CONFIG_PATH}.new"
 
-mkdir -p /data
+mkdir -p "$(dirname "$CONFIG_PATH")"
 
 # Preserve any existing non-empty operator configuration exactly as-is.
 if [ -s "$CONFIG_PATH" ]; then
