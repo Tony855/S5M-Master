@@ -803,13 +803,22 @@ func expectedMihomoRules(config []byte) ([]mihomoRuntimeRule, error) {
 	return rules, nil
 }
 
+// normalizeMihomoRuleType canonicalizes rule type names returned by Mihomo.
+// Mihomo's YAML spelling (DOMAIN-SUFFIX) and API spelling (DomainSuffix)
+// describe the same rule. Ignore case and separators, but do not alter payloads.
+func normalizeMihomoRuleType(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+	return strings.ToLower(value)
+}
+
 func compareMihomoRuntimeRules(expected, actual []mihomoRuntimeRule) error {
 	if len(expected) != len(actual) {
 		return fmt.Errorf("Mihomo 生效规则数量不匹配: 期望 %d，实际 %d", len(expected), len(actual))
 	}
 	for i := range expected {
 		want, got := expected[i], actual[i]
-		if !strings.EqualFold(strings.TrimSpace(want.Type), strings.TrimSpace(got.Type)) ||
+		if normalizeMihomoRuleType(want.Type) != normalizeMihomoRuleType(got.Type) ||
 			strings.TrimSpace(want.Payload) != strings.TrimSpace(got.Payload) ||
 			strings.TrimSpace(want.Proxy) != strings.TrimSpace(got.Proxy) {
 			return fmt.Errorf("Mihomo 第 %d 条生效规则不匹配: 期望 %s,%s,%s；实际 %s,%s,%s",
