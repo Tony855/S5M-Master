@@ -1187,8 +1187,12 @@ func TestRollbackConfigAfterReloadFailure(t *testing.T) {
 		if err := os.WriteFile(previousPath, previous, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if err := rollbackConfigAfterReloadFailure(); err != nil {
-			t.Fatalf("rollbackConfigAfterReloadFailure() error = %v", err)
+		reloaded := false
+		if err := rollbackConfigAtPath(mainPath, func() error { reloaded = true; return nil }); err != nil {
+			t.Fatalf("rollbackConfigAtPath() error = %v", err)
+		}
+		if !reloaded {
+			t.Fatal("expected Mihomo reload callback after restoring config")
 		}
 		got, err := os.ReadFile(mainPath)
 		if err != nil {
@@ -1210,7 +1214,7 @@ func TestRollbackConfigAfterReloadFailure(t *testing.T) {
 		if err := os.WriteFile(mainPath, current, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if err := rollbackConfigAfterReloadFailure(); err == nil {
+		if err := rollbackConfigAtPath(mainPath, func() error { t.Fatal("reload must not run without a backup"); return nil }); err == nil {
 			t.Fatal("expected error when previous config backup is missing")
 		}
 		got, err := os.ReadFile(mainPath)
