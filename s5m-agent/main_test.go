@@ -444,7 +444,7 @@ func TestResolvedCentralRouteCIDRsRejectsInvalidURL(t *testing.T) {
 }
 
 func TestExpectedMihomoRules(t *testing.T) {
-	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - DOMAIN-SUFFIX,example.com,Proxy\n  - MATCH,Proxy\n")
+	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - DOMAIN-SUFFIX,example.com,Proxy\n  - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve\n  - MATCH,Proxy\n")
 	got, err := expectedMihomoRules(config)
 	if err != nil {
 		t.Fatalf("expectedMihomoRules() error = %v", err)
@@ -452,6 +452,7 @@ func TestExpectedMihomoRules(t *testing.T) {
 	want := []mihomoRuntimeRule{
 		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
 		{Type: "DOMAIN-SUFFIX", Payload: "example.com", Proxy: "Proxy"},
+		{Type: "IP-CIDR", Payload: "192.0.2.0/24", Proxy: "DIRECT"},
 		{Type: "MATCH", Payload: "", Proxy: "Proxy"},
 	}
 	if len(got) != len(want) {
