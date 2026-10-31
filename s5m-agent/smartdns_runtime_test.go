@@ -3,11 +3,108 @@ package main
 import (
 	"bytes"
 	"errors"
+	"encoding/binary"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func startSmartDNSProbeUDPServer(t *testing.T, rcode uint16, answers uint16) string {
+	t.Helper()
+	conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	go func() {
+		buf := make([]byte, 2048)
+		n, addr, err := conn.ReadFrom(buf)
+		if err != nil {
+			return
+		}
+		response := smartDNSProbeTestResponse(buf[:n], rcode, answers)
+		_, _ = conn.WriteTo(response, addr)
+	}()
+	return conn.LocalAddr().String()
+}
+
+func startSmartDNSProbeTCPServer(t *testing.T, rcode uint16, answers uint16) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		var header [2]byte
+		if _, err := io.ReadFull(conn, header[:]); err != nil {
+			return
+		}
+		length := int(binary.BigEndian.Uint16(header[:]))
+		query := make([]byte, length)
+		if _, err := io.ReadFull(conn, query); err != nil {
+			return
+		}
+		response := smartDNSProbeTestResponse(query, rcode, answers)
+		binary.BigEndian.PutUint16(header[:], uint16(len(response)))
+		_, _ = conn.Write(header[:])
+		_, _ = conn.Write(response)
+	}()
+	return listener.Addr().String()
+}
+
+func smartDNSProbeTestResponse(query []byte, rcode, answers uint16) []byte {
+	if len(query) < 12 {
+		return nil
+	}
+	response := append([]byte(nil), query...)
+	binary.BigEndian.PutUint16(response[2:4], 0x8180|rcode)
+	binary.BigEndian.PutUint16(response[6:8], answers)
+	if answers > 0 {
+		response = append(response, 0xc0, 0x0c, 0, 1, 0, 1)
+		response = append(response, 0, 0, 0, 60, 0, 4, 1, 2, 3, 4)
+	}
+	return response
+}
+
+func TestSmartDNSDNSProbeRequiresValidUDPAndTCPAnswers(t *testing.T) {
+	udpAddress := startSmartDNSProbeUDPServer(t, 0, 1)
+	tcpAddress := startSmartDNSProbeTCPServer(t, 0, 1)
+	if !probeSmartDNSDNSNetworkAt("udp", udpAddress) {
+		t.Fatal("valid UDP DNS answer should pass the probe")
+	}
+	if !probeSmartDNSDNSNetworkAt("tcp", tcpAddress) {
+		t.Fatal("valid TCP DNS answer should pass the probe")
+	}
+}
+
+func TestSmartDNSDNSProbeRejectsFailureResponses(t *testing.T) {
+	tests := []struct {
+		name    string
+		rcode   uint16
+		answers uint16
+	}{
+		{name: "SERVFAIL", rcode: 2, answers: 1},
+		{name: "NXDOMAIN", rcode: 3, answers: 1},
+		{name: "empty NOERROR", rcode: 0, answers: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			address := startSmartDNSProbeUDPServer(t, tc.rcode, tc.answers)
+			if probeSmartDNSDNSNetworkAt("udp", address) {
+				t.Fatalf("DNS probe unexpectedly accepted %s", tc.name)
+			}
+		})
+	}
+}
 
 func TestBackupSmartDNSConfigMissingLiveFileIsSupported(t *testing.T) {
 	dir := t.TempDir()
