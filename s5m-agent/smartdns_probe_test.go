@@ -191,3 +191,48 @@ func TestRestoreSmartDNSConfigWhenPreviousConfigDoesNotExist(t *testing.T) {
 		t.Fatalf("new config should be removed on rollback, stat err=%v", err)
 	}
 }
+
+
+func TestProbeSmartDNSDNSTCPAtRejectsMismatchedTransactionID(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer conn.Close()
+		var size [2]byte
+		if _, err = io.ReadFull(conn, size[:]); err != nil {
+			done <- err
+			return
+		}
+		query := make([]byte, int(binary.BigEndian.Uint16(size[:])))
+		if _, err = io.ReadFull(conn, query); err != nil {
+			done <- err
+			return
+		}
+		binary.BigEndian.PutUint16(query[:2], 0xffff)
+		binary.BigEndian.PutUint16(query[2:4], 0x8180)
+		binary.BigEndian.PutUint16(query[6:8], 1)
+		query = append(query, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, 1, 2, 3, 4)
+		binary.BigEndian.PutUint16(size[:], uint16(len(query)))
+		if _, err = conn.Write(size[:]); err == nil {
+			_, err = conn.Write(query)
+		}
+		done <- err
+	}()
+
+	if probeSmartDNSDNSTCPAt(listener.Addr().String()) {
+		t.Fatal("probe accepted a response with a mismatched transaction ID")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
