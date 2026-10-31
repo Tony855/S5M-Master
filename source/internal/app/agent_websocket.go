@@ -400,10 +400,7 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			if config == "" {
 				config = defaultAgentSmartDNSConfig
 			}
-			status := map[string]any{}
-			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" {
-				_ = json.Unmarshal([]byte(raw), &status)
-			}
+			status := smartDNSStatusFromSettings(settings, code)
 			commandResult := map[string]any{}
 			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" {
 				_ = json.Unmarshal([]byte(raw), &commandResult)
@@ -419,7 +416,10 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				"version":                status["smartdns_version"],
 				"last_error":             status["smartdns_last_error"],
 				"command_result":         commandResult,
-				"last_seen":              settings["agent_lastseen_"+code],
+				"last_seen":              status["last_seen"],
+				"online":                 status["online"],
+				"telemetry_received":     status["telemetry_received"],
+				"status_age_seconds":     status["status_age_seconds"],
 			})
 		case "agent.smartdns.configure":
 			if err := a.queueAgentSmartDNSConfig(message.MachineCode, message.Config); err != nil {
