@@ -1306,7 +1306,7 @@ func TestHandleUpdateSettingsRegeneratesAuthorizedNodeConfigsForRoutingMode(t *t
 
 	const machineCode = "node_mode_sync"
 	if err := store.UpdateSettings(map[string]string{
-		"agent_token": "global-secret",
+		"agent_token":                  "global-secret",
 		"agent_machine_" + machineCode: "dedicated-secret",
 	}); err != nil {
 		t.Fatalf("seed Agent authorization: %v", err)
