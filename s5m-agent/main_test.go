@@ -471,6 +471,39 @@ func TestExpectedMihomoRules(t *testing.T) {
 	}
 }
 
+func TestNormalizeMihomoRuleType(t *testing.T) {
+	cases := map[string]string{
+		"DOMAIN-SUFFIX": "domainsuffix",
+		"DomainSuffix": "domainsuffix",
+		"IP-CIDR": "ipcidr",
+		"IpCidr": "ipcidr",
+		"DOMAIN_KEYWORD": "domainkeyword",
+		"DomainKeyword": "domainkeyword",
+		" MATCH ": "match",
+	}
+	for input, want := range cases {
+		if got := normalizeMihomoRuleType(input); got != want {
+			t.Errorf("normalizeMihomoRuleType(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestCompareMihomoRuntimeRulesAcceptsMihomoAPITypeNames(t *testing.T) {
+	expected := []mihomoRuntimeRule{
+		{Type: "DOMAIN-SUFFIX", Payload: "v2net.cc", Proxy: "DIRECT"},
+		{Type: "IP-CIDR", Payload: "192.0.2.1/32", Proxy: "DIRECT"},
+		{Type: "MATCH", Proxy: "Proxy"},
+	}
+	actual := []mihomoRuntimeRule{
+		{Type: "DomainSuffix", Payload: "v2net.cc", Proxy: "DIRECT"},
+		{Type: "IpCidr", Payload: "192.0.2.1/32", Proxy: "DIRECT"},
+		{Type: "Match", Proxy: "Proxy"},
+	}
+	if err := compareMihomoRuntimeRules(expected, actual); err != nil {
+		t.Fatalf("equivalent Mihomo API rule names rejected: %v", err)
+	}
+}
+
 func TestCompareMihomoRuntimeRules(t *testing.T) {
 	expected := []mihomoRuntimeRule{
 		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
