@@ -217,6 +217,11 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Keep the legacy public setting key for compatibility, but also persist the
+	// canonical global routing-mode key consumed by node config generation.
+	if mode, ok := in["proxy_routing_mode"]; ok {
+		in[proxyRoutingModeSettingKey("__GLOBAL__")] = strings.TrimSpace(mode)
+	}
 	if err := a.store.UpdateSettings(in); err != nil {
 		writeErr(w, http.StatusInternalServerError, "设置保存失败")
 		return
