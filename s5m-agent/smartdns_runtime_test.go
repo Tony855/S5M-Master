@@ -325,3 +325,118 @@ func TestRestartAndVerifySmartDNSRollbackReportsRestartFailure(t *testing.T) {
 		t.Fatal("DNS probe must not run when service restart fails")
 	}
 }
+
+
+func TestWriteSmartDNSFileAtomicallySetsPrivateModeAndCleansTemporaryFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	want := []byte("private-config\n")
+
+	if err := writeSmartDNSFileAtomically(path, want, 0600); err != nil {
+		t.Fatalf("writeSmartDNSFileAtomically() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("written config = %q, want %q", got, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("config permissions = %04o, want 0600", info.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "smartdns.conf" {
+		t.Fatalf("temporary files were not cleaned after atomic write: %#v", entries)
+	}
+}
+
+func TestBackupSmartDNSConfigReplacesStaleBackupWithLatestLiveBytes(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "smartdns.conf")
+	backup := live + ".previous"
+	old := []byte("old-config\n")
+	newConfig := []byte("new-config\n")
+	if err := os.WriteFile(live, old, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("stale-backup\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, hadOld, err := backupSmartDNSConfig(live, backup)
+	if err != nil {
+		t.Fatalf("first backup error = %v", err)
+	}
+	if !hadOld || !bytes.Equal(got, old) {
+		t.Fatalf("first backup returned data=%q hadOld=%v", got, hadOld)
+	}
+	backupBytes, err := os.ReadFile(backup)
+	if err != nil || !bytes.Equal(backupBytes, old) {
+		t.Fatalf("backup bytes = %q, err=%v; want latest old config %q", backupBytes, err, old)
+	}
+
+	if err := os.WriteFile(live, newConfig, 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, hadOld, err = backupSmartDNSConfig(live, backup)
+	if err != nil {
+		t.Fatalf("second backup error = %v", err)
+	}
+	if !hadOld || !bytes.Equal(got, newConfig) {
+		t.Fatalf("second backup returned data=%q hadOld=%v", got, hadOld)
+	}
+	backupBytes, err = os.ReadFile(backup)
+	if err != nil || !bytes.Equal(backupBytes, newConfig) {
+		t.Fatalf("second backup bytes = %q, err=%v; want %q", backupBytes, err, newConfig)
+	}
+}
+
+func TestBackupSmartDNSConfigConcurrentWritersLeaveCompleteBackup(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "smartdns.conf")
+	backup := live + ".previous"
+	want := []byte("complete-config-with-no-partial-write\n")
+	if err := os.WriteFile(live, want, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	const writers = 8
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		go func() {
+			_, hadOld, err := backupSmartDNSConfig(live, backup)
+			if err == nil && !hadOld {
+				err = errors.New("existing live config was not recognized")
+			}
+			errs <- err
+		}()
+	}
+	for i := 0; i < writers; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent backup failed: %v", err)
+		}
+	}
+
+	got, err := os.ReadFile(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("concurrent backup contains partial or unexpected data: %q", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("concurrent backup left temporary files: %#v", entries)
+	}
+}
