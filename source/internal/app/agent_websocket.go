@@ -923,9 +923,9 @@ func (a *App) sendAgentWSConfig(conn *websocket.Conn, machineCode, requestID, cl
 	}
 	sum := sha256.Sum256([]byte(yml))
 	hash := hex.EncodeToString(sum[:])
-	if err := a.store.UpdateSettings(map[string]string{"agent_lastseen_" + machineCode: strconv.FormatInt(time.Now().Unix(), 10)}); err != nil {
-		return err
-	}
+	// A config request proves only that the Agent can reach this WebSocket.
+	// It is not a heartbeat and must never refresh agent_lastseen_; liveness is
+	// updated exclusively after an authenticated heartbeat is validated and persisted.
 	if clientHash == hash {
 		if err := writeAgentWSJSON(conn, machineCode, map[string]any{"type": "config.unchanged", "id": requestID, "sha256": hash}); err != nil {
 			return fmt.Errorf("发送配置未变更确认失败: %w", err)
