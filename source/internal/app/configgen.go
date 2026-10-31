@@ -827,8 +827,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			rules = append(rules, "MATCH,DIRECT")
 		}
 	case "split":
-		// Split mode is rule-driven: do not force mainland IP ranges to DIRECT.
-		// Unmatched traffic follows the configured default proxy rule below.
+		// Split mode sends mainland destinations direct and all other traffic
+		// through the selected proxy. Return mode intentionally does the inverse.
+		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
 		} else {

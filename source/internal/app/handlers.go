@@ -221,7 +221,13 @@ func (a *App) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "设置保存失败")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "设置已保存"})
+	if _, modeChanged := in["proxy_routing_mode"]; modeChanged {
+		if err := a.syncAuthorizedNodeConfigs(); err != nil {
+			writeErr(w, http.StatusInternalServerError, "运行模式已保存，但节点配置重新生成失败: "+err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "设置已保存；运行模式变更已同步到授权节点配置"})
 }
 
 func (a *App) handleListInstances(w http.ResponseWriter, r *http.Request) {

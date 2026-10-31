@@ -443,6 +443,187 @@ func TestResolvedCentralRouteCIDRsRejectsInvalidURL(t *testing.T) {
 	}
 }
 
+func TestExpectedMihomoRules(t *testing.T) {
+	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - DOMAIN-SUFFIX,example.com,Proxy\n  - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve\n  - MATCH,Proxy\n")
+	got, err := expectedMihomoRules(config)
+	if err != nil {
+		t.Fatalf("expectedMihomoRules() error = %v", err)
+	}
+	want := []mihomoRuntimeRule{
+		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
+		{Type: "DOMAIN-SUFFIX", Payload: "example.com", Proxy: "Proxy"},
+		{Type: "IP-CIDR", Payload: "192.0.2.0/24", Proxy: "DIRECT"},
+		{Type: "MATCH", Payload: "", Proxy: "Proxy"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rules = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rule[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+	if _, err := expectedMihomoRules([]byte("rules: []\n")); err == nil {
+		t.Fatal("expected empty rules to be rejected")
+	}
+	if _, err := expectedMihomoRules([]byte("rules:\n  - invalid\n")); err == nil {
+		t.Fatal("expected malformed rule to be rejected")
+	}
+}
+
+func TestCompareMihomoRuntimeRules(t *testing.T) {
+	expected := []mihomoRuntimeRule{
+		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
+		{Type: "MATCH", Proxy: "Proxy"},
+	}
+	if err := compareMihomoRuntimeRules(expected, expected); err != nil {
+		t.Fatalf("matching rules rejected: %v", err)
+	}
+	if err := compareMihomoRuntimeRules(expected, expected[:1]); err == nil {
+		t.Fatal("expected rule count mismatch")
+	}
+	reordered := []mihomoRuntimeRule{expected[1], expected[0]}
+	if err := compareMihomoRuntimeRules(expected, reordered); err == nil {
+		t.Fatal("expected rule order mismatch")
+	}
+	wrongTarget := []mihomoRuntimeRule{expected[0], {Type: "MATCH", Proxy: "DIRECT"}}
+	if err := compareMihomoRuntimeRules(expected, wrongTarget); err == nil {
+		t.Fatal("expected target proxy mismatch")
+	}
+}
+
+func TestRollbackConfigFromPaths(t *testing.T) {
+	t.Run("restores previous config", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		current := []byte("rules:\\n  - MATCH,NewProxy\\n")
+		previous := []byte("rules:\\n  - MATCH,OldProxy\\n")
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".previous", previous, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigFromPaths(path); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(previous) {
+			t.Fatalf("restored config = %q, want %q", got, previous)
+		}
+	})
+	t.Run("missing backup preserves current config", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		current := []byte("rules:\\n  - MATCH,Current\\n")
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigFromPaths(path); err == nil {
+			t.Fatal("expected missing backup error")
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(current) {
+			t.Fatalf("current config changed: %q", got)
+		}
+	})
+	t.Run("empty backup preserves current config", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		current := []byte("rules:\\n  - MATCH,Current\\n")
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".previous", nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigFromPaths(path); err == nil {
+			t.Fatal("expected empty backup error")
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(current) {
+			t.Fatalf("current config changed: %q", got)
+		}
+	})
+}
+
+func TestPersistControllerConfigAfterReload(t *testing.T) {
+	config := []byte("candidate-config")
+	t.Run("reload failure does not persist hash", func(t *testing.T) {
+		persistCalled := false
+		wantErr := errors.New("runtime rules mismatch")
+		err := persistControllerConfigAfterReload(config, func() error { return wantErr }, func([]byte) error {
+			persistCalled = true
+			return nil
+		})
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("error = %v, want %v", err, wantErr)
+		}
+		if persistCalled {
+			t.Fatal("controller config hash persisted after failed runtime verification")
+		}
+	})
+	t.Run("successful reload persists exact config", func(t *testing.T) {
+		var persisted []byte
+		err := persistControllerConfigAfterReload(config, func() error { return nil }, func(got []byte) error {
+			persisted = append([]byte(nil), got...)
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("persist: %v", err)
+		}
+		if string(persisted) != string(config) {
+			t.Fatalf("persisted = %q, want %q", persisted, config)
+		}
+	})
+}
+
+func TestVerifyMihomoRuntimeRules(t *testing.T) {
+	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - MATCH,Proxy\n")
+	tests := []struct {
+		name     string
+		status   int
+		body     string
+		wantErr  bool
+		wantAuth bool
+	}{
+		{name: "exact active rules", status: http.StatusOK, body: `{"rules":[{"type":"GEOIP","payload":"CN","proxy":"DIRECT"},{"type":"MATCH","payload":"","proxy":"Proxy"}]}`},
+		{name: "wrong order", status: http.StatusOK, body: `{"rules":[{"type":"MATCH","payload":"","proxy":"Proxy"},{"type":"GEOIP","payload":"CN","proxy":"DIRECT"}]}`, wantErr: true},
+		{name: "wrong target", status: http.StatusOK, body: `{"rules":[{"type":"GEOIP","payload":"CN","proxy":"DIRECT"},{"type":"MATCH","payload":"","proxy":"DIRECT"}]}`, wantErr: true},
+		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"message":"Unauthorized"}`, wantErr: true, wantAuth: true},
+		{name: "malformed response", status: http.StatusOK, body: `not-json`, wantErr: true},
+		{name: "missing rules", status: http.StatusOK, body: `{}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/rules" || r.Method != http.MethodGet {
+					t.Errorf("request = %s %s, want GET /rules", r.Method, r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer test-secret" {
+					t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+				}
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer server.Close()
+			err := verifyMihomoRuntimeRules(server.Client(), server.URL, "test-secret", config)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("verifyMihomoRuntimeRules() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestMihomoSecretCandidates(t *testing.T) {
 	dir := t.TempDir()
 	configPath := dir + "/config.yaml"
