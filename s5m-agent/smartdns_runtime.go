@@ -24,6 +24,25 @@ const smartDNSConfigPath = "/data/smartdns.conf"
 // and backup cleanup form one transaction across concurrent API requests.
 var smartDNSConfigUpdateMu sync.Mutex
 
+var smartDNSConfigErrorMu sync.RWMutex
+var smartDNSLastConfigError string
+
+func setSmartDNSLastConfigError(err error) {
+	smartDNSConfigErrorMu.Lock()
+	defer smartDNSConfigErrorMu.Unlock()
+	if err == nil {
+		smartDNSLastConfigError = ""
+		return
+	}
+	smartDNSLastConfigError = safeSmartDNSDiagnostic(err.Error())
+}
+
+func getSmartDNSLastConfigError() string {
+	smartDNSConfigErrorMu.RLock()
+	defer smartDNSConfigErrorMu.RUnlock()
+	return smartDNSLastConfigError
+}
+
 func withSmartDNSConfigUpdateLock(fn func()) {
 	smartDNSConfigUpdateMu.Lock()
 	defer smartDNSConfigUpdateMu.Unlock()
@@ -107,7 +126,7 @@ func collectSmartDNSStatus(status map[string]any) {
 	status["smartdns_dns_healthy"] = false
 	status["smartdns_version"] = ""
 	status["smartdns_config_sha256"] = ""
-	status["smartdns_last_error"] = ""
+	status["smartdns_last_error"] = getSmartDNSLastConfigError()
 	if !smartDNSBinaryAvailable() {
 		return
 	}
@@ -144,6 +163,7 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	withSmartDNSConfigUpdateLock(func() {
 		configHash, updateErr = writeSmartDNSConfigLocked(data)
 	})
+	setSmartDNSLastConfigError(updateErr)
 	return configHash, updateErr
 }
 
