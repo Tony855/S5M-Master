@@ -2,7 +2,10 @@ package main
 
 import (
 	"encoding/binary"
+	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -65,4 +68,47 @@ func TestProbeSmartDNSDNSAtRequiresSuccessfulAnswer(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+func TestProbeSmartDNSDNSTCPAt(t *testing.T) {
+	for _, answerCount := range []uint16{0, 1} {
+		t.Run(map[bool]string{true: "answer", false: "empty"}[answerCount > 0], func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil { t.Fatal(err) }
+			defer listener.Close()
+			done := make(chan error, 1)
+			go func() {
+				conn, err := listener.Accept()
+				if err != nil { done <- err; return }
+				defer conn.Close()
+				var size [2]byte
+				if _, err = io.ReadFull(conn, size[:]); err != nil { done <- err; return }
+				query := make([]byte, int(binary.BigEndian.Uint16(size[:])))
+				if _, err = io.ReadFull(conn, query); err != nil { done <- err; return }
+				binary.BigEndian.PutUint16(query[2:4], 0x8180)
+				binary.BigEndian.PutUint16(query[6:8], answerCount)
+				if answerCount > 0 {
+					query = append(query, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, 1, 2, 3, 4)
+				}
+				binary.BigEndian.PutUint16(size[:], uint16(len(query)))
+				if _, err = conn.Write(size[:]); err == nil { _, err = conn.Write(query) }
+				done <- err
+			}()
+			got := probeSmartDNSDNSTCPAt(listener.Addr().String())
+			if got != (answerCount > 0) { t.Fatalf("probe = %v, want %v", got, answerCount > 0) }
+			if err := <-done; err != nil { t.Fatal(err) }
+		})
+	}
+}
+
+func TestRestoreSmartDNSConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	if err := os.WriteFile(path, []byte("new"), 0600); err != nil { t.Fatal(err) }
+	if err := restoreSmartDNSConfig(path, []byte("old"), true); err != nil { t.Fatal(err) }
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "old" { t.Fatalf("restored config = %q, err=%v", got, err) }
+	if err := restoreSmartDNSConfig(path, nil, false); err != nil { t.Fatal(err) }
+	if _, err := os.Stat(path); !os.IsNotExist(err) { t.Fatalf("expected removed config, stat err=%v", err) }
 }
