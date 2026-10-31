@@ -395,7 +395,14 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取 Mihomo 设置失败: %w", err)
 	}
-	mode := routingModeForMachine(proxies, machineCode)
+	mode := strings.TrimSpace(settings[proxyRoutingModeSettingKey(machineCode)])
+	if mode == "" && strings.TrimSpace(machineCode) != "" {
+		mode = strings.TrimSpace(settings[proxyRoutingModeSettingKey("__GLOBAL__")])
+	}
+	if mode == "" {
+		mode = routingModeForMachine(proxies, machineCode)
+	}
+	mode = normalizeProxyRoutingMode(mode)
 	controllerHost := controllerHostFromSettings(settings)
 	yml, err := buildConfigFromProxiesWithMode(proxies, machineCode, secret, mode, controllerHost)
 	if err != nil {
@@ -515,6 +522,14 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 		return fmt.Errorf("批量保存节点配置失败: %w", err)
 	}
 	return nil
+}
+
+func proxyRoutingModeSettingKey(machineCode string) string {
+	machineCode = strings.TrimSpace(machineCode)
+	if machineCode == "" {
+		machineCode = "__GLOBAL__"
+	}
+	return "proxy_routing_mode_" + machineCode
 }
 
 func normalizeProxyRoutingMode(raw string) string {
