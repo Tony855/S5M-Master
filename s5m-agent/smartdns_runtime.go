@@ -426,7 +426,9 @@ func probeSmartDNSDNSTCPAt(address string) bool {
 	if _, err := io.ReadFull(conn, response); err != nil {
 		return false
 	}
-	if binary.BigEndian.Uint16(response[:2]) != 0x534d {
+	// Reject responses that do not belong to this query. A stray or
+	// spoofed TCP DNS frame must not make the resolver look healthy.
+	if binary.BigEndian.Uint16(response[:2]) != binary.BigEndian.Uint16(query[:2]) {
 		return false
 	}
 	flags := binary.BigEndian.Uint16(response[2:4])
