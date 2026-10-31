@@ -252,6 +252,15 @@ func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
 // a successful restart, and a working DNS answer on both UDP and TCP.
 func restartAndVerifySmartDNSRollback(livePath string, oldData []byte, hadOld bool,
 	restart func() error, probe func() bool) error {
+	return restartAndVerifySmartDNSRollbackWithTimeout(livePath, oldData, hadOld,
+		restart, probe, 8*time.Second, 250*time.Millisecond)
+}
+
+// The service manager may return before SmartDNS has rebound its UDP and TCP
+// sockets. Poll the resolver instead of treating the first failed probe as a
+// failed rollback (or, worse, reporting recovery before it is actually ready).
+func restartAndVerifySmartDNSRollbackWithTimeout(livePath string, oldData []byte, hadOld bool,
+	restart func() error, probe func() bool, timeout, interval time.Duration) error {
 	if err := restoreSmartDNSConfig(livePath, oldData, hadOld); err != nil {
 		return fmt.Errorf("恢复旧配置文件失败: %w", err)
 	}
@@ -267,10 +276,34 @@ func restartAndVerifySmartDNSRollback(livePath string, oldData []byte, hadOld bo
 			return fmt.Errorf("回滚后的配置内容与旧配置不一致")
 		}
 	}
-	if !probe() {
-		return fmt.Errorf("回滚后的 SmartDNS 未通过 UDP/TCP DNS 查询验证")
+	if !waitForSmartDNSDNS(probe, timeout, interval) {
+		return fmt.Errorf("回滚后的 SmartDNS 未在 %s 内通过 UDP/TCP DNS 查询验证", timeout)
 	}
 	return nil
+}
+
+func waitForSmartDNSDNS(probe func() bool, timeout, interval time.Duration) bool {
+	if probe == nil || timeout <= 0 {
+		return false
+	}
+	if interval <= 0 {
+		interval = 50 * time.Millisecond
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		if probe() {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		remaining := time.Until(deadline)
+		if interval > remaining {
+			time.Sleep(remaining)
+		} else {
+			time.Sleep(interval)
+		}
+	}
 }
 
 // restoreSmartDNSConfig restores the previous file atomically. If there was no
