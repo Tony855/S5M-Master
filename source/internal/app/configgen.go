@@ -395,7 +395,14 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取 Mihomo 设置失败: %w", err)
 	}
-	mode := routingModeForMachine(proxies, machineCode)
+	mode := strings.TrimSpace(settings[proxyRoutingModeSettingKey(machineCode)])
+	if mode == "" && strings.TrimSpace(machineCode) != "" {
+		mode = strings.TrimSpace(settings[proxyRoutingModeSettingKey("__GLOBAL__")])
+	}
+	if mode == "" {
+		mode = routingModeForMachine(proxies, machineCode)
+	}
+	mode = normalizeProxyRoutingMode(mode)
 	controllerHost := controllerHostFromSettings(settings)
 	yml, err := buildConfigFromProxiesWithMode(proxies, machineCode, secret, mode, controllerHost)
 	if err != nil {
@@ -517,6 +524,14 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 	return nil
 }
 
+func proxyRoutingModeSettingKey(machineCode string) string {
+	machineCode = strings.TrimSpace(machineCode)
+	if machineCode == "" {
+		machineCode = "__GLOBAL__"
+	}
+	return "proxy_routing_mode_" + machineCode
+}
+
 func normalizeProxyRoutingMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "global", "split", "return", "game", "legacy":
@@ -526,7 +541,7 @@ func normalizeProxyRoutingMode(raw string) string {
 	case "china":
 		return "split"
 	default:
-		return "return"
+		return "split"
 	}
 }
 
@@ -551,7 +566,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			return "split"
 		}
 	}
-	return "return"
+	return "split"
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
@@ -812,8 +827,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			rules = append(rules, "MATCH,DIRECT")
 		}
 	case "split":
-		// Split mode is rule-driven: do not force mainland IP ranges to DIRECT.
-		// Unmatched traffic follows the configured default proxy rule below.
+		// Split mode sends mainland destinations direct and all other traffic
+		// through the selected proxy. Return mode intentionally does the inverse.
+		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
 		} else {

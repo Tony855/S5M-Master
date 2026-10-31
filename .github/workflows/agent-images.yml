@@ -553,10 +553,10 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          # Prefer a dedicated PAT when the existing GHCR package is not granted
-          # access to this repository's GITHUB_TOKEN. Configure both secrets together.
-          username: ${{ secrets.GHCR_USERNAME || github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+          # Publish with the repository-scoped token so GHCR links the package
+          # to this repository. The Dockerfiles carry the matching OCI source label.
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push tested multi-architecture Agent image
         uses: docker/build-push-action@v7
         with:
@@ -599,20 +599,45 @@ jobs:
           print("Verified GHCR platforms: " + ", ".join(sorted(required)))
           PY
 
-          expected_digest="$(docker buildx imagetools inspect "${sha_tag}" | awk '/^Digest:/ {print $2; exit}')"
+          # Compare the raw manifest bytes instead of parsing human-readable
+          # Buildx output through a pipe. The latter can return exit 255 on a
+          # transient registry response even after the manifest was readable.
+          expected_manifest="$(mktemp)"
+          actual_manifest="$(mktemp)"
+          trap 'rm -f "${expected_manifest}" "${actual_manifest}"' EXIT
+
+          inspect_with_retry() {
+            local image_ref="$1"
+            local output_file="$2"
+            local attempt
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect "${image_ref}" --raw > "${output_file}"; then
+                return 0
+              fi
+              echo "Manifest inspection attempt ${attempt}/3 failed for ${image_ref}; retrying." >&2
+              sleep "${attempt}"
+            done
+            echo "::error title=Manifest inspection failed::Could not inspect ${image_ref} after 3 attempts."
+            return 1
+          }
+
+          inspect_with_retry "${sha_tag}" "${expected_manifest}"
+          expected_digest="$(sha256sum "${expected_manifest}" | awk '{print $1}')"
           [[ -n "${expected_digest}" ]] || {
-            echo "::error title=Image digest unavailable::Could not read digest for ${sha_tag}."
+            echo "::error title=Image digest unavailable::Could not hash manifest for ${sha_tag}."
             exit 1
           }
+
           while IFS= read -r image_tag; do
             [[ -n "${image_tag}" ]] || continue
-            actual_digest="$(docker buildx imagetools inspect "${image_tag}" | awk '/^Digest:/ {print $2; exit}')"
+            inspect_with_retry "${image_tag}" "${actual_manifest}"
+            actual_digest="$(sha256sum "${actual_manifest}" | awk '{print $1}')"
             [[ -n "${actual_digest}" && "${actual_digest}" == "${expected_digest}" ]] || {
-              echo "::error title=Image tag digest mismatch::${image_tag} does not resolve to the commit image digest."
+              echo "::error title=Image tag digest mismatch::${image_tag} does not resolve to the commit image manifest."
               exit 1
             }
           done <<< "${IMAGE_TAGS}"
-          echo "Verified every published tag resolves to ${expected_digest}."
+          echo "Verified every published tag resolves to manifest sha256:${expected_digest}."
   publish-github-release:
     name: Publish stable GitHub Release
     # Run the decision step after successful builds even for PR/dev runs, so
