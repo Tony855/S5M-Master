@@ -191,6 +191,43 @@ func TestRestoreSmartDNSConfigReportsDirectorySyncFailureAfterRestore(t *testing
 	}
 }
 
+func TestRestoreSmartDNSConfigVerifiedContinuesAfterDirectorySyncFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	if err := os.WriteFile(path, []byte("new config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	originalSync := smartDNSDirectorySync
+	smartDNSDirectorySync = func(string) error { return os.ErrInvalid }
+	defer func() { smartDNSDirectorySync = originalSync }()
+
+	restored, err := restoreSmartDNSConfigVerified(path, []byte("old config"), true)
+	if !restored {
+		t.Fatalf("expected restored content to be recoverable, err=%v", err)
+	}
+	if err == nil {
+		t.Fatal("expected directory sync warning to be preserved")
+	}
+	if !smartDNSConfigMatches(path, []byte("old config"), true) {
+		t.Fatal("old config content was not restored")
+	}
+}
+
+func TestRestoreSmartDNSConfigVerifiedRejectsUnrestoredContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := restoreSmartDNSConfigVerified(path, []byte("old config"), true)
+	if restored {
+		t.Fatal("directory target must not be considered restored")
+	}
+	if err == nil {
+		t.Fatal("expected restore error")
+	}
+}
+
 func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
 	config := []byte("bind 127.0.0.1:6053\nbind-tcp 127.0.0.1:6053\nserver include.example\n")
 	if err := validateSmartDNSConfig(config); err != nil {
