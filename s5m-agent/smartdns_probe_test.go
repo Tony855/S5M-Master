@@ -192,7 +192,6 @@ func TestRestoreSmartDNSConfigWhenPreviousConfigDoesNotExist(t *testing.T) {
 	}
 }
 
-
 func TestProbeSmartDNSDNSTCPAtRejectsMismatchedTransactionID(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
