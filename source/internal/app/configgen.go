@@ -541,7 +541,7 @@ func normalizeProxyRoutingMode(raw string) string {
 	case "china":
 		return "split"
 	default:
-		return "return"
+		return "split"
 	}
 }
 
@@ -566,7 +566,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			return "split"
 		}
 	}
-	return "return"
+	return "split"
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
