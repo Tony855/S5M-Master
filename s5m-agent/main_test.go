@@ -519,11 +519,16 @@ func TestRollbackConfigFromPaths(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		current := []byte("rules:\\n  - MATCH,Current\\n")
-		if err := os.WriteFile(path, current, 0600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err := rollbackConfigFromPaths(path); err == nil {
 			t.Fatal("expected missing backup error")
 		}
-		got, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
 		if string(got) != string(current) {
 			t.Fatalf("current config changed: %q", got)
 		}
@@ -532,15 +537,22 @@ func TestRollbackConfigFromPaths(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		current := []byte("rules:\\n  - MATCH,Current\\n")
-		if err := os.WriteFile(path, current, 0600); err != nil { t.Fatal(err) }
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(path+".previous", nil, 0600); err != nil {
 			t.Fatal(err)
 		}
 		if err := rollbackConfigFromPaths(path); err == nil {
 			t.Fatal("expected empty backup error")
 		}
-		got, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
-		if string(got) != string(current) { t.Fatalf("current config changed: %q", got) }
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(current) {
+			t.Fatalf("current config changed: %q", got)
+		}
 	})
 }
 
