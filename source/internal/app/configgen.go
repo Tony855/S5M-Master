@@ -741,10 +741,10 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
-	rules := []string{}
-	if routingMode != "rule" {
-		rules = append(rules, "DOMAIN-SUFFIX,v2net.cc,DIRECT")
-	}
+	// The S5M control-plane domain is an explicit management-channel exception
+	// in every routing mode, including rule mode. Without this, Agents may route
+	// their own control connection through the proxy (or reject it before binding).
+	rules := []string{"DOMAIN-SUFFIX,v2net.cc,DIRECT"}
 	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
 	if controllerHost != "" {
 		if ip := net.ParseIP(controllerHost); ip != nil {
