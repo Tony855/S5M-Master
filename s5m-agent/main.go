@@ -750,6 +750,99 @@ func rollbackConfigAfterReloadFailure() error {
 	return atomicWriteFile(mainPath, oldData, 0600)
 }
 
+type mihomoRuntimeRule struct {
+	Type    string `json:"type"`
+	Payload string `json:"payload"`
+	Proxy   string `json:"proxy"`
+}
+
+func expectedMihomoRules(config []byte) ([]mihomoRuntimeRule, error) {
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal(config, &parsed); err != nil {
+		return nil, fmt.Errorf("解析待验证 Mihomo 配置失败: %w", err)
+	}
+	raw, ok := parsed["rules"].([]interface{})
+	if !ok || len(raw) == 0 {
+		return nil, fmt.Errorf("待验证 Mihomo 配置缺少非空 rules")
+	}
+	rules := make([]mihomoRuntimeRule, 0, len(raw))
+	for i, item := range raw {
+		line, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("待验证规则第 %d 项不是字符串", i)
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("待验证规则第 %d 项格式无效", i)
+		}
+		rule := mihomoRuntimeRule{
+			Type: strings.TrimSpace(parts[0]),
+			Proxy: strings.TrimSpace(parts[len(parts)-1]),
+		}
+		rule.Payload = strings.TrimSpace(strings.Join(parts[1:len(parts)-1], ","))
+		if rule.Type == "" || rule.Proxy == "" {
+			return nil, fmt.Errorf("待验证规则第 %d 项缺少类型或目标策略", i)
+		}
+		rules = append(rules, rule)
+	}
+	return rules, nil
+}
+
+func compareMihomoRuntimeRules(expected, actual []mihomoRuntimeRule) error {
+	if len(expected) != len(actual) {
+		return fmt.Errorf("Mihomo 生效规则数量不匹配: 期望 %d，实际 %d", len(expected), len(actual))
+	}
+	for i := range expected {
+		want, got := expected[i], actual[i]
+		if !strings.EqualFold(strings.TrimSpace(want.Type), strings.TrimSpace(got.Type)) ||
+			strings.TrimSpace(want.Payload) != strings.TrimSpace(got.Payload) ||
+			strings.TrimSpace(want.Proxy) != strings.TrimSpace(got.Proxy) {
+			return fmt.Errorf("Mihomo 第 %d 条生效规则不匹配: 期望 %s,%s,%s；实际 %s,%s,%s",
+				i, want.Type, want.Payload, want.Proxy, got.Type, got.Payload, got.Proxy)
+		}
+	}
+	return nil
+}
+
+func verifyMihomoRuntimeRules(client *http.Client, controllerURL, secret string, config []byte) error {
+	expected, err := expectedMihomoRules(config)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimRight(controllerURL, "/")+"/rules", nil)
+	if err != nil {
+		return fmt.Errorf("创建 Mihomo 规则读取请求失败: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+secret)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("读取 Mihomo 当前生效规则失败: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		return fmt.Errorf("读取 Mihomo 规则响应失败: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("读取 Mihomo 生效规则返回 HTTP %d", resp.StatusCode)
+	}
+	var payload struct {
+		Rules []mihomoRuntimeRule `json:"rules"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("解析 Mihomo 生效规则响应失败: %w", err)
+	}
+	if payload.Rules == nil {
+		return fmt.Errorf("Mihomo 生效规则响应缺少 rules 数组")
+	}
+	return compareMihomoRuntimeRules(expected, payload.Rules)
+}
+
+func mustReadMihomoConfig(path string) []byte {
+	data, _ := os.ReadFile(path)
+	return data
+}
+
 // mihomoSecretCandidates returns unique secrets in previous-then-current order.
 // During a config transition, the running core may still accept the old secret,
 // or it may already have applied the new one despite a lost/ambiguous response.
@@ -815,6 +908,9 @@ func reloadMihomo() error {
 		_ = reloadResp.Body.Close()
 
 		if statusCode == http.StatusOK || statusCode == http.StatusNoContent {
+			if err := verifyMihomoRuntimeRules(client, "http://127.0.0.1:8088", secret, mustReadMihomoConfig(configPath)); err != nil {
+				return fmt.Errorf("Mihomo 已接受重载请求，但运行规则回读校验失败: %w", err)
+			}
 			return nil
 		}
 		if statusCode == http.StatusUnauthorized {
