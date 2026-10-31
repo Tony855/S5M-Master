@@ -744,7 +744,7 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 		want []string
 	}{
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
-		{mode: "split", want: []string{"MATCH,proxy-a"}},
+		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
 		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
 		{mode: "game", want: []string{"DOMAIN-SUFFIX,steampowered.com,game-a", "MATCH,DIRECT"}},
 	}
@@ -759,8 +759,8 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 					t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got)
 				}
 			}
-			if tt.mode == "split" && strings.Contains(got, "GEOIP,CN,DIRECT") {
-				t.Errorf("split mode must not force mainland destinations direct:\\n%s", got)
+			if tt.mode == "return" && strings.Contains(got, "GEOIP,CN,DIRECT") {
+				t.Errorf("return mode must send mainland destinations through proxy, not DIRECT:\\n%s", got)
 			}
 		})
 	}
@@ -1059,7 +1059,7 @@ func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildConfigForMachine(node-a): %v", err)
 	}
-	if !strings.Contains(nodeYAML, "MATCH,node-a-proxy-1") || strings.Contains(nodeYAML, "GEOIP,CN,node-a-proxy-1") {
+	if !strings.Contains(nodeYAML, "GEOIP,CN,DIRECT") || !strings.Contains(nodeYAML, "MATCH,node-a-proxy-1") || strings.Contains(nodeYAML, "GEOIP,CN,node-a-proxy-1") {
 		t.Fatalf("node-specific split mode was not applied consistently:\n%s", nodeYAML)
 	}
 	if !strings.Contains(nodeYAML, "global-proxy") {
