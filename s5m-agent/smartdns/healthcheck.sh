@@ -11,3 +11,6 @@ udp_answer="$(dig +time=2 +tries=1 +short @127.0.0.1 -p 6053 example.com A)"
 [ -n "$udp_answer" ]
 tcp_answer="$(dig +tcp +time=2 +tries=1 +short @127.0.0.1 -p 6053 example.com A)"
 [ -n "$tcp_answer" ]
+
+# Clear the crash-recovery marker only after both DNS transports answer.
+rm -f /data/smartdns.conf.recovery-pending
