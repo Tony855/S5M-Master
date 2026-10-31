@@ -495,11 +495,11 @@ func TestCompareMihomoRuntimeRules(t *testing.T) {
 func TestVerifyMihomoRuntimeRules(t *testing.T) {
 	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - MATCH,Proxy\n")
 	tests := []struct {
-		name       string
-		status     int
-		body       string
-		wantErr    bool
-		wantAuth   bool
+		name     string
+		status   int
+		body     string
+		wantErr  bool
+		wantAuth bool
 	}{
 		{name: "exact active rules", status: http.StatusOK, body: `{"rules":[{"type":"GEOIP","payload":"CN","proxy":"DIRECT"},{"type":"MATCH","payload":"","proxy":"Proxy"}]}`},
 		{name: "wrong order", status: http.StatusOK, body: `{"rules":[{"type":"MATCH","payload":"","proxy":"Proxy"},{"type":"GEOIP","payload":"CN","proxy":"DIRECT"}]}`, wantErr: true},
