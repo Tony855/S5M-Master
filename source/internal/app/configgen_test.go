@@ -28,7 +28,7 @@ func TestNormalizeAgentMixedPort(t *testing.T) {
 				t.Fatalf("mixed-port = %#v, want 7890\n%s", config["mixed-port"], got)
 			}
 		})
-	}
+	} 
 }
 
 func TestNormalizeAgentPortsAndTUNSafety(t *testing.T) {
@@ -1038,8 +1038,8 @@ func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
 	defer store.db.Close()
 
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_node-a": "token-a",
-		"proxy_routing_mode_node-a": "split",
+		"agent_machine_node-a":          "token-a",
+		"proxy_routing_mode_node-a":     "split",
 		"proxy_routing_mode___GLOBAL__": "game",
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
