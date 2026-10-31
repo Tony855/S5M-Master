@@ -133,6 +133,62 @@ if ! apt-get install -y -qq "${apt_packages[@]}" > /dev/null; then
   exit 1
 fi
 
+# 同步独立的 S5M Agent + SmartDNS 源码仓库
+# 固定安装目录：/root/S5M-SmartDNS；跟踪仓库 main 最新提交。
+SMARTDNS_REPO="https://github.com/Tony855/S5M-Agent-SmartDNS.git"
+SMARTDNS_BRANCH="main"
+SMARTDNS_DIR="/root/S5M-SmartDNS"
+
+sync_smartdns_source() {
+  echo "⬇️ 正在同步 S5M Agent + SmartDNS 最新源码..."
+  if [[ ! -e "$SMARTDNS_DIR" ]]; then
+    if ! git clone --depth 1 --single-branch --branch "$SMARTDNS_BRANCH" "$SMARTDNS_REPO" "$SMARTDNS_DIR"; then
+      echo "❌ 克隆 S5M Agent + SmartDNS 仓库失败。" >&2
+      return 1
+    fi
+  else
+    if [[ ! -d "$SMARTDNS_DIR/.git" ]]; then
+      echo "❌ $SMARTDNS_DIR 已存在但不是 Git 仓库；为避免覆盖目录内容，停止同步。" >&2
+      return 1
+    fi
+    local current_origin
+    current_origin="$(git -C "$SMARTDNS_DIR" remote get-url origin 2>/dev/null || true)"
+    case "$current_origin" in
+      "$SMARTDNS_REPO"|"https://github.com/Tony855/S5M-Agent-SmartDNS")
+        ;;
+      *)
+        echo "❌ $SMARTDNS_DIR 的 origin 不匹配：$current_origin" >&2
+        echo "   期望：$SMARTDNS_REPO；为避免覆盖其他项目，停止同步。" >&2
+        return 1
+        ;;
+    esac
+    if ! git -C "$SMARTDNS_DIR" fetch --prune origin "$SMARTDNS_BRANCH"; then
+      echo "❌ 获取 S5M Agent + SmartDNS 最新代码失败。" >&2
+      return 1
+    fi
+    if ! git -C "$SMARTDNS_DIR" checkout -B "$SMARTDNS_BRANCH" "origin/$SMARTDNS_BRANCH"; then
+      echo "❌ 切换 S5M Agent + SmartDNS 分支失败。" >&2
+      return 1
+    fi
+    # 按既定同步策略以远程 main 为准；清理未跟踪文件，但保留 .gitignore 忽略的本地数据。
+    if ! git -C "$SMARTDNS_DIR" reset --hard "origin/$SMARTDNS_BRANCH" ||
+       ! git -C "$SMARTDNS_DIR" clean -fd; then
+      echo "❌ 强制同步 S5M Agent + SmartDNS 源码失败。" >&2
+      return 1
+    fi
+  fi
+
+  local synced_commit
+  synced_commit="$(git -C "$SMARTDNS_DIR" rev-parse --short HEAD)"
+  [[ -s "$SMARTDNS_DIR/s5m-agent/go.mod" && -s "$SMARTDNS_DIR/scripts/s5m-deploy.sh" ]] || {
+    echo "❌ S5M Agent + SmartDNS 仓库关键文件缺失，目录可能不完整。" >&2
+    return 1
+  }
+  echo "✅ S5M Agent + SmartDNS 源码已更新：$SMARTDNS_DIR（main@$synced_commit）"
+}
+
+sync_smartdns_source
+
 # 判断 S5M 后端监听端口
 PORT_TO_USE=""
 if [[ -n "$S5M_DOMAIN" ]]; then
