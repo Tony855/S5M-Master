@@ -236,8 +236,27 @@ func writeSmartDNSConfigLocked(data []byte) (string, error) {
 		// A live PID is not proof that the new resolver config works. Require
 		// successful UDP and TCP DNS answers before reporting the command as applied.
 		if processRestarted && probeSmartDNSDNS() {
+			// The backup is the crash-recovery journal. Never report success while
+			// leaving it behind: the next container start would restore stale config.
+			if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+				cleanupErr := fmt.Errorf("清理 SmartDNS 回滚备份失败: %w", err)
+				if rollbackErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
+					func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
+					probeSmartDNSDNS); rollbackErr != nil {
+					return "", fmt.Errorf("%v；恢复旧配置失败: %w", cleanupErr, rollbackErr)
+				}
+				return "", cleanupErr
+			}
+			if err := syncSmartDNSDirectory(filepath.Dir(backupPath)); err != nil {
+				syncErr := fmt.Errorf("同步 SmartDNS 备份目录失败: %w", err)
+				if rollbackErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
+					func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
+					probeSmartDNSDNS); rollbackErr != nil {
+					return "", fmt.Errorf("%v；恢复旧配置失败: %w", syncErr, rollbackErr)
+				}
+				return "", syncErr
+			}
 			sum := sha256.Sum256(bytes.TrimSpace(data))
-			_ = os.Remove(backupPath)
 			return hex.EncodeToString(sum[:]), nil
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -334,7 +353,7 @@ func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
 		if err := os.Remove(livePath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return nil
+		return syncSmartDNSDirectory(filepath.Dir(livePath))
 	}
 	return writeSmartDNSFileAtomically(livePath, oldData, 0600)
 }
@@ -361,7 +380,20 @@ func writeSmartDNSFileAtomically(path string, data []byte, mode os.FileMode) err
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	// fsync the parent directory so the rename itself survives a power loss.
+	return syncSmartDNSDirectory(filepath.Dir(path))
+}
+
+func syncSmartDNSDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func safeSmartDNSDiagnostic(message string) string {
