@@ -326,6 +326,23 @@ createApp({
               down: Math.max(0, Number(status.download_speed) || 0),
               conns: Math.max(0, Number(status.connections) || 0)
             };
+            // Keep the SmartDNS panel live from the same authenticated Agent
+            // heartbeat; do not require a manual reload after Agent reconnects.
+            if (String(selectedConfigNode.value || '').trim() === code &&
+                typeof status.smartdns_available === 'boolean') {
+              smartDNSStatus.value = {
+                ...(smartDNSStatus.value || {}),
+                machine_code: code,
+                available: status.smartdns_available,
+                running: status.smartdns_running === true,
+                dns_healthy: status.smartdns_dns_healthy === true,
+                version: String(status.smartdns_version || ''),
+                reported_config_sha256: String(status.smartdns_config_sha256 || ''),
+                last_error: String(status.smartdns_last_error || ''),
+                last_seen: receivedAt,
+                telemetry_received: true
+              };
+            }
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
               const previous = agentEntries.value[index];
