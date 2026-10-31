@@ -172,7 +172,7 @@ func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigCo
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-	if err := validateControllerSmartDNSConfig(defaultAgentSmartDNSConfig + "\nserver include.example"); err != nil {
+			config := defaultAgentSmartDNSConfig + fmt.Sprintf("\n# contender %d\n", i)
 			<-start
 			results <- a.queueAgentSmartDNSConfig(code, config)
 		}(i)
