@@ -246,16 +246,22 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
-		restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-		restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
-		if restoreErr != nil {
+		restored, restoreErr := restoreSmartDNSConfigVerified(livePath, oldData, hadOldConfig)
+		if !restored {
 			return "", fmt.Errorf("重启 SmartDNS 失败且恢复旧配置失败: %w", restoreErr)
 		}
+		restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
 		if restartErr != nil {
-			return "", fmt.Errorf("重启 SmartDNS 失败；已恢复原配置，但再次启动服务失败: %w", restartErr)
+			return "", fmt.Errorf("重启 SmartDNS 失败；旧配置文件已恢复，但再次启动服务失败: %w", restartErr)
 		}
 		if !waitForSmartDNSHealthy(5 * time.Second) {
+			if restoreErr != nil {
+				return "", fmt.Errorf("重启新配置失败；旧配置内容已恢复（目录同步警告: %v），但旧服务未通过 UDP/TCP DNS 验证", restoreErr)
+			}
 			return "", fmt.Errorf("重启新配置失败；旧配置文件已恢复，但旧服务仍未通过 UDP/TCP DNS 验证")
+		}
+		if restoreErr != nil {
+			return "", fmt.Errorf("重启新配置失败；旧配置已恢复且 UDP/TCP DNS 验证通过，但目录同步失败: %w", restoreErr)
 		}
 		return "", fmt.Errorf("重启新配置失败，已恢复旧配置且 UDP/TCP DNS 验证通过")
 	}
@@ -275,15 +281,21 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-	if restoreErr != nil {
+	restored, restoreErr := restoreSmartDNSConfigVerified(livePath, oldData, hadOldConfig)
+	if !restored {
 		return "", fmt.Errorf("SmartDNS 重载后未恢复运行，且回滚失败: %w", restoreErr)
 	}
 	if restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); restartErr != nil {
-		return "", fmt.Errorf("SmartDNS 重载后 DNS 健康检查失败；已恢复原配置，但再次启动服务失败: %w", restartErr)
+		return "", fmt.Errorf("SmartDNS 重载后 DNS 健康检查失败；旧配置内容已恢复，但再次启动服务失败: %w", restartErr)
 	}
 	if !waitForSmartDNSHealthy(5 * time.Second) {
+		if restoreErr != nil {
+			return "", fmt.Errorf("新配置 DNS 验证失败；旧配置内容已恢复（目录同步警告: %v），但旧服务未通过 UDP/TCP 验证", restoreErr)
+		}
 		return "", fmt.Errorf("新配置 DNS 验证失败；已恢复旧配置，但旧配置 DNS 仍未通过 UDP/TCP 验证")
+	}
+	if restoreErr != nil {
+		return "", fmt.Errorf("新配置 DNS 验证失败；旧配置已恢复且 UDP/TCP DNS 已恢复，但目录同步失败: %w", restoreErr)
 	}
 	return "", fmt.Errorf("新配置 DNS 验证失败，已恢复旧配置且 UDP/TCP DNS 已恢复")
 }
@@ -313,6 +325,21 @@ func smartDNSConfigMatches(path string, expected []byte, shouldExist bool) bool 
 		return os.IsNotExist(err)
 	}
 	return err == nil && bytes.Equal(actual, expected)
+}
+
+// restoreSmartDNSConfigVerified distinguishes a failed rollback from a
+// directory-fsync error that happened after the rename already restored the
+// expected bytes. Callers must still report the durability warning, but should
+// restart and health-check the restored service whenever the file is correct.
+func restoreSmartDNSConfigVerified(livePath string, oldData []byte, hadOld bool) (bool, error) {
+	err := restoreSmartDNSConfig(livePath, oldData, hadOld)
+	if err == nil {
+		return true, nil
+	}
+	if smartDNSConfigMatches(livePath, oldData, hadOld) {
+		return true, err
+	}
+	return false, err
 }
 
 func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
