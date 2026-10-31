@@ -52,13 +52,13 @@ func TestBackupSmartDNSConfigFailsClosedWhenBackupCannotBeWritten(t *testing.T) 
 
 func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T) {
 	dir := t.TempDir()
-	live := filepath.Join(dir, "smartdns.conf")
+	live := filepath.Join(dir, "existing.conf")
 	old := []byte("old-config\n")
 	if err := os.WriteFile(live, old, 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	target := filepath.Join(dir, "smartdns.conf")
+	target := filepath.Join(dir, "blocked.conf")
 	if err := os.Mkdir(target, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +80,11 @@ func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T)
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if len(entries) != 2 {
+	if len(entries) != 3 {
 		t.Fatalf("unexpected leftover files after failed atomic replacement: %#v", entries)
 	}
 	for _, entry := range entries {
-		if entry.Name() != "smartdns.conf" && !strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
+		if entry.Name() != "existing.conf" && entry.Name() != "blocked.conf" && !strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
 			t.Fatalf("unexpected file after failed atomic replacement: %s", entry.Name())
 		}
 	}
