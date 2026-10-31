@@ -22,6 +22,9 @@ const smartDNSConfigPath = "/data/smartdns.conf"
 
 var smartDNSConfigMu sync.Mutex
 
+// Indirect directory sync so failure handling can be exercised deterministically.
+var smartDNSDirectorySync = syncSmartDNSDirectory
+
 var smartDNSDirectiveAllowlist = map[string]bool{
 	"bind": true, "bind-tcp": true,
 	"server": true, "server-tcp": true, "server-tls": true,
@@ -224,9 +227,21 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	if err := os.Rename(liveTmpPath, livePath); err != nil {
 		return "", err
 	}
-	if err := syncSmartDNSDirectory(filepath.Dir(livePath)); err != nil {
-		_ = restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-		return "", fmt.Errorf("提交 SmartDNS 配置目录失败: %w", err)
+	if err := smartDNSDirectorySync(filepath.Dir(livePath)); err != nil {
+		restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
+		// A directory fsync can fail after rename has already taken effect.
+		// Verify the actual file contents before deciding whether recovery is
+		// possible; then restart and probe the restored service.
+		if restoreErr != nil && !smartDNSConfigMatches(livePath, oldData, hadOldConfig) {
+			return "", fmt.Errorf("提交配置目录失败，且旧配置恢复失败: %v (原始错误: %w)", restoreErr, err)
+		}
+		if restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); restartErr != nil {
+			return "", fmt.Errorf("提交配置目录失败；配置已恢复，但重启旧服务失败: %w", restartErr)
+		}
+		if !waitForSmartDNSHealthy(5 * time.Second) {
+			return "", fmt.Errorf("提交配置目录失败；旧配置已恢复，但 UDP/TCP DNS 未恢复: %w", err)
+		}
+		return "", fmt.Errorf("提交配置目录失败，已恢复旧配置且 UDP/TCP DNS 验证通过: %w", err)
 	}
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
@@ -254,7 +269,7 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 				// for manual recovery and do not report an applied config as failed.
 				fmt.Printf("SmartDNS: 无法清理旧配置备份: %v\n", err)
 			} else {
-				_ = syncSmartDNSDirectory(filepath.Dir(livePath))
+				_ = smartDNSDirectorySync(filepath.Dir(livePath))
 			}
 			return hex.EncodeToString(sum[:]), nil
 		}
@@ -292,12 +307,20 @@ func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
 	return oldData, true, nil
 }
 
+func smartDNSConfigMatches(path string, expected []byte, shouldExist bool) bool {
+	actual, err := os.ReadFile(path)
+	if !shouldExist {
+		return os.IsNotExist(err)
+	}
+	return err == nil && bytes.Equal(actual, expected)
+}
+
 func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
 	if !hadOld {
 		if err := os.Remove(livePath); err != nil && !os.IsNotExist(err) {
 			return err
 		}
-		return syncSmartDNSDirectory(filepath.Dir(livePath))
+		return smartDNSDirectorySync(filepath.Dir(livePath))
 	}
 	return writeSmartDNSFileAtomically(livePath, oldData, 0600)
 }
