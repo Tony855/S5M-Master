@@ -775,11 +775,20 @@ func expectedMihomoRules(config []byte) ([]mihomoRuntimeRule, error) {
 		if len(parts) < 2 {
 			return nil, fmt.Errorf("待验证规则第 %d 项格式无效", i)
 		}
+		// Mihomo accepts no-resolve as a trailing IP-CIDR option after
+		// the policy target. It is not the target proxy itself.
+		end := len(parts)
+		if end > 2 && strings.EqualFold(strings.TrimSpace(parts[end-1]), "no-resolve") {
+			end--
+		}
+		if end < 2 {
+			return nil, fmt.Errorf("待验证规则第 %d 项缺少目标策略", i)
+		}
 		rule := mihomoRuntimeRule{
 			Type: strings.TrimSpace(parts[0]),
-			Proxy: strings.TrimSpace(parts[len(parts)-1]),
+			Proxy: strings.TrimSpace(parts[end-1]),
+			Payload: strings.TrimSpace(strings.Join(parts[1:end-1], ",")),
 		}
-		rule.Payload = strings.TrimSpace(strings.Join(parts[1:len(parts)-1], ","))
 		if rule.Type == "" || rule.Proxy == "" {
 			return nil, fmt.Errorf("待验证规则第 %d 项缺少类型或目标策略", i)
 		}
