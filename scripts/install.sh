@@ -351,7 +351,7 @@ ensure_mihomo
 # 创建 s5m-server 系统用户和私有目录
 if ! getent passwd s5m-server >/dev/null; then useradd --system --home-dir "$DB_DIR" --shell /usr/sbin/nologin s5m-server; fi
 install -d -o s5m-server -g s5m-server -m 0750 "$DB_DIR" "$DB_DIR/backups"
-install -d -m 0755 /opt/S5M-Server /opt/S5M-Server/source
+install -d -m 0755 /opt/S5M-Server
 chown -R s5m-server:s5m-server "$DB_DIR"
 chmod -R go-rwx "$DB_DIR"
 
@@ -585,32 +585,34 @@ RestrictSUIDSGID=true
 WantedBy=multi-user.target
 MIHOMO_SERVICE_EOF
 
-# 拷贝源码到安装目录
-rm -rf /opt/S5M-Server/source
-install -d -m 0755 /opt/S5M-Server/source
-cp -a "$SRC/." /opt/S5M-Server/source/
-
-# 拉依赖 + 编译
-cd /opt/S5M-Server/source
+# 直接从仓库源码目录构建，不把源码、测试、依赖清单或前端文件复制到运行目录。
+# main.go 使用 go:embed 将 web 静态资源编入单一二进制，运行时不需要 web/ 目录。
+BUILD_TMP="$(mktemp -d /tmp/s5m-server-build.XXXXXX)"
+cd "$SRC"
 if ! go mod download; then
-  echo "❌ go mod download 失败（旧版本未受影响），备份在 $BACKUP" >&2
+  rm -rf "$BUILD_TMP"
+  echo "❌ go mod download 失败（旧二进制未替换），备份在 $BACKUP" >&2
   exit 1
 fi
 # [修复 P0-3] 真正支持 SKIP_TEST=1 跳过测试
 if [[ "${SKIP_TEST:-0}" != "1" ]]; then
   if ! go test ./...; then
+    rm -rf "$BUILD_TMP"
     echo "❌ go test 失败（旧二进制未替换，服务仍在运行），备份在 $BACKUP" >&2
     echo "   如需跳过测试重新安装，可使用：SKIP_TEST=1 sudo -E bash scripts/install.sh" >&2
     exit 1
   fi
 fi
 # [修复 P1-5] 编译失败给出明确提示
-if ! go build -trimpath -ldflags='-s -w' -o /opt/S5M-Server/S5M-Server.new .; then
-  echo "❌ go build 失败（旧版本未受影响，服务仍在运行），备份在 $BACKUP" >&2
+if ! go build -trimpath -ldflags='-s -w' -o "$BUILD_TMP/S5M-Server.new" .; then
+  rm -rf "$BUILD_TMP"
+  echo "❌ go build 失败（旧版本未替换，备份在 $BACKUP" >&2
   exit 1
 fi
-install -o root -g root -m 0755 /opt/S5M-Server/S5M-Server.new "$BIN"
-rm -f /opt/S5M-Server/S5M-Server.new
+install -o root -g root -m 0755 "$BUILD_TMP/S5M-Server.new" "$BIN"
+rm -rf "$BUILD_TMP"
+# 清理旧安装器曾复制到运行目录的源码副本；运行时不依赖该目录。
+rm -rf /opt/S5M-Server/source
 setcap cap_net_bind_service=+ep "$BIN" || true
 
 # 写入 s5m-server.service
