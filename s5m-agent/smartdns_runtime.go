@@ -191,52 +191,26 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 
 	livePath := smartDNSConfigPath
 	backupPath := livePath + ".previous"
-	oldData, oldErr := os.ReadFile(livePath)
-	hadOldConfig := oldErr == nil
-	if oldErr != nil && !os.IsNotExist(oldErr) {
-		return "", fmt.Errorf("读取旧 SmartDNS 配置失败: %w", oldErr)
+	oldData, hadOldConfig, backupErr := backupSmartDNSConfig(livePath, backupPath)
+	if backupErr != nil {
+		return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", backupErr)
 	}
-	if hadOldConfig {
-		if err := os.WriteFile(backupPath, oldData, 0600); err != nil {
-			return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", err)
-		}
-	}
-	liveTmp, err := os.CreateTemp(filepath.Dir(livePath), ".smartdns-live-*.conf")
-	if err != nil {
-		return "", err
-	}
-	liveTmpPath := liveTmp.Name()
-	defer os.Remove(liveTmpPath)
-	if err := liveTmp.Chmod(0600); err != nil {
-		_ = liveTmp.Close()
-		return "", err
-	}
-	if _, err := liveTmp.Write(data); err != nil {
-		_ = liveTmp.Close()
-		return "", err
-	}
-	if err := liveTmp.Sync(); err != nil {
-		_ = liveTmp.Close()
-		return "", err
-	}
-	if err := liveTmp.Close(); err != nil {
-		return "", err
-	}
-	if err := os.Rename(liveTmpPath, livePath); err != nil {
-		return "", err
+	if err := writeSmartDNSFileAtomically(livePath, data, 0600); err != nil {
+		return "", fmt.Errorf("原子替换 SmartDNS 配置失败: %w", err)
 	}
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
 		restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-		restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run()
 		if restoreErr != nil {
 			return "", fmt.Errorf("重启 SmartDNS 失败且恢复旧配置失败: %w", restoreErr)
 		}
-		if restartErr != nil {
-			return "", fmt.Errorf("重启 SmartDNS 失败；已恢复原配置，但再次启动服务失败: %w", restartErr)
+		if verifyErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
+			func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
+			probeSmartDNSDNS); verifyErr != nil {
+			return "", fmt.Errorf("重启 SmartDNS 失败；旧配置回滚验证失败: %w", verifyErr)
 		}
-		return "", fmt.Errorf("重启 SmartDNS 失败，已恢复原配置状态")
+		return "", fmt.Errorf("重启 SmartDNS 失败，旧配置已恢复且 UDP/TCP DNS 验证通过")
 	}
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
@@ -256,10 +230,55 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	if restoreErr != nil {
 		return "", fmt.Errorf("SmartDNS 重载后未恢复运行，且回滚失败: %w", restoreErr)
 	}
-	if restartErr := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); restartErr != nil {
-		return "", fmt.Errorf("SmartDNS 重载后未恢复运行；已恢复原配置，但再次启动服务失败: %w", restartErr)
+	if verifyErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
+		func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
+		probeSmartDNSDNS); verifyErr != nil {
+		return "", fmt.Errorf("SmartDNS 重载后未恢复运行；旧配置回滚验证失败: %w", verifyErr)
 	}
-	return "", fmt.Errorf("SmartDNS 重载后未恢复运行，已恢复原配置状态")
+	return "", fmt.Errorf("SmartDNS 重载后未恢复运行，旧配置已恢复且 UDP/TCP DNS 验证通过")
+}
+
+// backupSmartDNSConfig reads the live configuration and creates a durable,
+// private backup before any live-file replacement. A missing live file is a
+// supported first-configuration state; other read or backup failures abort.
+func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
+	oldData, err := os.ReadFile(livePath)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err := writeSmartDNSFileAtomically(backupPath, oldData, 0600); err != nil {
+		return nil, false, err
+	}
+	return oldData, true, nil
+}
+
+// restartAndVerifySmartDNSRollback does not treat a successful service-manager
+// command or a live PID as proof of recovery. It requires the restored bytes,
+// a successful restart, and a working DNS answer on both UDP and TCP.
+func restartAndVerifySmartDNSRollback(livePath string, oldData []byte, hadOld bool,
+	restart func() error, probe func() bool) error {
+	if err := restoreSmartDNSConfig(livePath, oldData, hadOld); err != nil {
+		return fmt.Errorf("恢复旧配置文件失败: %w", err)
+	}
+	if err := restart(); err != nil {
+		return fmt.Errorf("重新启动旧配置失败: %w", err)
+	}
+	if hadOld {
+		got, err := os.ReadFile(livePath)
+		if err != nil {
+			return fmt.Errorf("读取回滚后的配置失败: %w", err)
+		}
+		if !bytes.Equal(got, oldData) {
+			return fmt.Errorf("回滚后的配置内容与旧配置不一致")
+		}
+	}
+	if !probe() {
+		return fmt.Errorf("回滚后的 SmartDNS 未通过 UDP/TCP DNS 查询验证")
+	}
+	return nil
 }
 
 // restoreSmartDNSConfig restores the previous file atomically. If there was no
