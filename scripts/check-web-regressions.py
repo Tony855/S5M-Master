@@ -383,6 +383,13 @@ checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes r
     and "saveSmartDNSConfig" in app_js
     and "Keep the SmartDNS panel live from the same authenticated Agent" in app_js
     and "smartDNSLoadGeneration" in app_js
+    and "age >= 90" in app_js
+    and "agent.command.updated" in app_js
+    and "smartDNSStatusFromSettings" in smartdns_source
+    and "smartDNSHeartbeatFreshness" in smartdns_source
+    and "probeSmartDNSDNSTCPAt" in smartdns_runtime
+    and "writeSmartDNSFileAtomically" in smartdns_runtime
+    and "waitForSmartDNSHealthy" in smartdns_runtime
     and "期望配置 SHA-256" in Path("source/web/index.html").read_text(encoding="utf-8")
     and "Agent SmartDNS 配置与运行状态" in Path("source/web/index.html").read_text(encoding="utf-8")
     and 'case "agent.smartdns.get":' in browser_ws_source
