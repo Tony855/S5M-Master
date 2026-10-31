@@ -350,7 +350,7 @@ func writeSmartDNSFileAtomically(path string, data []byte, mode os.FileMode) err
 	if err := os.Rename(tmpPath, path); err != nil {
 		return err
 	}
-	return syncSmartDNSDirectory(filepath.Dir(path))
+	return smartDNSDirectorySync(filepath.Dir(path))
 }
 
 func syncSmartDNSDirectory(path string) error {
