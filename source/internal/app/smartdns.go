@@ -159,6 +159,19 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 
 const smartDNSHeartbeatFreshness = 90 * time.Second
 
+// agentHeartbeatIsFresh is the single controller-side online rule used by
+// both the dashboard and SmartDNS status. Only the persisted authenticated
+// heartbeat timestamp is authoritative; config requests and stale payload
+// timestamps must not make an Agent appear online.
+func agentHeartbeatIsFresh(lastSeenRaw string, now time.Time) (int64, bool) {
+	lastSeen, err := strconv.ParseInt(strings.TrimSpace(lastSeenRaw), 10, 64)
+	if err != nil || lastSeen <= 0 {
+		return 0, false
+	}
+	age := now.Unix() - lastSeen
+	return lastSeen, age >= 0 && age < int64(smartDNSHeartbeatFreshness.Seconds())
+}
+
 // smartDNSStatusFromSettings never presents persisted telemetry as live after
 // the Agent heartbeat expires. Old Agent versions are explicitly marked as
 // not having reported SmartDNS telemetry instead of being shown as stopped.
@@ -168,15 +181,18 @@ func smartDNSStatusFromSettings(settings map[string]string, machineCode string) 
 		_ = json.Unmarshal([]byte(raw), &status)
 	}
 	lastSeenRaw := strings.TrimSpace(settings["agent_lastseen_"+machineCode])
-	lastSeen, parseErr := strconv.ParseInt(lastSeenRaw, 10, 64)
+	lastSeen, fresh := agentHeartbeatIsFresh(lastSeenRaw, time.Now())
 	age := int64(-1)
-	if parseErr == nil && lastSeen > 0 {
+	if lastSeen > 0 {
 		age = time.Now().Unix() - lastSeen
 	}
-	fresh := parseErr == nil && lastSeen > 0 && age >= -30 && age <= int64(smartDNSHeartbeatFreshness.Seconds())
-	_, hasTelemetry := status["smartdns_available"]
-	_, availableTypeOK := status["smartdns_available"].(bool)
-	telemetryReceived := fresh && hasTelemetry && availableTypeOK
+	_, hasAvailable := status["smartdns_available"]
+	_, availableOK := status["smartdns_available"].(bool)
+	_, runningOK := status["smartdns_running"].(bool)
+	_, dnsHealthyOK := status["smartdns_dns_healthy"].(bool)
+	_, versionOK := status["smartdns_version"].(string)
+	_, configHashOK := status["smartdns_config_sha256"].(string)
+	telemetryReceived := fresh && hasAvailable && availableOK && runningOK && dnsHealthyOK && versionOK && configHashOK
 	status["online"] = fresh
 	status["telemetry_received"] = telemetryReceived
 	status["last_seen"] = lastSeenRaw
