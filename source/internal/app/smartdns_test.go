@@ -118,7 +118,7 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 		"agent_token":                   "global-token",
 		"agent_machine_" + code:         "dedicated-token",
 		"agent_lastseen_" + code:        strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_" + code:          `{"smartdns_available":true,"smartdns_running":true,"smartdns_version":"SmartDNS test","smartdns_config_sha256":"abc"}`,
+		"agent_status_" + code:          `{"smartdns_available":true,"smartdns_running":true,"smartdns_dns_healthy":true,"smartdns_version":"SmartDNS test","smartdns_config_sha256":"abc"}`,
 		"agent_smartdns_config_" + code: defaultAgentSmartDNSConfig,
 	}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
