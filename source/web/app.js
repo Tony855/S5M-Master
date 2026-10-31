@@ -57,6 +57,7 @@ createApp({
     const loadingSmartDNS = ref(false);
     const savingSmartDNS = ref(false);
     const smartDNSQueued = ref(false);
+    let smartDNSLoadGeneration = 0;
     let nodeConfigLoadGeneration = 0;
     const templateYaml = ref('');
     const templateNote = ref('');
@@ -1300,18 +1301,30 @@ createApp({
 
     const loadSmartDNSConfig = async () => {
       const code = String(selectedConfigNode.value || '').trim();
-      if (!code || loadingSmartDNS.value) return;
+      const generation = ++smartDNSLoadGeneration;
+      if (!code) {
+        smartDNSStatus.value = null;
+        smartDNSConfig.value = '';
+        return;
+      }
+      // Allow a newly selected Agent to supersede an in-flight request. Without
+      // generation checks, a slow response from the previous node can overwrite
+      // the currently selected node's SmartDNS panel.
       loadingSmartDNS.value = true;
+      smartDNSStatus.value = null;
       try {
         const result = await sendBrowserWSControl({ type: 'agent.smartdns.get', machine_code: code });
+        if (generation !== smartDNSLoadGeneration || String(selectedConfigNode.value || '').trim() !== code) return;
         if (result.ok === false) throw new Error(result.error || '读取 SmartDNS 状态失败');
         smartDNSConfig.value = String(result.config || '');
-        smartDNSStatus.value = result;
+        smartDNSStatus.value = { ...result, machine_code: code };
         smartDNSQueued.value = false;
       } catch (e) {
-        showMsg(e.message || '读取 SmartDNS 状态失败', 'error');
+        if (generation === smartDNSLoadGeneration && String(selectedConfigNode.value || '').trim() === code) {
+          showMsg(e.message || '读取 SmartDNS 状态失败', 'error');
+        }
       } finally {
-        loadingSmartDNS.value = false;
+        if (generation === smartDNSLoadGeneration) loadingSmartDNS.value = false;
       }
     };
 
