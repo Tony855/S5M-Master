@@ -38,8 +38,6 @@
     <div><div class="machine-label">机器码</div><div class="machine-text" id="machineId">获取机器码中...</div></div>
     <button class="btn-copy" onclick="copyMachineId()">复制</button>
   </div>
-  <label>服务器地址</label>
-  <input type="url" id="url" placeholder="https://bind.v2net.cc" value="https://bind.v2net.cc" autocomplete="url" inputmode="url">
   <label>注册密钥</label>
   <input type="password" id="secret" placeholder="请输入<密钥>绑定设备" autocomplete="off" required oninput="updateBindButton()">
   <button id="btn" onclick="save()" disabled>绑定设备</button>
@@ -50,6 +48,9 @@
   </div>
 </div>
 <script>
+  // 修改此变量即可更换 Agent 默认连接的主控服务器地址。
+  const DEFAULT_SERVER_URL = 'https://bind.v2net.cc';
+
   let currentMachineID = '';
   let bindingInProgress = false;
   function updateBindButton() {
@@ -76,12 +77,8 @@
       currentMachineID = idData.machine_id;
       document.getElementById('machineId').innerText = currentMachineID;
       
-      const res = await fetchWithTimeout('/api/config');
-      const data = await res.json();
-      if (data.central_url) document.getElementById('url').value = data.central_url;
-      else document.getElementById('url').value = 'https://bind.v2net.cc';
-      // Use one authoritative status read. Do not overwrite its result with the
-      // potentially stale /api/config response fetched earlier during page load.
+      // Read binding state from the Agent API; server address is configured in
+      // DEFAULT_SERVER_URL and is intentionally not exposed in the registration UI.
       await refreshBindingStatus();
       window.setInterval(refreshBindingStatus, 3000);
     } catch(e) { document.getElementById('machineId').innerText = '获取失败'; if (!document.getElementById('hostname').innerText || document.getElementById('hostname').innerText === '读取主机名中...') document.getElementById('hostname').innerText = '读取失败'; setStatus('error', 'Agent 后端无响应'); }
@@ -96,7 +93,7 @@
       const data = await res.json();
       const btn = document.getElementById('btn');
       if (data.config_readable === false) {
-        btn.innerText = data.has_token ? '重新绑定' : '一键绑定设备';
+        btn.innerText = data.has_token ? '重新绑定' : '绑定设备';
         setStatus('error', '设备绑定状态暂不可用，请稍后重试或联系管理员');
       } else if (data.config_valid === false) {
         btn.innerText = '重试绑定';
@@ -106,7 +103,7 @@
         setStatus('', data.config_exists ? '未检测到有效绑定<密钥>，请重新绑定' : '设备尚未绑定');
       } else if (data.connected) {
         btn.innerText = '重新绑定';
-        setStatus('active', '节点设备已绑定，已连接');
+        setStatus('active', '✅节点设备已绑定成功，连接正常');
       } else {
         btn.innerText = '重新绑定';
         setStatus('', '已保存绑定信息，正在连接主控端…');
@@ -128,13 +125,12 @@
   }
   function setStatus(state, text) { document.getElementById('statusDot').className = 'dot ' + state; document.getElementById('statusText').innerText = text; }
   async function save() {
-    let url = document.getElementById('url').value.trim().replace(/\/$/, '');
+    let url = String(DEFAULT_SERVER_URL || '').trim().replace(/\/$/, '');
     const secret = document.getElementById('secret').value.trim();
     if (!secret) { updateBindButton(); return; }
-    if (!url) return showMsg('请输入服务器地址', false);
+    if (!url) return showMsg('主控服务器地址未配置，请联系管理员。', false);
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
-    if (/^https?:\/\/$/i.test(url)) return showMsg('请输入有效的服务器域名或 IP 地址', false);
-    document.getElementById('url').value = url;
+    if (/^https?:\/\/$/i.test(url)) return showMsg('主控服务器地址配置无效，请联系管理员。', false);
     const btn = document.getElementById('btn'); bindingInProgress = true; btn.innerText = '正在绑定...'; updateBindButton(); setStatus('', '正在绑定设备…');
     try {
       const res = await fetch('/api/bind', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({central_url: url, secret: secret}) });

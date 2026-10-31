@@ -1280,3 +1280,109 @@ func TestSaveNodeConfigRejectsUnpublishedProxyPort(t *testing.T) {
 		t.Fatalf("invalid proxy port config was persisted: %#v", cfg)
 	}
 }
+
+func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
+	proxy := Proxy{
+		Name:    "default-mode",
+		Type:    "socks5",
+		Server:  "192.0.2.10",
+		Port:    1080,
+		Enabled: true,
+	}
+	if message := (&App{}).validateProxy(&proxy); message != "" {
+		t.Fatalf("validateProxy() = %q, want success", message)
+	}
+	if proxy.Mode != "rule" {
+		t.Fatalf("default proxy mode = %q, want rule", proxy.Mode)
+	}
+}
+
+func TestHandleUpdateSettingsRegeneratesAuthorizedNodeConfigsForRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-settings.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "node_mode_sync"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token":                  "global-secret",
+		"agent_machine_" + machineCode: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("seed Agent authorization: %v", err)
+	}
+	proxy := &Proxy{Name: "node-mode-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.81", Port: 1080, MachineCode: machineCode, Enabled: true}
+	if err := store.CreateProxy(proxy); err != nil {
+		t.Fatalf("seed node proxy: %v", err)
+	}
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"return"}`))
+	rec := httptest.NewRecorder()
+
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(machineCode)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg == nil || !strings.Contains(cfg.YAML, "GEOIP,CN,") || !strings.Contains(cfg.YAML, "MATCH,DIRECT") {
+		t.Fatalf("routing-mode change did not regenerate return-mode node YAML: %#v", cfg)
+	}
+}
+
+func TestHandleUpdateSettingsAcceptsRuleRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-rule.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	const machineCode = "node_rule_mode"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + machineCode: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("seed Agent authorization: %v", err)
+	}
+	proxy := &Proxy{Name: "rule-mode-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.82", Port: 1080, MachineCode: machineCode, Enabled: true}
+	if err := store.CreateProxy(proxy); err != nil {
+		t.Fatalf("seed node proxy: %v", err)
+	}
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"rule"}`))
+	rec := httptest.NewRecorder()
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(machineCode)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg == nil || !strings.Contains(cfg.YAML, "MATCH,rule-mode-proxy") || strings.Contains(cfg.YAML, "MATCH,DIRECT") {
+		t.Fatalf("rule mode was not applied to regenerated node YAML: %#v", cfg)
+	}
+}
+
+func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-invalid.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"invalid"}`))
+	rec := httptest.NewRecorder()
+
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if _, exists := settings["proxy_routing_mode"]; exists {
+		t.Fatal("invalid routing mode was persisted")
+	}
+}

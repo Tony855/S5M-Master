@@ -395,7 +395,14 @@ func (a *App) BuildConfigForMachine(machineCode string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("读取 Mihomo 设置失败: %w", err)
 	}
-	mode := routingModeForMachine(proxies, machineCode)
+	mode := strings.TrimSpace(settings[proxyRoutingModeSettingKey(machineCode)])
+	if mode == "" && strings.TrimSpace(machineCode) != "" {
+		mode = strings.TrimSpace(settings[proxyRoutingModeSettingKey("__GLOBAL__")])
+	}
+	if mode == "" {
+		mode = routingModeForMachine(proxies, machineCode)
+	}
+	mode = normalizeProxyRoutingMode(mode)
 	controllerHost := controllerHostFromSettings(settings)
 	yml, err := buildConfigFromProxiesWithMode(proxies, machineCode, secret, mode, controllerHost)
 	if err != nil {
@@ -517,16 +524,24 @@ func (a *App) syncAuthorizedNodeConfigs() error {
 	return nil
 }
 
+func proxyRoutingModeSettingKey(machineCode string) string {
+	machineCode = strings.TrimSpace(machineCode)
+	if machineCode == "" {
+		machineCode = "__GLOBAL__"
+	}
+	return "proxy_routing_mode_" + machineCode
+}
+
 func normalizeProxyRoutingMode(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "global", "split", "return", "game", "legacy":
+	case "global", "split", "return", "game", "rule", "legacy":
 		return strings.ToLower(strings.TrimSpace(raw))
 	case "proxy":
 		return "return"
 	case "china":
 		return "split"
 	default:
-		return "return"
+		return "rule"
 	}
 }
 
@@ -543,7 +558,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			continue
 		}
 		switch strings.ToLower(strings.TrimSpace(p.Mode)) {
-		case "global", "split", "return", "game":
+		case "global", "split", "return", "game", "rule":
 			return strings.ToLower(strings.TrimSpace(p.Mode))
 		case "proxy":
 			return "return"
@@ -551,7 +566,7 @@ func routingModeForMachine(proxies []Proxy, machineCode string) string {
 			return "split"
 		}
 	}
-	return "return"
+	return "rule"
 }
 
 func controllerHostFromSettings(settings map[string]string) string {
@@ -681,7 +696,7 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			return "", fmt.Errorf("代理名称不能为空且不能超过 100 个字符")
 		}
 		switch p.Mode {
-		case "proxy", "china", "global", "split", "return", "game":
+		case "proxy", "china", "global", "split", "return", "game", "rule":
 		default:
 			return "", fmt.Errorf("代理 %q 的运行模式无效：%q", p.Name, p.Mode)
 		}
@@ -726,6 +741,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		proxiesYAML = "\n" + indent(string(b), "    ")
 	}
 
+	// The S5M control-plane domain is an explicit management-channel exception
+	// in every routing mode, including rule mode. Without this, Agents may route
+	// their own control connection through the proxy (or reject it before binding).
 	rules := []string{"DOMAIN-SUFFIX,v2net.cc,DIRECT"}
 	// Keep Agent-to-controller HTTPS/WebSocket traffic direct under TUN strict-route.
 	if controllerHost != "" {
@@ -805,6 +823,14 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 		}
 	}
 	switch routingMode {
+	case "rule":
+		// Rule mode is fail-closed: preserve explicit source/domain rules and send
+		// every unmatched connection through the selected proxy. Never fall back to DIRECT.
+		if firstProxy != "" {
+			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
+		} else {
+			rules = append(rules, "MATCH,REJECT")
+		}
 	case "global":
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
@@ -812,8 +838,9 @@ func buildConfigFromProxiesWithMode(proxies []Proxy, machineCode, secret, routin
 			rules = append(rules, "MATCH,DIRECT")
 		}
 	case "split":
-		// Split mode is rule-driven: do not force mainland IP ranges to DIRECT.
-		// Unmatched traffic follows the configured default proxy rule below.
+		// Split mode sends mainland destinations direct and all other traffic
+		// through the selected proxy. Return mode intentionally does the inverse.
+		rules = append(rules, "GEOIP,CN,DIRECT")
 		if firstProxy != "" {
 			rules = append(rules, fmt.Sprintf("MATCH,%s", firstProxy))
 		} else {

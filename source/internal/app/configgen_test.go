@@ -223,10 +223,13 @@ func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testin
 	if strings.Contains(agentYAML, "mixed-port: 8080") {
 		t.Fatalf("Agent config unexpectedly retained controller port 8080:\n%s", agentYAML)
 	}
-	for _, want := range []string{"listen: 127.0.0.1:5353", "DOMAIN-SUFFIX,v2net.cc,DIRECT", "enable: false"} {
+	for _, want := range []string{"listen: 127.0.0.1:5353", "MATCH,REJECT", "enable: false"} {
 		if !strings.Contains(agentYAML, want) {
-			t.Errorf("Agent initial config missing %q:\\n%s", want, agentYAML)
+			t.Errorf("Agent initial rule-mode config missing %q:\\n%s", want, agentYAML)
 		}
+	}
+	if !strings.Contains(agentYAML, "DOMAIN-SUFFIX,v2net.cc,DIRECT") {
+		t.Fatalf("default rule mode must preserve the S5M controller domain direct exception:\\n%s", agentYAML)
 	}
 }
 
@@ -743,8 +746,9 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 		mode string
 		want []string
 	}{
+		{mode: "rule", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
 		{mode: "global", want: []string{"MATCH,proxy-a", "DOMAIN,controller.example.com,DIRECT"}},
-		{mode: "split", want: []string{"MATCH,proxy-a"}},
+		{mode: "split", want: []string{"GEOIP,CN,DIRECT", "MATCH,proxy-a"}},
 		{mode: "return", want: []string{"GEOIP,CN,proxy-a", "MATCH,DIRECT"}},
 		{mode: "game", want: []string{"DOMAIN-SUFFIX,steampowered.com,game-a", "MATCH,DIRECT"}},
 	}
@@ -759,8 +763,8 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 					t.Errorf("mode %s missing %q:\\n%s", tt.mode, want, got)
 				}
 			}
-			if tt.mode == "split" && strings.Contains(got, "GEOIP,CN,DIRECT") {
-				t.Errorf("split mode must not force mainland destinations direct:\\n%s", got)
+			if tt.mode == "return" && strings.Contains(got, "GEOIP,CN,DIRECT") {
+				t.Errorf("return mode must send mainland destinations through proxy, not DIRECT:\\n%s", got)
 			}
 		})
 	}
@@ -770,6 +774,55 @@ func TestBuildConfigRoutingModesAndControllerBypass(t *testing.T) {
 	}
 	if !strings.Contains(ipConfig, "IP-CIDR,203.0.113.10/32,DIRECT,no-resolve") {
 		t.Fatal("controller IPv4 must be explicitly routed direct")
+	}
+}
+
+func TestBuildConfigRuleModeIsFailClosed(t *testing.T) {
+	proxies := []Proxy{{
+		Name: "rule-proxy", Mode: "proxy", Type: "socks5",
+		Server: "192.0.2.10", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true,
+	}}
+	got, err := buildConfigFromProxiesWithMode(proxies, "", "test-secret", "rule", "")
+	if err != nil {
+		t.Fatalf("build rule config: %v", err)
+	}
+	var config struct {
+		Rules []string `yaml:"rules"`
+	}
+	if err := yaml.Unmarshal([]byte(got), &config); err != nil {
+		t.Fatalf("parse generated config: %v", err)
+	}
+	if len(config.Rules) == 0 || config.Rules[len(config.Rules)-1] != "MATCH,rule-proxy" {
+		t.Fatalf("rule mode must end with proxy MATCH fallback, got %#v", config.Rules)
+	}
+	controllerBypassFound := false
+	for _, rule := range config.Rules {
+		if rule == "DOMAIN-SUFFIX,v2net.cc,DIRECT" {
+			controllerBypassFound = true
+			continue
+		}
+		if strings.HasSuffix(rule, ",DIRECT") || strings.Contains(rule, ",DIRECT,") {
+			t.Fatalf("rule mode must not generate other DIRECT rules: %q", rule)
+		}
+	}
+	if !controllerBypassFound {
+		t.Fatalf("rule mode must preserve DOMAIN-SUFFIX,v2net.cc,DIRECT, got %#v", config.Rules)
+	}
+	withoutProxy, err := buildConfigFromProxiesWithMode(nil, "", "test-secret", "rule", "")
+	if err != nil {
+		t.Fatalf("build rule config without proxy: %v", err)
+	}
+	if !strings.Contains(withoutProxy, "MATCH,REJECT") || strings.Contains(withoutProxy, "MATCH,DIRECT") {
+		t.Fatalf("rule mode without an available proxy must fail closed with REJECT:\n%s", withoutProxy)
+	}
+	if !strings.Contains(withoutProxy, "DOMAIN-SUFFIX,v2net.cc,DIRECT") {
+		t.Fatalf("rule mode without a proxy must still preserve the controller domain bypass:\\n%s", withoutProxy)
+	}
+	if got := normalizeProxyRoutingMode(""); got != "rule" {
+		t.Fatalf("empty routing mode default = %q, want rule", got)
+	}
+	if got := routingModeForMachine(nil, "unconfigured-node"); got != "rule" {
+		t.Fatalf("unconfigured node routing mode = %q, want rule", got)
 	}
 }
 
@@ -1027,5 +1080,106 @@ func TestOpenStoreDefaultsTUNDisabled(t *testing.T) {
 	}
 	if got != "false" {
 		t.Fatalf("tun_enable default = %q, want false", got)
+	}
+}
+
+func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-routing-mode.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a":          "token-a",
+		"proxy_routing_mode_node-a":     "split",
+		"proxy_routing_mode___GLOBAL__": "game",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	for _, proxy := range []*Proxy{
+		{Name: "node-a-proxy-1", Mode: "return", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "node-a-proxy-2", Mode: "return", Type: "socks5", Server: "192.0.2.11", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "global-proxy", Mode: "return", Type: "socks5", Server: "192.0.2.12", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+	} {
+		if err := store.CreateProxy(proxy); err != nil {
+			t.Fatalf("CreateProxy(%s): %v", proxy.Name, err)
+		}
+	}
+
+	app := &App{store: store}
+	nodeYAML, err := app.BuildConfigForMachine("node-a")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(node-a): %v", err)
+	}
+	if !strings.Contains(nodeYAML, "GEOIP,CN,DIRECT") || !strings.Contains(nodeYAML, "MATCH,node-a-proxy-1") || strings.Contains(nodeYAML, "GEOIP,CN,node-a-proxy-1") {
+		t.Fatalf("node-specific split mode was not applied consistently:\n%s", nodeYAML)
+	}
+	if !strings.Contains(nodeYAML, "global-proxy") {
+		t.Fatalf("global proxy should remain available to the Agent node:\n%s", nodeYAML)
+	}
+
+	controllerYAML, err := app.BuildConfigForMachine("")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(controller): %v", err)
+	}
+	for _, want := range []string{"DOMAIN-SUFFIX,steampowered.com,global-proxy", "MATCH,DIRECT"} {
+		if !strings.Contains(controllerYAML, want) {
+			t.Errorf("persisted global game mode missing %q:\n%s", want, controllerYAML)
+		}
+	}
+}
+
+func TestBuildConfigForMachineUsesPersistedNodeGameMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-game-routing-mode.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-game":       "token-game",
+		"proxy_routing_mode_node-game":  "game",
+		"proxy_routing_mode___GLOBAL__": "split",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	for _, proxy := range []*Proxy{
+		{Name: "node-game-exit", Mode: "game", Type: "socks5", Server: "192.0.2.20", Port: 1080, MachineCode: "node-game", Enabled: true},
+		{Name: "node-general-exit", Mode: "proxy", Type: "socks5", Server: "192.0.2.21", Port: 1080, MachineCode: "node-game", Enabled: true},
+		{Name: "global-exit", Mode: "proxy", Type: "socks5", Server: "192.0.2.22", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+	} {
+		if err := store.CreateProxy(proxy); err != nil {
+			t.Fatalf("CreateProxy(%s): %v", proxy.Name, err)
+		}
+	}
+
+	app := &App{store: store}
+	got, err := app.BuildConfigForMachine("node-game")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(node-game): %v", err)
+	}
+	for _, want := range []string{
+		"DOMAIN-SUFFIX,steampowered.com,node-game-exit",
+		"DOMAIN-SUFFIX,steamcommunity.com,node-game-exit",
+		"DOMAIN-SUFFIX,epicgames.com,node-game-exit",
+		"DOMAIN-SUFFIX,riotgames.com,node-game-exit",
+		"MATCH,DIRECT",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("node game mode config missing %q:\\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{
+		"GEOIP,CN,DIRECT",
+		"MATCH,node-game-exit",
+		"MATCH,node-general-exit",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("node game mode unexpectedly contains global/split fallback %q:\\n%s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "node-general-exit") {
+		t.Fatal("node's ordinary proxy should remain available for explicit game/domain routing choices")
 	}
 }
