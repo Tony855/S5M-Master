@@ -387,15 +387,18 @@ func probeSmartDNSDNSAt(address string) bool {
 	if err != nil || n < 12 {
 		return false
 	}
-	if binary.BigEndian.Uint16(response[0:2]) != 0x534d {
+	if binary.BigEndian.Uint16(response[0:2]) != binary.BigEndian.Uint16(query[0:2]) {
 		return false
 	}
 	flags := binary.BigEndian.Uint16(response[2:4])
-	// A healthy A lookup must be a DNS response with NOERROR and at least
-	// one answer. NXDOMAIN, REFUSED, SERVFAIL, and empty NOERROR responses
-	// must not be reported as a successful resolver probe.
+	// A healthy A lookup must be a complete DNS response with NOERROR and
+	// at least one answer. Reject mismatched IDs, truncated responses,
+	// NXDOMAIN, REFUSED, SERVFAIL, and empty NOERROR responses.
 	answerCount := binary.BigEndian.Uint16(response[6:8])
-	return flags&0x8000 != 0 && flags&0x000f == 0 && answerCount > 0
+	questionCount := binary.BigEndian.Uint16(response[4:6])
+	return flags&0x8000 != 0 && flags&0x0200 == 0 &&
+		flags&0x7800 == 0 && flags&0x000f == 0 &&
+		questionCount == 1 && answerCount > 0
 }
 
 // probeSmartDNSDNSTCPAt verifies a complete DNS-over-TCP response, including
