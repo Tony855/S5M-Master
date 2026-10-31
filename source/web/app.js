@@ -680,7 +680,7 @@ createApp({
           type: 'proxy.save',
           proxy_id: isEdit ? String(proxyForm.id) : '',
           proxy: {
-            name: proxyForm.name, mode: proxyForm.mode || 'return', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
+            name: proxyForm.name, mode: proxyForm.mode || 'rule', type: proxyForm.type, server: proxyForm.server, port: proxyForm.port,
             machine_code: proxyForm.machine_code, source_cidr: proxyForm.source_cidr || '0.0.0.0/0',
             enabled: Boolean(proxyForm.enabled), extra: extra
           }
