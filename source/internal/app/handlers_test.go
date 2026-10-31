@@ -1203,7 +1203,7 @@ func TestSaveNodeConfigReportsYAMLParseError(t *testing.T) {
 	}
 	defer store.db.Close()
 	const code = "node_yaml_error"
-	if err := store.UpdateSettings(map[string]string{"agent_token":                  "global-secret", "agent_machine_" + code: "dedicated-secret"}); err != nil {
+	if err := store.UpdateSettings(map[string]string{"agent_token": "global-secret", "agent_machine_" + code: "dedicated-secret"}); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 	app := &App{store: store}
