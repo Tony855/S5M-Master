@@ -606,7 +606,7 @@ fi
 # [修复 P1-5] 编译失败给出明确提示
 if ! go build -trimpath -ldflags='-s -w' -o "$BUILD_TMP/S5M-Server.new" .; then
   rm -rf "$BUILD_TMP"
-  echo "❌ go build 失败（旧版本未替换，备份在 $BACKUP" >&2
+  echo "❌ go build 失败（旧版本未替换），备份在 $BACKUP" >&2
   exit 1
 fi
 install -o root -g root -m 0755 "$BUILD_TMP/S5M-Server.new" "$BIN"
