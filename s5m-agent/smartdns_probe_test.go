@@ -112,3 +112,11 @@ func TestRestoreSmartDNSConfig(t *testing.T) {
 	if err := restoreSmartDNSConfig(path, nil, false); err != nil { t.Fatal(err) }
 	if _, err := os.Stat(path); !os.IsNotExist(err) { t.Fatalf("expected removed config, stat err=%v", err) }
 }
+
+
+func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
+	config := []byte("bind 127.0.0.1:6053\nbind-tcp 127.0.0.1:6053\nserver include.example\n")
+	if err := validateSmartDNSConfig(config); err != nil {
+		t.Fatalf("valid upstream hostname rejected: %v", err)
+	}
+}
