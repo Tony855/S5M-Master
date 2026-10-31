@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"strconv"
+	"time"
 	"testing"
 )
 
@@ -112,6 +114,7 @@ func TestGetAgentSmartDNSConfigReturnsDesiredConfigAndReportedStatus(t *testing.
 	if err := store.UpdateSettings(map[string]string{
 		"agent_token":                   "global-token",
 		"agent_machine_" + code:         "dedicated-token",
+		"agent_lastseen_" + code:        strconv.FormatInt(time.Now().Unix(), 10),
 		"agent_status_" + code:          `{"smartdns_available":true,"smartdns_running":true,"smartdns_version":"SmartDNS test","smartdns_config_sha256":"abc"}`,
 		"agent_smartdns_config_" + code: defaultAgentSmartDNSConfig,
 	}); err != nil {
@@ -199,5 +202,37 @@ func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigCo
 	}
 	if command["config"] != desired {
 		t.Fatalf("pending command config differs from desired config")
+	}
+}
+
+
+func TestSmartDNSStatusExpiresOldAndMissingHeartbeats(t *testing.T) {
+	const code = "node_smartdns_stale"
+	base := map[string]string{
+		"agent_status_" + code:  `{"smartdns_available":true,"smartdns_running":true,"smartdns_dns_healthy":true,"smartdns_version":"old"}`,
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Add(-5*time.Minute).Unix(), 10),
+	}
+	status := smartDNSStatusFromSettings(base, code)
+	if status["online"] != false || status["telemetry_received"] != false ||
+		status["smartdns_running"] != false || status["smartdns_dns_healthy"] != false {
+		t.Fatalf("stale status was treated as live: %#v", status)
+	}
+	delete(base, "agent_lastseen_"+code)
+	status = smartDNSStatusFromSettings(base, code)
+	if status["online"] != false || status["smartdns_last_error"] != "Agent 尚未上报心跳" {
+		t.Fatalf("missing heartbeat was not classified correctly: %#v", status)
+	}
+}
+
+func TestSmartDNSStatusRecognizesFreshLegacyAgentWithoutTelemetry(t *testing.T) {
+	const code = "node_smartdns_legacy"
+	settings := map[string]string{
+		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
+		"agent_status_" + code:  `{"mihomo_healthy":true}`,
+	}
+	status := smartDNSStatusFromSettings(settings, code)
+	if status["online"] != true || status["telemetry_received"] != false ||
+		status["smartdns_last_error"] != "当前 Agent 版本尚未上报 SmartDNS 状态" {
+		t.Fatalf("legacy Agent telemetry was misclassified: %#v", status)
 	}
 }
