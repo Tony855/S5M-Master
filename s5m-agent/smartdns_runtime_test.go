@@ -477,3 +477,34 @@ func TestWithSmartDNSConfigUpdateLockSerializesConcurrentTransactions(t *testing
 		t.Fatalf("maximum concurrent SmartDNS config transactions = %d, want 1", maxActive)
 	}
 }
+
+
+func TestSyncSmartDNSDirectoryRequiresDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := syncSmartDNSDirectory(dir); err != nil {
+		t.Fatalf("syncSmartDNSDirectory(%q) error = %v", dir, err)
+	}
+	file := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(file, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncSmartDNSDirectory(file); err == nil {
+		t.Fatal("syncSmartDNSDirectory must fail when the path is not a directory")
+	}
+}
+
+func TestWriteSmartDNSFileAtomicallySyncsParentDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	want := []byte("durable-config\n")
+	if err := writeSmartDNSFileAtomically(path, want, 0600); err != nil {
+		t.Fatalf("atomic write with parent-directory sync failed: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("written config = %q, want %q", got, want)
+	}
+}
