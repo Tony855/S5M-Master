@@ -70,6 +70,39 @@ func TestProbeSmartDNSDNSAtRequiresSuccessfulAnswer(t *testing.T) {
 	}
 }
 
+func TestProbeSmartDNSDNSAtRejectsMismatchedTransactionID(t *testing.T) {
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		query := make([]byte, 1500)
+		n, client, err := conn.ReadFromUDP(query)
+		if err != nil {
+			done <- err
+			return
+		}
+		response := append([]byte(nil), query[:n]...)
+		binary.BigEndian.PutUint16(response[:2], 0xffff)
+		binary.BigEndian.PutUint16(response[2:4], 0x8180)
+		binary.BigEndian.PutUint16(response[6:8], 1)
+		response = append(response, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x04, 1, 2, 3, 4)
+		_, err = conn.WriteToUDP(response, client)
+		done <- err
+	}()
+
+	if probeSmartDNSDNSAt(conn.LocalAddr().String()) {
+		t.Fatal("probe accepted a response with a mismatched transaction ID")
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestProbeSmartDNSDNSTCPAt(t *testing.T) {
 	for _, answerCount := range []uint16{0, 1} {
 		t.Run(map[bool]string{true: "answer", false: "empty"}[answerCount > 0], func(t *testing.T) {
