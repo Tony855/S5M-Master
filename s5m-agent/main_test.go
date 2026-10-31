@@ -443,6 +443,91 @@ func TestResolvedCentralRouteCIDRsRejectsInvalidURL(t *testing.T) {
 	}
 }
 
+func TestExpectedMihomoRules(t *testing.T) {
+	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - DOMAIN-SUFFIX,example.com,Proxy\n  - MATCH,Proxy\n")
+	got, err := expectedMihomoRules(config)
+	if err != nil {
+		t.Fatalf("expectedMihomoRules() error = %v", err)
+	}
+	want := []mihomoRuntimeRule{
+		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
+		{Type: "DOMAIN-SUFFIX", Payload: "example.com", Proxy: "Proxy"},
+		{Type: "MATCH", Payload: "", Proxy: "Proxy"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("rules = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rule[%d] = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+	if _, err := expectedMihomoRules([]byte("rules: []\n")); err == nil {
+		t.Fatal("expected empty rules to be rejected")
+	}
+	if _, err := expectedMihomoRules([]byte("rules:\n  - invalid\n")); err == nil {
+		t.Fatal("expected malformed rule to be rejected")
+	}
+}
+
+func TestCompareMihomoRuntimeRules(t *testing.T) {
+	expected := []mihomoRuntimeRule{
+		{Type: "GEOIP", Payload: "CN", Proxy: "DIRECT"},
+		{Type: "MATCH", Proxy: "Proxy"},
+	}
+	if err := compareMihomoRuntimeRules(expected, expected); err != nil {
+		t.Fatalf("matching rules rejected: %v", err)
+	}
+	if err := compareMihomoRuntimeRules(expected, expected[:1]); err == nil {
+		t.Fatal("expected rule count mismatch")
+	}
+	reordered := []mihomoRuntimeRule{expected[1], expected[0]}
+	if err := compareMihomoRuntimeRules(expected, reordered); err == nil {
+		t.Fatal("expected rule order mismatch")
+	}
+	wrongTarget := []mihomoRuntimeRule{expected[0], {Type: "MATCH", Proxy: "DIRECT"}}
+	if err := compareMihomoRuntimeRules(expected, wrongTarget); err == nil {
+		t.Fatal("expected target proxy mismatch")
+	}
+}
+
+func TestVerifyMihomoRuntimeRules(t *testing.T) {
+	config := []byte("rules:\n  - GEOIP,CN,DIRECT\n  - MATCH,Proxy\n")
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		wantErr    bool
+		wantAuth   bool
+	}{
+		{name: "exact active rules", status: http.StatusOK, body: `{"rules":[{"type":"GEOIP","payload":"CN","proxy":"DIRECT"},{"type":"MATCH","payload":"","proxy":"Proxy"}]}`},
+		{name: "wrong order", status: http.StatusOK, body: `{"rules":[{"type":"MATCH","payload":"","proxy":"Proxy"},{"type":"GEOIP","payload":"CN","proxy":"DIRECT"}]}`, wantErr: true},
+		{name: "wrong target", status: http.StatusOK, body: `{"rules":[{"type":"GEOIP","payload":"CN","proxy":"DIRECT"},{"type":"MATCH","payload":"","proxy":"DIRECT"}]}`, wantErr: true},
+		{name: "unauthorized", status: http.StatusUnauthorized, body: `{"message":"Unauthorized"}`, wantErr: true, wantAuth: true},
+		{name: "malformed response", status: http.StatusOK, body: `not-json`, wantErr: true},
+		{name: "missing rules", status: http.StatusOK, body: `{}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/rules" || r.Method != http.MethodGet {
+					t.Errorf("request = %s %s, want GET /rules", r.Method, r.URL.Path)
+				}
+				if r.Header.Get("Authorization") != "Bearer test-secret" {
+					t.Errorf("Authorization = %q", r.Header.Get("Authorization"))
+				}
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer server.Close()
+			err := verifyMihomoRuntimeRules(server.Client(), server.URL, "test-secret", config)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("verifyMihomoRuntimeRules() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestMihomoSecretCandidates(t *testing.T) {
 	dir := t.TempDir()
 	configPath := dir + "/config.yaml"
