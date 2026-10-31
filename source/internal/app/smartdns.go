@@ -174,7 +174,7 @@ func smartDNSStatusFromSettings(settings map[string]string, machineCode string) 
 	if parseErr == nil && lastSeen > 0 {
 		age = time.Now().Unix() - lastSeen
 	}
-	fresh := age >= -30 && age <= int64(smartDNSHeartbeatFreshness.Seconds())
+	fresh := parseErr == nil && lastSeen > 0 && age >= -30 && age <= int64(smartDNSHeartbeatFreshness.Seconds())
 	_, hasTelemetry := status["smartdns_available"]
 	_, availableTypeOK := status["smartdns_available"].(bool)
 	telemetryReceived := fresh && hasTelemetry && availableTypeOK
