@@ -763,13 +763,25 @@ func rollbackConfigAtPath(configPath string, reload func() error) error {
 
 // rollbackAndVerifyConfig restores the previous file, reloads Mihomo and verifies it.
 func rollbackAndVerifyConfig(mainPath string, reload func() error, verify func([]byte) error) error {
-	if err := rollbackConfigFromPaths(mainPath); err != nil { return fmt.Errorf("旧配置文件恢复失败: %w", err) }
+	if err := rollbackConfigFromPaths(mainPath); err != nil {
+		return fmt.Errorf("旧配置文件恢复失败: %w", err)
+	}
 	oldData, err := os.ReadFile(mainPath)
-	if err != nil { return fmt.Errorf("旧配置文件已恢复但读取失败: %w", err) }
-	if reload == nil { return fmt.Errorf("旧配置文件已恢复但未提供 Mihomo 重载函数") }
-	if err := reload(); err != nil { return fmt.Errorf("旧配置文件已恢复但 Mihomo 重载失败: %w", err) }
-	if verify == nil { return fmt.Errorf("旧配置文件已恢复且已重载，但未提供运行规则验证函数") }
-	if err := verify(oldData); err != nil { return fmt.Errorf("旧配置文件已恢复且已重载，但运行规则验证失败: %w", err) }
+	if err != nil {
+		return fmt.Errorf("旧配置文件已恢复但读取失败: %w", err)
+	}
+	if reload == nil {
+		return fmt.Errorf("旧配置文件已恢复但未提供 Mihomo 重载函数")
+	}
+	if err := reload(); err != nil {
+		return fmt.Errorf("旧配置文件已恢复但 Mihomo 重载失败: %w", err)
+	}
+	if verify == nil {
+		return fmt.Errorf("旧配置文件已恢复且已重载，但未提供运行规则验证函数")
+	}
+	if err := verify(oldData); err != nil {
+		return fmt.Errorf("旧配置文件已恢复且已重载，但运行规则验证失败: %w", err)
+	}
 	return nil
 }
 
