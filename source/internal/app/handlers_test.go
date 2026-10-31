@@ -1386,3 +1386,30 @@ func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
 		t.Fatal("invalid routing mode was persisted")
 	}
 }
+
+
+func TestAgentHeartbeatFreshnessIsSharedAndStrict(t *testing.T) {
+	now := time.Unix(2_000_000_000, 0)
+	tests := []struct {
+		name string
+		lastSeen string
+		wantOnline bool
+		wantLastSeen int64
+	}{
+		{name: "missing", lastSeen: "", wantOnline: false},
+		{name: "invalid", lastSeen: "abc", wantOnline: false},
+		{name: "zero", lastSeen: "0", wantOnline: false},
+		{name: "future clock skew", lastSeen: strconv.FormatInt(now.Unix()+1, 10), wantOnline: false},
+		{name: "fresh", lastSeen: strconv.FormatInt(now.Unix()-30, 10), wantOnline: true, wantLastSeen: now.Unix()-30},
+		{name: "boundary expired", lastSeen: strconv.FormatInt(now.Unix()-90, 10), wantOnline: false, wantLastSeen: now.Unix()-90},
+		{name: "stale", lastSeen: strconv.FormatInt(now.Unix()-91, 10), wantOnline: false, wantLastSeen: now.Unix()-91},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotLastSeen, gotOnline := agentHeartbeatIsFresh(tt.lastSeen, now)
+			if gotOnline != tt.wantOnline || gotLastSeen != tt.wantLastSeen {
+				t.Fatalf("agentHeartbeatIsFresh(%q) = (%d, %v), want (%d, %v)", tt.lastSeen, gotLastSeen, gotOnline, tt.wantLastSeen, tt.wantOnline)
+			}
+		})
+	}
+}
