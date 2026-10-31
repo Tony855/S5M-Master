@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"os"
