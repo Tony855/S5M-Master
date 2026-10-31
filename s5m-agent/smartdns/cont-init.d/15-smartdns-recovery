@@ -11,8 +11,9 @@ mkdir -p "$DATA_DIR"
 # A leftover backup means the Agent was interrupted after beginning a config
 # transaction. Preserve it as a recovery marker, then restore it before s6
 # starts SmartDNS. Keep the marker until healthcheck confirms UDP and TCP DNS.
-if [ -f "$BACKUP_CONFIG" ] && [ ! -f "$PENDING_CONFIG" ]; then
-  mv "$BACKUP_CONFIG" "$PENDING_CONFIG"
+if [ -f "$BACKUP_CONFIG" ]; then
+  # A newer interrupted transaction supersedes an older pending recovery copy.
+  mv -f "$BACKUP_CONFIG" "$PENDING_CONFIG"
 fi
 
 if [ -f "$PENDING_CONFIG" ]; then
