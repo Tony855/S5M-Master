@@ -381,6 +381,8 @@ checks["SmartDNS configuration UI uses authenticated WebSocket RPC and exposes r
     "type: 'agent.smartdns.get'" in app_js
     and "type: 'agent.smartdns.configure'" in app_js
     and "saveSmartDNSConfig" in app_js
+    and "Keep the SmartDNS panel live from the same authenticated Agent" in app_js
+    and "smartDNSLoadGeneration" in app_js
     and "期望配置 SHA-256" in Path("source/web/index.html").read_text(encoding="utf-8")
     and "Agent SmartDNS 配置与运行状态" in Path("source/web/index.html").read_text(encoding="utf-8")
     and 'case "agent.smartdns.get":' in browser_ws_source
