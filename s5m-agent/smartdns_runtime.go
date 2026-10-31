@@ -196,17 +196,9 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 
 	livePath := smartDNSConfigPath
 	backupPath := livePath + ".previous"
-	oldData, oldErr := os.ReadFile(livePath)
-	hadOldConfig := oldErr == nil
-	if oldErr != nil && !os.IsNotExist(oldErr) {
-		return "", fmt.Errorf("读取旧 SmartDNS 配置失败: %w", oldErr)
-	}
-	if hadOldConfig {
-		// The rollback copy must be complete and durable before the live file is
-		// touched. A direct WriteFile could truncate the only backup on failure.
-		if err := writeSmartDNSFileAtomically(backupPath, oldData, 0600); err != nil {
-			return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", err)
-		}
+	oldData, hadOldConfig, err := backupSmartDNSConfig(livePath, backupPath)
+	if err != nil {
+		return "", fmt.Errorf("备份旧 SmartDNS 配置失败: %w", err)
 	}
 	liveTmp, err := os.CreateTemp(filepath.Dir(livePath), ".smartdns-live-*.conf")
 	if err != nil {
@@ -284,6 +276,22 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 // restoreSmartDNSConfig restores the previous file atomically. If there was no
 // previous config, it removes the newly installed file instead of leaving a
 // configuration that the caller has already reported as failed.
+// backupSmartDNSConfig snapshots the live configuration and durably writes
+// its rollback copy before callers are allowed to replace the live file.
+func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
+	oldData, err := os.ReadFile(livePath)
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if err := writeSmartDNSFileAtomically(backupPath, oldData, 0600); err != nil {
+		return nil, false, err
+	}
+	return oldData, true, nil
+}
+
 func restoreSmartDNSConfig(livePath string, oldData []byte, hadOld bool) error {
 	if !hadOld {
 		if err := os.Remove(livePath); err != nil && !os.IsNotExist(err) {
