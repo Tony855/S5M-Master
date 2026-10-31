@@ -22,6 +22,25 @@ jobs:
         uses: actions/checkout@v5
       - name: Validate native installer shell syntax
         run: bash -n ../scripts/install.sh
+      - name: Guard minimal runtime installation layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - ../scripts/install.sh <<'PY'
+          from pathlib import Path
+          import sys
+
+          script = Path(sys.argv[1]).read_text(encoding="utf-8")
+          assert 'BUILD_DIR="$(mktemp -d /tmp/s5m-server-build.XXXXXX)"' in script
+          assert 'cp -a "$SRC/." "$BUILD_DIR/"' in script
+          assert 'go test ./...' in script
+          assert 'go build -trimpath' in script
+          assert 'install -o root -g root -m 0755 "$BUILD_DIR/S5M-Server.new" "$BIN"' in script
+          assert 'install -d -m 0755 /opt/S5M-Server /opt/S5M-Server/source' not in script
+          assert 'cp -a "$SRC/." /opt/S5M-Server/source/' not in script
+          assert 'rm -rf /opt/S5M-Server/source' not in script
+          print("Only the built controller binary is deployed to the runtime directory.")
+          PY
       - name: Guard installer against duplicate domain and certificate prompts
         shell: bash
         run: |
