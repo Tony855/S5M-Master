@@ -242,7 +242,7 @@ func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	if err := writeSmartDNSFileAtomically(backupPath, oldData, 0600); err != nil {
-		return nil, false, err
+		return oldData, true, err
 	}
 	return oldData, true, nil
 }
