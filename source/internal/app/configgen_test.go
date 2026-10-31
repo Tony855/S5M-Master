@@ -1076,3 +1076,58 @@ func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
 		}
 	}
 }
+
+
+func TestBuildConfigForMachineUsesPersistedNodeGameMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-game-routing-mode.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-game":       "token-game",
+		"proxy_routing_mode_node-game":  "game",
+		"proxy_routing_mode___GLOBAL__": "split",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	for _, proxy := range []*Proxy{
+		{Name: "node-game-exit", Mode: "game", Type: "socks5", Server: "192.0.2.20", Port: 1080, MachineCode: "node-game", Enabled: true},
+		{Name: "node-general-exit", Mode: "proxy", Type: "socks5", Server: "192.0.2.21", Port: 1080, MachineCode: "node-game", Enabled: true},
+		{Name: "global-exit", Mode: "proxy", Type: "socks5", Server: "192.0.2.22", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+	} {
+		if err := store.CreateProxy(proxy); err != nil {
+			t.Fatalf("CreateProxy(%s): %v", proxy.Name, err)
+		}
+	}
+
+	app := &App{store: store}
+	got, err := app.BuildConfigForMachine("node-game")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(node-game): %v", err)
+	}
+	for _, want := range []string{
+		"DOMAIN-SUFFIX,steampowered.com,node-game-exit",
+		"DOMAIN-SUFFIX,steamcommunity.com,node-game-exit",
+		"DOMAIN-SUFFIX,epicgames.com,node-game-exit",
+		"DOMAIN-SUFFIX,riotgames.com,node-game-exit",
+		"MATCH,DIRECT",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("node game mode config missing %q:\\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{
+		"GEOIP,CN,DIRECT",
+		"MATCH,node-game-exit",
+		"MATCH,node-general-exit",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("node game mode unexpectedly contains global/split fallback %q:\\n%s", unwanted, got)
+		}
+	}
+	if !strings.Contains(got, "node-general-exit") {
+		t.Fatal("node's ordinary proxy should remain available for explicit game/domain routing choices")
+	}
+}
