@@ -492,35 +492,53 @@ func TestCompareMihomoRuntimeRules(t *testing.T) {
 	}
 }
 
-
 func TestRollbackConfigFromPaths(t *testing.T) {
 	t.Run("restores previous config", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		current := []byte("rules:\\n  - MATCH,NewProxy\\n")
 		previous := []byte("rules:\\n  - MATCH,OldProxy\\n")
-		if err := os.WriteFile(path, current, 0600); err != nil { t.Fatal(err) }
-		if err := os.WriteFile(path+".previous", previous, 0600); err != nil { t.Fatal(err) }
-		if err := rollbackConfigFromPaths(path); err != nil { t.Fatalf("rollback: %v", err) }
-		got, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
-		if string(got) != string(previous) { t.Fatalf("restored config = %q, want %q", got, previous) }
+		if err := os.WriteFile(path, current, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+".previous", previous, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigFromPaths(path); err != nil {
+			t.Fatalf("rollback: %v", err)
+		}
+		got, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(previous) {
+			t.Fatalf("restored config = %q, want %q", got, previous)
+		}
 	})
 	t.Run("missing backup preserves current config", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		current := []byte("rules:\\n  - MATCH,Current\\n")
 		if err := os.WriteFile(path, current, 0600); err != nil { t.Fatal(err) }
-		if err := rollbackConfigFromPaths(path); err == nil { t.Fatal("expected missing backup error") }
+		if err := rollbackConfigFromPaths(path); err == nil {
+			t.Fatal("expected missing backup error")
+		}
 		got, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
-		if string(got) != string(current) { t.Fatalf("current config changed: %q", got) }
+		if string(got) != string(current) {
+			t.Fatalf("current config changed: %q", got)
+		}
 	})
 	t.Run("empty backup preserves current config", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
 		current := []byte("rules:\\n  - MATCH,Current\\n")
 		if err := os.WriteFile(path, current, 0600); err != nil { t.Fatal(err) }
-		if err := os.WriteFile(path+".previous", nil, 0600); err != nil { t.Fatal(err) }
-		if err := rollbackConfigFromPaths(path); err == nil { t.Fatal("expected empty backup error") }
+		if err := os.WriteFile(path+".previous", nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := rollbackConfigFromPaths(path); err == nil {
+			t.Fatal("expected empty backup error")
+		}
 		got, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
 		if string(got) != string(current) { t.Fatalf("current config changed: %q", got) }
 	})
@@ -535,8 +553,12 @@ func TestPersistControllerConfigAfterReload(t *testing.T) {
 			persistCalled = true
 			return nil
 		})
-		if !errors.Is(err, wantErr) { t.Fatalf("error = %v, want %v", err, wantErr) }
-		if persistCalled { t.Fatal("controller config hash persisted after failed runtime verification") }
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("error = %v, want %v", err, wantErr)
+		}
+		if persistCalled {
+			t.Fatal("controller config hash persisted after failed runtime verification")
+		}
 	})
 	t.Run("successful reload persists exact config", func(t *testing.T) {
 		var persisted []byte
@@ -544,8 +566,12 @@ func TestPersistControllerConfigAfterReload(t *testing.T) {
 			persisted = append([]byte(nil), got...)
 			return nil
 		})
-		if err != nil { t.Fatalf("persist: %v", err) }
-		if string(persisted) != string(config) { t.Fatalf("persisted = %q, want %q", persisted, config) }
+		if err != nil {
+			t.Fatalf("persist: %v", err)
+		}
+		if string(persisted) != string(config) {
+			t.Fatalf("persisted = %q, want %q", persisted, config)
+		}
 	})
 }
 
