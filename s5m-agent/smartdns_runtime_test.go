@@ -479,6 +479,18 @@ func TestWithSmartDNSConfigUpdateLockSerializesConcurrentTransactions(t *testing
 }
 
 
+
+func TestSmartDNSLastConfigErrorCanBeSetAndCleared(t *testing.T) {
+	setSmartDNSLastConfigError(errors.New("simulated rollback verification failure"))
+	if got := getSmartDNSLastConfigError(); got != "simulated rollback verification failure" {
+		t.Fatalf("last SmartDNS config error = %q", got)
+	}
+	setSmartDNSLastConfigError(nil)
+	if got := getSmartDNSLastConfigError(); got != "" {
+		t.Fatalf("last SmartDNS config error after success = %q, want empty", got)
+	}
+}
+
 func TestSyncSmartDNSDirectoryRequiresDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := syncSmartDNSDirectory(dir); err != nil {
