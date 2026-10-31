@@ -1077,7 +1077,6 @@ func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
 	}
 }
 
-
 func TestBuildConfigForMachineUsesPersistedNodeGameMode(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "node-game-routing-mode.db"))
 	if err != nil {
