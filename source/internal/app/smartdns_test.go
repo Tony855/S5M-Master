@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
-	"strconv"
-	"time"
 	"testing"
+	"time"
 )
 
 func TestValidateControllerSmartDNSConfig(t *testing.T) {
