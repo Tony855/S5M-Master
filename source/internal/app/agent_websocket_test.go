@@ -926,8 +926,8 @@ func TestAgentWebSocketConfigSyncAndUnchangedHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
 	}
-	if settings["agent_lastseen_"+code] == "" {
-		t.Fatal("config request did not update Agent last-seen timestamp")
+	if settings["agent_lastseen_"+code] != "" {
+		t.Fatalf("config request must not refresh Agent heartbeat timestamp, got %q", settings["agent_lastseen_"+code])
 	}
 }
 
