@@ -145,3 +145,50 @@ func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
 		t.Fatalf("valid upstream hostname rejected: %v", err)
 	}
 }
+
+
+func TestWriteSmartDNSFileAtomicallyFailureModes(t *testing.T) {
+	t.Run("backup directory unavailable", func(t *testing.T) {
+		root := t.TempDir()
+		blocker := filepath.Join(root, "not-a-directory")
+		if err := os.WriteFile(blocker, []byte("blocker"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		backupPath := filepath.Join(blocker, "smartdns.conf.previous")
+		if err := writeSmartDNSFileAtomically(backupPath, []byte("old config"), 0600); err == nil {
+			t.Fatal("expected backup write to fail when parent is not a directory")
+		}
+	})
+
+	t.Run("atomic replacement target is a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		target := filepath.Join(dir, "smartdns.conf")
+		if err := os.Mkdir(target, 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeSmartDNSFileAtomically(target, []byte("new config"), 0600); err == nil {
+			t.Fatal("expected atomic replacement of a directory to fail")
+		}
+		info, err := os.Stat(target)
+		if err != nil {
+			t.Fatalf("original target disappeared after failed replacement: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatal("failed replacement unexpectedly changed the original target")
+		}
+	})
+}
+
+func TestRestoreSmartDNSConfigWhenPreviousConfigDoesNotExist(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "smartdns.conf")
+	if err := os.WriteFile(path, []byte("new config"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreSmartDNSConfig(path, nil, false); err != nil {
+		t.Fatalf("rollback without previous config: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("new config should be removed on rollback, stat err=%v", err)
+	}
+}
