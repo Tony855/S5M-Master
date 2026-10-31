@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"strings"
 )
 
 func TestBackupSmartDNSConfigMissingLiveFileIsSupported(t *testing.T) {
@@ -57,9 +58,16 @@ func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T)
 		t.Fatal(err)
 	}
 
-	err := writeSmartDNSFileAtomically(filepath.Join(dir, "missing", "smartdns.conf"), []byte("new-config\n"), 0600)
+	target := filepath.Join(dir, "smartdns.conf")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	err := writeSmartDNSFileAtomically(target, []byte("new-config\n"), 0600)
 	if err == nil {
-		t.Fatal("atomic replacement must fail when its parent directory is missing")
+		t.Fatal("atomic replacement must fail when rename targets a directory")
+	}
+	if info, statErr := os.Stat(target); statErr != nil || !info.IsDir() {
+		t.Fatalf("failed replacement changed target directory: info=%v err=%v", info, statErr)
 	}
 	got, readErr := os.ReadFile(live)
 	if readErr != nil {
@@ -72,8 +80,20 @@ func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T)
 	if readErr != nil {
 		t.Fatal(readErr)
 	}
-	if len(entries) != 1 || entries[0].Name() != "smartdns.conf" {
+	if len(entries) != 2 {
 		t.Fatalf("unexpected leftover files after failed atomic replacement: %#v", entries)
+	}
+	for _, entry := range entries {
+		if entry.Name() != "smartdns.conf" && !strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
+			t.Fatalf("unexpected file after failed atomic replacement: %s", entry.Name())
+		}
+	}
+	if len(entries) == 2 {
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
+				t.Fatalf("temporary file leaked after failed atomic replacement: %s", entry.Name())
+			}
+		}
 	}
 }
 
@@ -116,7 +136,6 @@ func TestRestartAndVerifySmartDNSRollbackFailsWhenOldDNSIsNotHealthy(t *testing.
 	if err := os.WriteFile(live, []byte("new-config\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	restartErr := errors.New("service restart failed")
 	err := restartAndVerifySmartDNSRollback(live, old, true, func() error {
 		return nil
 	}, func() bool {
@@ -128,7 +147,6 @@ func TestRestartAndVerifySmartDNSRollbackFailsWhenOldDNSIsNotHealthy(t *testing.
 	if !bytes.Contains([]byte(err.Error()), []byte("UDP/TCP")) {
 		t.Fatalf("rollback error does not identify failed DNS verification: %v", err)
 	}
-	_ = restartErr
 	got, readErr := os.ReadFile(live)
 	if readErr != nil || !bytes.Equal(got, old) {
 		t.Fatalf("old config should remain restored despite DNS probe failure: got=%q err=%v", got, readErr)
