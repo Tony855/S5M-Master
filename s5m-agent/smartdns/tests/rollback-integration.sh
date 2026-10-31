@@ -100,6 +100,32 @@ if ! wait_for_answer; then
 fi
 stop_smartdns
 
+# First cover a candidate that cannot start at all (invalid bind port). The
+# command must exit with an error; then restore and verify the previous config.
+cat > "$CONFIG" <<'EOF'
+bind 127.0.0.1:not-a-port
+bind-tcp 127.0.0.1:16053
+server 223.5.5.5
+EOF
+set +e
+timeout 3 "$SMARTDNS_BIN" -f -x -p "$PID_FILE" -c "$CONFIG" >>"$LOG_FILE" 2>&1
+candidate_status=$?
+set -e
+if [ "$candidate_status" -eq 0 ] || [ "$candidate_status" -eq 124 ]; then
+  cat "$LOG_FILE" >&2
+  echo "Invalid SmartDNS candidate unexpectedly stayed running" >&2
+  exit 1
+fi
+cp "$BACKUP" "$CONFIG"
+cmp -s "$CONFIG" "$BACKUP"
+start_smartdns
+if ! wait_for_answer; then
+  cat "$LOG_FILE" >&2
+  echo "SmartDNS failed to recover after candidate startup failure" >&2
+  exit 1
+fi
+stop_smartdns
+
 # Apply a syntactically valid candidate whose only upstream is deliberately
 # unreachable. The daemon can start, but a real DNS query must fail.
 write_unhealthy_candidate
