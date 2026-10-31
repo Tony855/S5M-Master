@@ -63,7 +63,7 @@ func validateControllerSmartDNSConfig(config string) error {
 		if len(fields) < 2 || !smartDNSAllowedDirectives[fields[0]] {
 			return fmt.Errorf("第 %d 行配置指令无效或不允许: %q", i+1, firstSmartDNSField(fields))
 		}
-		if strings.ContainsAny(line, "`$") || strings.Contains(strings.ToLower(line), "include") {
+		if strings.ContainsAny(line, "`$") {
 			return fmt.Errorf("第 %d 行包含不允许的特殊内容", i+1)
 		}
 		if fields[0] == "bind" || fields[0] == "bind-tcp" {
