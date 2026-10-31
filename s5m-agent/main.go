@@ -741,13 +741,19 @@ func persistControllerConfigAfterReload(config []byte, reload func() error, pers
 	return persist(config)
 }
 
-func rollbackConfigAfterReloadFailure() error {
-	mainPath := mihomoConfigPath()
+func rollbackConfigFromPaths(mainPath string) error {
 	oldData, err := os.ReadFile(mainPath + ".previous")
 	if err != nil {
-		return fmt.Errorf("读取旧配置备份失败")
+		return fmt.Errorf("读取旧配置备份失败: %w", err)
+	}
+	if len(oldData) == 0 {
+		return fmt.Errorf("旧配置备份为空，拒绝覆盖当前配置")
 	}
 	return atomicWriteFile(mainPath, oldData, 0600)
+}
+
+func rollbackConfigAfterReloadFailure() error {
+	return rollbackConfigFromPaths(mihomoConfigPath())
 }
 
 type mihomoRuntimeRule struct {
