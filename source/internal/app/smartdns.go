@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -156,6 +157,51 @@ func (a *App) queueAgentSmartDNSConfig(machineCode, config string) error {
 	return nil
 }
 
+
+const smartDNSHeartbeatFreshness = 90 * time.Second
+
+// smartDNSStatusFromSettings never presents persisted telemetry as live after
+// the Agent heartbeat expires. Old Agent versions are explicitly marked as
+// not having reported SmartDNS telemetry instead of being shown as stopped.
+func smartDNSStatusFromSettings(settings map[string]string, machineCode string) map[string]any {
+	status := map[string]any{}
+	if raw := strings.TrimSpace(settings["agent_status_"+machineCode]); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &status)
+	}
+	lastSeenRaw := strings.TrimSpace(settings["agent_lastseen_"+machineCode])
+	lastSeen, parseErr := strconv.ParseInt(lastSeenRaw, 10, 64)
+	age := int64(-1)
+	if parseErr == nil && lastSeen > 0 {
+		age = time.Now().Unix() - lastSeen
+	}
+	fresh := age >= -30 && age <= int64(smartDNSHeartbeatFreshness.Seconds())
+	_, hasTelemetry := status["smartdns_available"]
+	_, availableTypeOK := status["smartdns_available"].(bool)
+	telemetryReceived := fresh && hasTelemetry && availableTypeOK
+	status["online"] = fresh
+	status["telemetry_received"] = telemetryReceived
+	status["last_seen"] = lastSeenRaw
+	status["status_age_seconds"] = age
+	if !fresh {
+		status["smartdns_available"] = false
+		status["smartdns_running"] = false
+		status["smartdns_dns_healthy"] = false
+		status["smartdns_version"] = ""
+		status["smartdns_config_sha256"] = ""
+		if lastSeenRaw == "" {
+			status["smartdns_last_error"] = "Agent 尚未上报心跳"
+		} else {
+			status["smartdns_last_error"] = "Agent 心跳已过期，SmartDNS 状态暂不可用"
+		}
+	} else if !telemetryReceived {
+		status["smartdns_available"] = false
+		status["smartdns_running"] = false
+		status["smartdns_dns_healthy"] = false
+		status["smartdns_last_error"] = "当前 Agent 版本尚未上报 SmartDNS 状态"
+	}
+	return status
+}
+
 func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Request) {
 	code := strings.TrimSpace(r.URL.Query().Get("machine_code"))
 	if !smartDNSMachineCodePattern.MatchString(code) {
@@ -175,10 +221,7 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 	if strings.TrimSpace(config) == "" {
 		config = defaultAgentSmartDNSConfig
 	}
-	status := map[string]any{}
-	if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &status)
-	}
+	status := smartDNSStatusFromSettings(settings, code)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"machine_code":           code,
 		"config":                 config,
@@ -189,7 +232,10 @@ func (a *App) handleGetAgentSmartDNSConfig(w http.ResponseWriter, r *http.Reques
 		"dns_healthy":            status["smartdns_dns_healthy"] == true,
 		"version":                status["smartdns_version"],
 		"last_error":             status["smartdns_last_error"],
-		"last_seen":              settings["agent_lastseen_"+code],
+		"last_seen":              status["last_seen"],
+		"online":                 status["online"],
+		"telemetry_received":     status["telemetry_received"],
+		"status_age_seconds":     status["status_age_seconds"],
 	})
 }
 
