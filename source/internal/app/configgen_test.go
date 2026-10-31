@@ -1029,3 +1029,50 @@ func TestOpenStoreDefaultsTUNDisabled(t *testing.T) {
 		t.Fatalf("tun_enable default = %q, want false", got)
 	}
 }
+
+func TestBuildConfigForMachineUsesPersistedNodeRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "node-routing-mode.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_node-a":          "token-a",
+		"proxy_routing_mode_node-a":     "split",
+		"proxy_routing_mode___GLOBAL__": "game",
+	}); err != nil {
+		t.Fatalf("UpdateSettings: %v", err)
+	}
+	for _, proxy := range []*Proxy{
+		{Name: "node-a-proxy-1", Mode: "return", Type: "socks5", Server: "192.0.2.10", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "node-a-proxy-2", Mode: "return", Type: "socks5", Server: "192.0.2.11", Port: 1080, MachineCode: "node-a", Enabled: true},
+		{Name: "global-proxy", Mode: "return", Type: "socks5", Server: "192.0.2.12", Port: 1080, MachineCode: "__GLOBAL__", Enabled: true},
+	} {
+		if err := store.CreateProxy(proxy); err != nil {
+			t.Fatalf("CreateProxy(%s): %v", proxy.Name, err)
+		}
+	}
+
+	app := &App{store: store}
+	nodeYAML, err := app.BuildConfigForMachine("node-a")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(node-a): %v", err)
+	}
+	if !strings.Contains(nodeYAML, "MATCH,node-a-proxy-1") || strings.Contains(nodeYAML, "GEOIP,CN,node-a-proxy-1") {
+		t.Fatalf("node-specific split mode was not applied consistently:\n%s", nodeYAML)
+	}
+	if !strings.Contains(nodeYAML, "global-proxy") {
+		t.Fatalf("global proxy should remain available to the Agent node:\n%s", nodeYAML)
+	}
+
+	controllerYAML, err := app.BuildConfigForMachine("")
+	if err != nil {
+		t.Fatalf("BuildConfigForMachine(controller): %v", err)
+	}
+	for _, want := range []string{"DOMAIN-SUFFIX,steampowered.com,global-proxy", "MATCH,DIRECT"} {
+		if !strings.Contains(controllerYAML, want) {
+			t.Errorf("persisted global game mode missing %q:\n%s", want, controllerYAML)
+		}
+	}
+}

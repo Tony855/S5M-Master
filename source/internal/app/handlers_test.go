@@ -1280,3 +1280,19 @@ func TestSaveNodeConfigRejectsUnpublishedProxyPort(t *testing.T) {
 		t.Fatalf("invalid proxy port config was persisted: %#v", cfg)
 	}
 }
+
+func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
+	proxy := Proxy{
+		Name:    "default-mode",
+		Type:    "socks5",
+		Server:  "192.0.2.10",
+		Port:    1080,
+		Enabled: true,
+	}
+	if message := (&App{}).validateProxy(&proxy); message != "" {
+		t.Fatalf("validateProxy() = %q, want success", message)
+	}
+	if proxy.Mode != "split" {
+		t.Fatalf("default proxy mode = %q, want split", proxy.Mode)
+	}
+}
