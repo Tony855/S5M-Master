@@ -388,6 +388,11 @@ createApp({
             }
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
             const code = String(message.machine_code);
+            if (String(selectedConfigNode.value || '').trim() === code &&
+                (message.type === 'agent.command.updated' || message.command_type === 'configure_smartdns')) {
+              if (message.type === 'agent.command.queued') smartDNSQueued.value = true;
+              else loadSmartDNSConfig();
+            }
             const index = agentEntries.value.findIndex(item => item.code === code);
             if (index >= 0) {
               const previous = agentEntries.value[index];
