@@ -82,17 +82,14 @@ func TestWriteSmartDNSFileAtomicallyFailurePreservesExistingConfig(t *testing.T)
 	if len(entries) != 2 {
 		t.Fatalf("unexpected leftover files after failed atomic replacement: %#v", entries)
 	}
-	for _, entry := range entries {
-		if entry.Name() != "existing.conf" && entry.Name() != "blocked.conf" && !strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
-			t.Fatalf("unexpected file after failed atomic replacement: %s", entry.Name())
-		}
+	if entries[0].Name() != "blocked.conf" && entries[0].Name() != "existing.conf" {
+		t.Fatalf("unexpected first entry: %s", entries[0].Name())
 	}
-	if len(entries) == 2 {
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), ".smartdns-restore-") {
-				t.Fatalf("temporary file leaked after failed atomic replacement: %s", entry.Name())
-			}
-		}
+	if entries[1].Name() != "blocked.conf" && entries[1].Name() != "existing.conf" {
+		t.Fatalf("unexpected second entry: %s", entries[1].Name())
+	}
+	if entries[0].Name() == entries[1].Name() {
+		t.Fatalf("unexpected duplicate entries: %#v", entries)
 	}
 }
 
