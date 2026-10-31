@@ -1283,6 +1283,12 @@ func TestAckAgentWSCommandRedactsSensitiveResultBeforePersisting(t *testing.T) {
 	if err := app.ackAgentWSCommand(code, "cmd-redact", "failed", message); err != nil {
 		t.Fatalf("ack command: %v", err)
 	}
+	// A reconnect may replay the same ACK after the server committed the first
+	// result but the acknowledgement frame was lost. The duplicate must remain
+	// idempotent and recover the original command type for the browser event.
+	if err := app.ackAgentWSCommand(code, "cmd-redact", "failed", message); err != nil {
+		t.Fatalf("duplicate ACK should be idempotent: %v", err)
+	}
 	settings, err := app.store.GetSettings()
 	if err != nil {
 		t.Fatalf("read command result: %v", err)

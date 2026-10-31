@@ -1,0 +1,29 @@
+#!/command/with-contenv sh
+set -eu
+
+DATA_DIR="${S5M_DATA_DIR:-/data}"
+LIVE_CONFIG="${SMARTDNS_CONFIG_PATH:-$DATA_DIR/smartdns.conf}"
+BACKUP_CONFIG="$LIVE_CONFIG.previous"
+PENDING_CONFIG="$LIVE_CONFIG.recovery-pending"
+
+mkdir -p "$DATA_DIR"
+
+# A leftover backup means the Agent was interrupted after beginning a config
+# transaction. Preserve it as a recovery marker, then restore it before s6
+# starts SmartDNS. Keep the marker until healthcheck confirms UDP and TCP DNS.
+if [ -f "$BACKUP_CONFIG" ]; then
+  # A newer interrupted transaction supersedes an older pending recovery copy.
+  mv -f "$BACKUP_CONFIG" "$PENDING_CONFIG"
+  # Persist the recovery journal rename before replacing the live config.
+  sync
+fi
+
+if [ -f "$PENDING_CONFIG" ]; then
+  restore_tmp="$DATA_DIR/.smartdns-recovery-$$"
+  trap 'rm -f "$restore_tmp"' EXIT INT TERM
+  install -m 0600 "$PENDING_CONFIG" "$restore_tmp"
+  mv -f "$restore_tmp" "$LIVE_CONFIG"
+  # Persist the restored directory entry before SmartDNS starts.
+  sync
+  trap - EXIT INT TERM
+fi

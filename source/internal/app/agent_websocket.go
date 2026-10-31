@@ -374,6 +374,56 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 				}
 			}
 			_ = client.writeJSON(reply)
+		case "agent.smartdns.get":
+			code := strings.TrimSpace(message.MachineCode)
+			if !smartDNSMachineCodePattern.MatchString(code) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "机器码格式无效"})
+				continue
+			}
+			settings, err := a.store.GetSettings()
+			if err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "读取 SmartDNS 状态失败"})
+				continue
+			}
+			token := strings.TrimSpace(settings["agent_machine_"+code])
+			if token == "" || token == strings.TrimSpace(settings["agent_token"]) {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "目标 Agent 未授权"})
+				continue
+			}
+			config := strings.TrimSpace(settings["agent_smartdns_config_"+code])
+			if config == "" {
+				config = defaultAgentSmartDNSConfig
+			}
+			status := map[string]any{}
+			if raw := strings.TrimSpace(settings["agent_status_"+code]); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &status)
+			}
+			commandResult := map[string]any{}
+			if raw := strings.TrimSpace(settings["agent_command_result_"+code]); raw != "" {
+				_ = json.Unmarshal([]byte(raw), &commandResult)
+			}
+			_ = client.writeJSON(map[string]any{
+				"type":                   "request.result",
+				"request_id":             message.RequestID,
+				"ok":                     true,
+				"machine_code":           code,
+				"config":                 config,
+				"desired_config_sha256":  hashSmartDNSConfig(config),
+				"reported_config_sha256": status["smartdns_config_sha256"],
+				"available":              status["smartdns_available"] == true,
+				"running":                status["smartdns_running"] == true,
+				"dns_healthy":            status["smartdns_dns_healthy"] == true,
+				"version":                status["smartdns_version"],
+				"last_error":             status["smartdns_last_error"],
+				"command_result":         commandResult,
+				"last_seen":              settings["agent_lastseen_"+code],
+			})
+		case "agent.smartdns.configure":
+			if err := a.queueAgentSmartDNSConfig(message.MachineCode, message.Config); err != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
+				continue
+			}
+			_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": true, "message": "SmartDNS 配置已通过 WebSocket 校验并排队"})
 		case "agent.mihomo.update":
 			if err := a.queueAgentMihomoUpdate(message.MachineCode, message.Version, message.SHA256); err != nil {
 				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": err.Error()})
@@ -887,6 +937,31 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
+	// Capture the pending command type before the atomic ACK removes it. The
+	// browser needs this discriminator to update the matching feature panel.
+	commandType := ""
+	settings, settingsErr := a.store.GetSettings()
+	if settingsErr != nil {
+		return fmt.Errorf("读取待确认命令类型失败: %w", settingsErr)
+	}
+	var pending map[string]any
+	if json.Unmarshal([]byte(settings["agent_command_"+machineCode]), &pending) == nil &&
+		fmt.Sprint(pending["id"]) == commandID {
+		commandType, _ = pending["type"].(string)
+	}
+	// The store deliberately accepts idempotent duplicate ACKs after the
+	// pending command has been removed. Recover the original type from that
+	// persisted result so a reconnect/retry still produces the same UI event.
+	if commandType == "" {
+		var previous map[string]any
+		if json.Unmarshal([]byte(settings["agent_command_result_"+machineCode]), &previous) == nil &&
+			fmt.Sprint(previous["id"]) == commandID {
+			commandType, _ = previous["type"].(string)
+		}
+	}
+	if commandType == "" {
+		return fmt.Errorf("待确认命令类型不存在或命令 ID 不匹配")
+	}
 	// Treat Agent-provided command output as untrusted: redact credentials and
 	// local filesystem paths before persisting it or publishing it to the UI.
 	message = sanitizeAgentWebSocketText(message)
@@ -897,7 +972,7 @@ func (a *App) ackAgentWSCommand(machineCode, commandID, status, message string) 
 	if !matched {
 		return fmt.Errorf("命令已被替换或不存在")
 	}
-	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\n", machineCode, commandID, status, message)
-	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "status": status, "message": message, "at": time.Now().Unix()})
+	fmt.Printf("agent_ws: command ack persisted machine_code=%q command_id=%q status=%q message=%q\\n", machineCode, commandID, status, message)
+	a.publishBrowserEvent(map[string]any{"type": "agent.command.updated", "machine_code": machineCode, "command_id": commandID, "command_type": commandType, "status": status, "message": message, "at": time.Now().Unix()})
 	return nil
 }
