@@ -441,7 +441,6 @@ func TestBackupSmartDNSConfigConcurrentWritersLeaveCompleteBackup(t *testing.T) 
 	}
 }
 
-
 func TestWithSmartDNSConfigUpdateLockSerializesConcurrentTransactions(t *testing.T) {
 	const workers = 12
 	var countersMu sync.Mutex
