@@ -838,11 +838,6 @@ func verifyMihomoRuntimeRules(client *http.Client, controllerURL, secret string,
 	return compareMihomoRuntimeRules(expected, payload.Rules)
 }
 
-func mustReadMihomoConfig(path string) []byte {
-	data, _ := os.ReadFile(path)
-	return data
-}
-
 // mihomoSecretCandidates returns unique secrets in previous-then-current order.
 // During a config transition, the running core may still accept the old secret,
 // or it may already have applied the new one despite a lost/ambiguous response.
@@ -877,6 +872,10 @@ func mihomoSecretCandidates(configPath string) ([]string, error) {
 
 func reloadMihomo() error {
 	configPath := mihomoConfigPath()
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("读取待重载 Mihomo 配置失败: %w", err)
+	}
 	secrets, err := mihomoSecretCandidates(configPath)
 	if err != nil {
 		return fmt.Errorf("无法确定 Mihomo API 鉴权密钥: %w", err)
@@ -908,7 +907,7 @@ func reloadMihomo() error {
 		_ = reloadResp.Body.Close()
 
 		if statusCode == http.StatusOK || statusCode == http.StatusNoContent {
-			if err := verifyMihomoRuntimeRules(client, "http://127.0.0.1:8088", secret, mustReadMihomoConfig(configPath)); err != nil {
+			if err := verifyMihomoRuntimeRules(client, "http://127.0.0.1:8088", secret, configData); err != nil {
 				return fmt.Errorf("Mihomo 已接受重载请求，但运行规则回读校验失败: %w", err)
 			}
 			return nil
