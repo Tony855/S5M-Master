@@ -31,6 +31,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: write
 
 env:
   IMAGE_NAME: ghcr.io/tony855/s5m-agent
