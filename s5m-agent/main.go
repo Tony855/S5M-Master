@@ -756,6 +756,32 @@ func rollbackConfigAfterReloadFailure() error {
 	return rollbackConfigFromPaths(mihomoConfigPath())
 }
 
+// rollbackAndVerifyConfig restores the last known-good file, reloads Mihomo,
+// and verifies the restored runtime rules. File restoration alone is not a
+// successful rollback because Mihomo may still be running the rejected config.
+func rollbackAndVerifyConfig(mainPath string, reload func() error, verify func([]byte) error) error {
+	if err := rollbackConfigFromPaths(mainPath); err != nil {
+		return fmt.Errorf("旧配置文件恢复失败: %w", err)
+	}
+	oldData, err := os.ReadFile(mainPath)
+	if err != nil {
+		return fmt.Errorf("旧配置文件已恢复但读取失败: %w", err)
+	}
+	if reload == nil {
+		return fmt.Errorf("旧配置文件已恢复但未提供 Mihomo 重载函数")
+	}
+	if err := reload(); err != nil {
+		return fmt.Errorf("旧配置文件已恢复但 Mihomo 重载失败: %w", err)
+	}
+	if verify == nil {
+		return fmt.Errorf("旧配置文件已恢复且已重载，但未提供运行规则验证函数")
+	}
+	if err := verify(oldData); err != nil {
+		return fmt.Errorf("旧配置文件已恢复且已重载，但运行规则验证失败: %w", err)
+	}
+	return nil
+}
+
 type mihomoRuntimeRule struct {
 	Type    string `json:"type"`
 	Payload string `json:"payload"`
