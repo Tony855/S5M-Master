@@ -169,7 +169,12 @@ func agentHeartbeatIsFresh(lastSeenRaw string, now time.Time) (int64, bool) {
 		return 0, false
 	}
 	age := now.Unix() - lastSeen
-	return lastSeen, age >= 0 && age < int64(smartDNSHeartbeatFreshness.Seconds())
+	if age < 0 {
+		// A future timestamp is invalid (clock skew or forged telemetry); do not
+		// expose it as a valid last-seen value in dashboard/status responses.
+		return 0, false
+	}
+	return lastSeen, age < int64(smartDNSHeartbeatFreshness.Seconds())
 }
 
 // smartDNSStatusFromSettings never presents persisted telemetry as live after
