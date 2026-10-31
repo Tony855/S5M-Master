@@ -260,7 +260,7 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 			if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
 				// The new configuration is already proven healthy. Keep the backup
 				// for manual recovery and do not report an applied config as failed.
-				fmt.Printf("SmartDNS: 无法清理旧配置备份: %v\\n", err)
+				fmt.Printf("SmartDNS: 无法清理旧配置备份: %v\n", err)
 			} else {
 				_ = syncSmartDNSDirectory(filepath.Dir(livePath))
 			}
