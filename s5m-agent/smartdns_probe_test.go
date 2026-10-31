@@ -96,8 +96,12 @@ func TestProbeSmartDNSDNSTCPAt(t *testing.T) {
 				done <- err
 			}()
 			got := probeSmartDNSDNSTCPAt(listener.Addr().String())
-			if got != (answerCount > 0) { t.Fatalf("probe = %v, want %v", got, answerCount > 0) }
-			if err := <-done; err != nil { t.Fatal(err) }
+			if got != (answerCount > 0) {
+				t.Fatalf("probe = %v, want %v", got, answerCount > 0)
+			}
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }
@@ -105,12 +109,22 @@ func TestProbeSmartDNSDNSTCPAt(t *testing.T) {
 func TestRestoreSmartDNSConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "smartdns.conf")
-	if err := os.WriteFile(path, []byte("new"), 0600); err != nil { t.Fatal(err) }
-	if err := restoreSmartDNSConfig(path, []byte("old"), true); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(path, []byte("new"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restoreSmartDNSConfig(path, []byte("old"), true); err != nil {
+		t.Fatal(err)
+	}
 	got, err := os.ReadFile(path)
-	if err != nil || string(got) != "old" { t.Fatalf("restored config = %q, err=%v", got, err) }
-	if err := restoreSmartDNSConfig(path, nil, false); err != nil { t.Fatal(err) }
-	if _, err := os.Stat(path); !os.IsNotExist(err) { t.Fatalf("expected removed config, stat err=%v", err) }
+	if err != nil || string(got) != "old" {
+		t.Fatalf("restored config = %q, err=%v", got, err)
+	}
+	if err := restoreSmartDNSConfig(path, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected removed config, stat err=%v", err)
+	}
 }
 
 
