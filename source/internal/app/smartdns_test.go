@@ -211,7 +211,7 @@ func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigCo
 func TestSmartDNSStatusExpiresOldAndMissingHeartbeats(t *testing.T) {
 	const code = "node_smartdns_stale"
 	base := map[string]string{
-		"agent_status_" + code:  `{"smartdns_available":true,"smartdns_running":true,"smartdns_dns_healthy":true,"smartdns_version":"old"}`,
+		"agent_status_" + code:   `{"smartdns_available":true,"smartdns_running":true,"smartdns_dns_healthy":true,"smartdns_version":"old"}`,
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Add(-5*time.Minute).Unix(), 10),
 	}
 	status := smartDNSStatusFromSettings(base, code)
@@ -230,7 +230,7 @@ func TestSmartDNSStatusRecognizesFreshLegacyAgentWithoutTelemetry(t *testing.T) 
 	const code = "node_smartdns_legacy"
 	settings := map[string]string{
 		"agent_lastseen_" + code: strconv.FormatInt(time.Now().Unix(), 10),
-		"agent_status_" + code:  `{"mihomo_healthy":true}`,
+		"agent_status_" + code:   `{"mihomo_healthy":true}`,
 	}
 	status := smartDNSStatusFromSettings(settings, code)
 	if status["online"] != true || status["telemetry_received"] != false ||
