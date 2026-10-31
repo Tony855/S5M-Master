@@ -560,17 +560,11 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 			if strings.TrimSpace(token) == "" || token == settings["agent_token"] {
 				continue
 			}
-			lastSeen, _ := strconv.ParseInt(settings["agent_lastseen_"+code], 10, 64)
+			lastSeen, online := agentHeartbeatIsFresh(settings["agent_lastseen_"+code], time.Unix(now, 0))
 			status := map[string]any{}
 			if raw := settings["agent_status_"+code]; raw != "" {
 				_ = json.Unmarshal([]byte(raw), &status)
 			}
-			if lastSeen <= 0 {
-				if receivedAt, ok := status["received_at"].(float64); ok && receivedAt > 0 && receivedAt <= 9.0e15 {
-					lastSeen = int64(receivedAt)
-				}
-			}
-			online := lastSeen > 0 && now-lastSeen >= 0 && now-lastSeen < 90
 			healthy, _ := status["mihomo_healthy"].(bool)
 			apiOnline := healthy
 			updatedAt := ""
