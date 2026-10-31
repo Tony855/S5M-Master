@@ -201,10 +201,6 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 	oldPID, _ := exec.Command("pidof", "smartdns").Output()
 	oldPID = bytes.TrimSpace(oldPID)
 	if err := exec.Command("s6-svc", "-r", "/run/service/smartdns").Run(); err != nil {
-		restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-		if restoreErr != nil {
-			return "", fmt.Errorf("重启 SmartDNS 失败且恢复旧配置失败: %w", restoreErr)
-		}
 		if verifyErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
 			func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
 			probeSmartDNSDNS); verifyErr != nil {
@@ -225,10 +221,6 @@ func writeSmartDNSConfig(data []byte) (string, error) {
 			return hex.EncodeToString(sum[:]), nil
 		}
 		time.Sleep(250 * time.Millisecond)
-	}
-	restoreErr := restoreSmartDNSConfig(livePath, oldData, hadOldConfig)
-	if restoreErr != nil {
-		return "", fmt.Errorf("SmartDNS 重载后未恢复运行，且回滚失败: %w", restoreErr)
 	}
 	if verifyErr := restartAndVerifySmartDNSRollback(livePath, oldData, hadOldConfig,
 		func() error { return exec.Command("s6-svc", "-r", "/run/service/smartdns").Run() },
