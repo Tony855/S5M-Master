@@ -223,10 +223,13 @@ func TestBuildConfigForMachineUsesSeparateControllerAndAgentProxyPorts(t *testin
 	if strings.Contains(agentYAML, "mixed-port: 8080") {
 		t.Fatalf("Agent config unexpectedly retained controller port 8080:\n%s", agentYAML)
 	}
-	for _, want := range []string{"listen: 127.0.0.1:5353", "DOMAIN-SUFFIX,v2net.cc,DIRECT", "enable: false"} {
+	for _, want := range []string{"listen: 127.0.0.1:5353", "MATCH,REJECT", "enable: false"} {
 		if !strings.Contains(agentYAML, want) {
-			t.Errorf("Agent initial config missing %q:\\n%s", want, agentYAML)
+			t.Errorf("Agent initial rule-mode config missing %q:\\n%s", want, agentYAML)
 		}
+	}
+	if strings.Contains(agentYAML, ",DIRECT") {
+		t.Fatalf("default rule mode must not contain direct routes:\\n%s", agentYAML)
 	}
 }
 
