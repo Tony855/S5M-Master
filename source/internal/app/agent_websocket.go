@@ -569,6 +569,39 @@ func validateAgentWSStatus(status map[string]any) error {
 	if !ok || len(lastError) > agentWSMaxErrorBytes {
 		return fmt.Errorf("last_error 必须是长度不超过 %d 字节的字符串", agentWSMaxErrorBytes)
 	}
+	// SmartDNS telemetry is optional for older Agent images, but when present it
+	// must be strongly typed before being persisted and broadcast to the UI.
+	for _, key := range []string{"smartdns_available", "smartdns_running", "smartdns_dns_healthy"} {
+		if value, exists := status[key]; exists {
+			if _, ok := value.(bool); !ok {
+				return fmt.Errorf("%s 必须是布尔值", key)
+			}
+		}
+	}
+	if value, exists := status["smartdns_version"]; exists {
+		version, ok := value.(string)
+		if !ok || len(version) > agentWSMaxVersionBytes {
+			return fmt.Errorf("smartdns_version 必须是长度不超过 %d 字节的字符串", agentWSMaxVersionBytes)
+		}
+	}
+	if value, exists := status["smartdns_config_sha256"]; exists {
+		hash, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("smartdns_config_sha256 必须是字符串")
+		}
+		if hash != "" {
+			decoded, err := hex.DecodeString(hash)
+			if err != nil || len(decoded) != 32 {
+				return fmt.Errorf("smartdns_config_sha256 必须为空或 64 位十六进制 SHA-256")
+			}
+		}
+	}
+	if value, exists := status["smartdns_last_error"]; exists {
+		message, ok := value.(string)
+		if !ok || len(message) > agentWSMaxErrorBytes {
+			return fmt.Errorf("smartdns_last_error 必须是长度不超过 %d 字节的字符串", agentWSMaxErrorBytes)
+		}
+	}
 	return nil
 }
 
