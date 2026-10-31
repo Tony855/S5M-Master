@@ -473,13 +473,13 @@ func TestExpectedMihomoRules(t *testing.T) {
 
 func TestNormalizeMihomoRuleType(t *testing.T) {
 	cases := map[string]string{
-		"DOMAIN-SUFFIX": "domainsuffix",
-		"DomainSuffix": "domainsuffix",
-		"IP-CIDR": "ipcidr",
-		"IpCidr": "ipcidr",
+		"DOMAIN-SUFFIX":  "domainsuffix",
+		"DomainSuffix":   "domainsuffix",
+		"IP-CIDR":        "ipcidr",
+		"IpCidr":         "ipcidr",
 		"DOMAIN_KEYWORD": "domainkeyword",
-		"DomainKeyword": "domainkeyword",
-		" MATCH ": "match",
+		"DomainKeyword":  "domainkeyword",
+		" MATCH ":        "match",
 	}
 	for input, want := range cases {
 		if got := normalizeMihomoRuleType(input); got != want {
