@@ -1296,3 +1296,57 @@ func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
 		t.Fatalf("default proxy mode = %q, want split", proxy.Mode)
 	}
 }
+ 
+func TestHandleUpdateSettingsRegeneratesAuthorizedNodeConfigsForRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-settings.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "node_mode_sync"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_token": "global-secret",
+		"agent_machine_" + machineCode: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("seed Agent authorization: %v", err)
+	}
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"return"}`))
+	rec := httptest.NewRecorder()
+
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(machineCode)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg == nil || !strings.Contains(cfg.YAML, "GEOIP,CN,") || !strings.Contains(cfg.YAML, "MATCH,DIRECT") {
+		t.Fatalf("routing-mode change did not regenerate return-mode node YAML: %#v", cfg)
+	}
+}
+
+func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-invalid.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"invalid"}`))
+	rec := httptest.NewRecorder()
+
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if _, exists := settings["proxy_routing_mode"]; exists {
+		t.Fatal("invalid routing mode was persisted")
+	}
+}
