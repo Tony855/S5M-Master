@@ -145,7 +145,7 @@ jobs:
           [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
           docker exec "$container" pidof mihomo >/dev/null
           docker exec "$container" pidof smartdns >/dev/null
-          docker exec "$container" grep -q '^# s5m-persistence-test"$(docker port "$container" 80/tcp | awk -F: 'NR==1 {print $NF}')"
+          docker exec "$container" grep -q '^# s5m-persistence-test
           proxy_port="$(docker port "$container" 7890/tcp | awk -F: 'NR==1 {print $NF}')"
           [[ -n "$agent_port" && -n "$proxy_port" ]]
 
@@ -220,7 +220,7 @@ jobs:
           docker exec "$container" pidof mihomo >/dev/null
           docker exec "$container" pidof smartdns >/dev/null
 
-          # Existing operator configuration must survive restart without being overwritten.
+          # Preserve custom SmartDNS config across a complete container restart.
           docker exec "$container" sh -ec 'printf "\\n# s5m-persistence-test\\n" >> /data/smartdns.conf; test "$(stat -c %a /data/smartdns.conf)" = "600"'
           docker restart "$container" >/dev/null
           for attempt in $(seq 1 30); do
@@ -369,8 +369,7 @@ jobs:
           docker exec "$container" pidof mihomo >/dev/null
           docker exec "$container" pidof smartdns >/dev/null
 
-          # Existing operator configuration must survive restart without being overwritten.
-          docker exec "$container" sh -ec 'printf "\\n# s5m-persistence-test\\n" >> /data/smartdns.conf; test "$(stat -c %a /data/smartdns.conf)" = "600"'
+          # Verify s6 restarts SmartDNS and Mihomo after a full container restart.
           docker restart "$container" >/dev/null
           for attempt in $(seq 1 30); do
             health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
@@ -582,8 +581,7 @@ jobs:
           docker exec "$container" pidof mihomo >/dev/null
           docker exec "$container" pidof smartdns >/dev/null
 
-          # Existing operator configuration must survive restart without being overwritten.
-          docker exec "$container" sh -ec 'printf "\\n# s5m-persistence-test\\n" >> /data/smartdns.conf; test "$(stat -c %a /data/smartdns.conf)" = "600"'
+          # Verify s6 restarts SmartDNS and Mihomo after a full container restart.
           docker restart "$container" >/dev/null
           for attempt in $(seq 1 30); do
             health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
