@@ -208,7 +208,6 @@ func TestQueueAgentSmartDNSConfigConcurrentRequestsKeepCommandAndDesiredConfigCo
 	}
 }
 
-
 func TestSmartDNSStatusExpiresOldAndMissingHeartbeats(t *testing.T) {
 	const code = "node_smartdns_stale"
 	base := map[string]string{
