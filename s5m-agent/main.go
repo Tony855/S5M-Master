@@ -753,7 +753,24 @@ func rollbackConfigFromPaths(mainPath string) error {
 }
 
 func rollbackConfigAfterReloadFailure() error {
-	return rollbackConfigFromPaths(mihomoConfigPath())
+	return rollbackConfigAtPath(mihomoConfigPath(), reloadMihomo)
+}
+
+// rollbackConfigAtPath keeps rollback behavior testable without a live Mihomo API.
+func rollbackConfigAtPath(configPath string, reload func() error) error {
+	return rollbackAndVerifyConfig(configPath, reload, func([]byte) error { return nil })
+}
+
+// rollbackAndVerifyConfig restores the previous file, reloads Mihomo and verifies it.
+func rollbackAndVerifyConfig(mainPath string, reload func() error, verify func([]byte) error) error {
+	if err := rollbackConfigFromPaths(mainPath); err != nil { return fmt.Errorf("旧配置文件恢复失败: %w", err) }
+	oldData, err := os.ReadFile(mainPath)
+	if err != nil { return fmt.Errorf("旧配置文件已恢复但读取失败: %w", err) }
+	if reload == nil { return fmt.Errorf("旧配置文件已恢复但未提供 Mihomo 重载函数") }
+	if err := reload(); err != nil { return fmt.Errorf("旧配置文件已恢复但 Mihomo 重载失败: %w", err) }
+	if verify == nil { return fmt.Errorf("旧配置文件已恢复且已重载，但未提供运行规则验证函数") }
+	if err := verify(oldData); err != nil { return fmt.Errorf("旧配置文件已恢复且已重载，但运行规则验证失败: %w", err) }
+	return nil
 }
 
 type mihomoRuntimeRule struct {
@@ -803,13 +820,20 @@ func expectedMihomoRules(config []byte) ([]mihomoRuntimeRule, error) {
 	return rules, nil
 }
 
+// normalizeMihomoRuleType makes YAML and Mihomo API rule names comparable.
+func normalizeMihomoRuleType(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)
+	return strings.ToLower(value)
+}
+
 func compareMihomoRuntimeRules(expected, actual []mihomoRuntimeRule) error {
 	if len(expected) != len(actual) {
 		return fmt.Errorf("Mihomo 生效规则数量不匹配: 期望 %d，实际 %d", len(expected), len(actual))
 	}
 	for i := range expected {
 		want, got := expected[i], actual[i]
-		if !strings.EqualFold(strings.TrimSpace(want.Type), strings.TrimSpace(got.Type)) ||
+		if normalizeMihomoRuleType(want.Type) != normalizeMihomoRuleType(got.Type) ||
 			strings.TrimSpace(want.Payload) != strings.TrimSpace(got.Payload) ||
 			strings.TrimSpace(want.Proxy) != strings.TrimSpace(got.Proxy) {
 			return fmt.Errorf("Mihomo 第 %d 条生效规则不匹配: 期望 %s,%s,%s；实际 %s,%s,%s",
