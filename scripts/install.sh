@@ -133,11 +133,12 @@ if ! apt-get install -y -qq "${apt_packages[@]}" > /dev/null; then
   exit 1
 fi
 
-# ===== 同步并安装独立 SmartDNS Agent 源码 =====
-# 将官方 SmartDNS Agent main 分支同步到固定目录，不与 S5M-Server 源码混放。
+# ===== 同步独立 Agent + SmartDNS 仓库 =====
+# Agent/Mihomo/SmartDNS 作为 GHCR Docker 镜像运行；这里只同步独立仓库源码，
+# 不将 Agent 源码或容器内部文件复制到主控运行目录 /opt/S5M-Server。
 SMARTDNS_REPO="https://github.com/Tony855/S5M-Agent-SmartDNS.git"
 SMARTDNS_BRANCH="main"
-SMARTDNS_DIR="/root/S5M-SmartDNS"
+SMARTDNS_DIR="/root/S5M-Agent-SmartDNS"
 SMARTDNS_PARENT="/root"
 SMARTDNS_TMP=""
 
@@ -149,9 +150,9 @@ cleanup_smartdns_tmp() {
 trap cleanup_smartdns_tmp EXIT
 
 ensure_smartdns_source() {
-  echo "ℹ️ 正在同步 SmartDNS Agent 最新源码..."
+  echo "ℹ️ 正在同步独立仓库 Tony855/S5M-Agent-SmartDNS（main）..."
   if [[ ! -e "$SMARTDNS_DIR" ]]; then
-    SMARTDNS_TMP="$(mktemp -d "$SMARTDNS_PARENT/.S5M-SmartDNS.XXXXXX")"
+    SMARTDNS_TMP="$(mktemp -d "$SMARTDNS_PARENT/.S5M-Agent-SmartDNS.XXXXXX")"
     rmdir "$SMARTDNS_TMP"
     if ! git clone --depth 1 --branch "$SMARTDNS_BRANCH" "$SMARTDNS_REPO" "$SMARTDNS_TMP"; then
       echo "❌ SmartDNS Agent 仓库克隆失败，目标目录未创建。" >&2
@@ -200,7 +201,7 @@ ensure_smartdns_source() {
   fi
 
   chown -R root:root "$SMARTDNS_DIR"
-  echo "✅ SmartDNS Agent 源码已同步：$SMARTDNS_DIR"
+  echo "✅ 独立 Agent + SmartDNS 仓库已同步：$SMARTDNS_DIR"
   echo "   分支：$(git -C "$SMARTDNS_DIR" branch --show-current)"
   echo "   提交：$(git -C "$SMARTDNS_DIR" rev-parse --short HEAD)"
 }
