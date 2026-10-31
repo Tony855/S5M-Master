@@ -785,8 +785,8 @@ func expectedMihomoRules(config []byte) ([]mihomoRuntimeRule, error) {
 			return nil, fmt.Errorf("待验证规则第 %d 项缺少目标策略", i)
 		}
 		rule := mihomoRuntimeRule{
-			Type: strings.TrimSpace(parts[0]),
-			Proxy: strings.TrimSpace(parts[end-1]),
+			Type:    strings.TrimSpace(parts[0]),
+			Proxy:   strings.TrimSpace(parts[end-1]),
 			Payload: strings.TrimSpace(strings.Join(parts[1:end-1], ",")),
 		}
 		if rule.Type == "" || rule.Proxy == "" {
