@@ -1332,6 +1332,38 @@ func TestHandleUpdateSettingsRegeneratesAuthorizedNodeConfigsForRoutingMode(t *t
 	}
 }
 
+func TestHandleUpdateSettingsAcceptsRuleRoutingMode(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-rule.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	const machineCode = "node_rule_mode"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + machineCode: "dedicated-secret",
+	}); err != nil {
+		t.Fatalf("seed Agent authorization: %v", err)
+	}
+	proxy := &Proxy{Name: "rule-mode-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.82", Port: 1080, MachineCode: machineCode, Enabled: true}
+	if err := store.CreateProxy(proxy); err != nil {
+		t.Fatalf("seed node proxy: %v", err)
+	}
+	app := &App{store: store}
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"rule"}`))
+	rec := httptest.NewRecorder()
+	app.handleUpdateSettings(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	cfg, err := store.GetNodeConfig(machineCode)
+	if err != nil {
+		t.Fatalf("GetNodeConfig: %v", err)
+	}
+	if cfg == nil || !strings.Contains(cfg.YAML, "MATCH,rule-mode-proxy") || strings.Contains(cfg.YAML, "MATCH,DIRECT") {
+		t.Fatalf("rule mode was not applied to regenerated node YAML: %#v", cfg)
+	}
+}
+
 func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "routing-mode-invalid.db"))
 	if err != nil {
