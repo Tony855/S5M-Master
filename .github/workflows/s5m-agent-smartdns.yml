@@ -90,7 +90,13 @@ jobs:
             test -x /usr/sbin/smartdns
             test -x /init
             test -x /etc/s6-overlay/s6-rc.d/smartdns/run
+            test -s /etc/s6-overlay/s6-rc.d/smartdns/type
+            test -e /etc/s6-overlay/s6-rc.d/user/contents.d/smartdns
+            test -e /etc/s6-overlay/s6-rc.d/mihomo/dependencies.d/smartdns
+            test -s /usr/share/licenses/smartdns/LICENSE
+            test -s /usr/share/licenses/smartdns/SOURCE_COMMIT
             grep -q "127.0.0.1:6053" /app/default-config.yaml
+            grep -q "image: ghcr.io/tony855/s5m-agent-smartdns:dev" s5m-agent/docker-compose.yml
             /usr/local/bin/mihomo -v
             /usr/sbin/smartdns -h >/dev/null 2>&1 || true
           '
@@ -121,6 +127,17 @@ jobs:
             sleep 2
           done
 
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
+          docker exec "$container" pidof mihomo >/dev/null
+          docker exec "$container" pidof smartdns >/dev/null
+
+          # A container restart must recreate the s6-managed resolver and keep DNS healthy.
+          docker restart "$container" >/dev/null
+          for attempt in $(seq 1 30); do
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            if [[ "$health" == "healthy" ]] && docker exec "$container" pidof smartdns >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
           [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == "healthy" ]]
           docker exec "$container" pidof mihomo >/dev/null
           docker exec "$container" pidof smartdns >/dev/null
