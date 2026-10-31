@@ -337,7 +337,7 @@ func (a *App) validateProxy(p *Proxy) string {
 	}
 	p.Mode = strings.TrimSpace(p.Mode)
 	if p.Mode == "" {
-		p.Mode = "proxy"
+		p.Mode = "split"
 	}
 	switch p.Mode {
 	case "proxy", "china", "global", "split", "return", "game":
