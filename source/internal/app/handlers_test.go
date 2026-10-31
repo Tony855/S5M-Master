@@ -1311,6 +1311,10 @@ func TestHandleUpdateSettingsRegeneratesAuthorizedNodeConfigsForRoutingMode(t *t
 	}); err != nil {
 		t.Fatalf("seed Agent authorization: %v", err)
 	}
+	proxy := &Proxy{Name: "node-mode-proxy", Mode: "proxy", Type: "socks5", Server: "192.0.2.81", Port: 1080, MachineCode: machineCode, Enabled: true}
+	if err := store.CreateProxy(proxy); err != nil {
+		t.Fatalf("seed node proxy: %v", err)
+	}
 	app := &App{store: store}
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(`{"proxy_routing_mode":"return"}`))
 	rec := httptest.NewRecorder()
