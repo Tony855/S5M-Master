@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestBackupSmartDNSConfigMissingLiveFileIsSupported(t *testing.T) {
@@ -132,11 +133,11 @@ func TestRestartAndVerifySmartDNSRollbackFailsWhenOldDNSIsNotHealthy(t *testing.
 	if err := os.WriteFile(live, []byte("new-config\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	err := restartAndVerifySmartDNSRollback(live, old, true, func() error {
+	err := restartAndVerifySmartDNSRollbackWithTimeout(live, old, true, func() error {
 		return nil
 	}, func() bool {
 		return false
-	})
+	}, 20*time.Millisecond, time.Millisecond)
 	if err == nil {
 		t.Fatal("rollback must fail when restored DNS does not answer")
 	}
@@ -171,6 +172,37 @@ func TestRestartAndVerifySmartDNSRollbackRemovesNewFileWhenNoOldConfigExisted(t 
 	}
 	if _, err := os.Stat(live); !os.IsNotExist(err) {
 		t.Fatalf("new config must be removed when no old config existed; stat error=%v", err)
+	}
+}
+
+func TestRestartAndVerifySmartDNSRollbackWaitsForDNSReadiness(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "smartdns.conf")
+	old := []byte("old-config\n")
+	if err := os.WriteFile(live, []byte("new-config\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	probes := 0
+	err := restartAndVerifySmartDNSRollbackWithTimeout(live, old, true, func() error {
+		return nil
+	}, func() bool {
+		probes++
+		return probes >= 3
+	}, 100*time.Millisecond, time.Millisecond)
+	if err != nil {
+		t.Fatalf("rollback should wait for resolver readiness: %v", err)
+	}
+	if probes < 3 {
+		t.Fatalf("expected readiness retries, got %d probe(s)", probes)
+	}
+}
+
+func TestWaitForSmartDNSDNSRejectsNilProbeAndInvalidTimeout(t *testing.T) {
+	if waitForSmartDNSDNS(nil, time.Second, time.Millisecond) {
+		t.Fatal("nil DNS probe must not be considered healthy")
+	}
+	if waitForSmartDNSDNS(func() bool { return true }, 0, time.Millisecond) {
+		t.Fatal("zero timeout must not be considered a successful health check")
 	}
 }
 
