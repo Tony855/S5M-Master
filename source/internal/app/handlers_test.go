@@ -1283,10 +1283,10 @@ func TestSaveNodeConfigRejectsUnpublishedProxyPort(t *testing.T) {
 
 func TestValidateProxyDefaultsToSplitMode(t *testing.T) {
 	proxy := Proxy{
-		Name: "default-mode",
-		Type: "socks5",
-		Server: "192.0.2.10",
-		Port: 1080,
+		Name:    "default-mode",
+		Type:    "socks5",
+		Server:  "192.0.2.10",
+		Port:    1080,
 		Enabled: true,
 	}
 	if message := (&App{}).validateProxy(&proxy); message != "" {
