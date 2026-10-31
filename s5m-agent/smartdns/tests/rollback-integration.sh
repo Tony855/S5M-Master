@@ -98,26 +98,36 @@ if ! wait_for_answer; then
   echo "Initial SmartDNS process did not answer UDP and TCP DNS" >&2
   exit 1
 fi
-stop_smartdns
-
-# First cover a candidate that cannot start at all (invalid bind port). The
-# command must exit with an error; then restore and verify the previous config.
+# Keep the known-good process bound to the target UDP/TCP port while a
+# second process attempts to start with the candidate config. This creates a
+# deterministic real bind conflict rather than relying on parser-specific
+# handling of malformed port strings.
 cat > "$CONFIG" <<'EOF'
-bind 127.0.0.1:not-a-port
+bind 127.0.0.1:16053
 bind-tcp 127.0.0.1:16053
 server 223.5.5.5
+cache-size 1024
+log-level error
+log-console yes
+log-syslog no
 EOF
 set +e
-timeout 3 "$SMARTDNS_BIN" -f -x -p "$PID_FILE" -c "$CONFIG" >>"$LOG_FILE" 2>&1
+timeout 3 "$SMARTDNS_BIN" -f -x -p "$TEST_DIR/candidate.pid" -c "$CONFIG" >>"$LOG_FILE" 2>&1
 candidate_status=$?
 set -e
 if [ "$candidate_status" -eq 0 ] || [ "$candidate_status" -eq 124 ]; then
   cat "$LOG_FILE" >&2
-  echo "Invalid SmartDNS candidate unexpectedly stayed running" >&2
+  echo "SmartDNS candidate unexpectedly stayed running despite occupied UDP/TCP bind ports" >&2
+  exit 1
+fi
+if ! query_has_answer; then
+  cat "$LOG_FILE" >&2
+  echo "Known-good SmartDNS process stopped answering during candidate bind conflict" >&2
   exit 1
 fi
 cp "$BACKUP" "$CONFIG"
 cmp -s "$CONFIG" "$BACKUP"
+stop_smartdns
 start_smartdns
 if ! wait_for_answer; then
   cat "$LOG_FILE" >&2
