@@ -1413,3 +1413,66 @@ func TestAgentHeartbeatFreshnessIsSharedAndStrict(t *testing.T) {
 		})
 	}
 }
+
+
+func TestSmartDNSStatusRequiresFreshHeartbeatAndCompleteTelemetry(t *testing.T) {
+	now := time.Now().Unix()
+	complete := map[string]any{
+		"smartdns_available": false,
+		"smartdns_running": false,
+		"smartdns_dns_healthy": false,
+		"smartdns_version": "",
+		"smartdns_config_sha256": "",
+		"smartdns_last_error": "",
+	}
+	raw, err := json.Marshal(complete)
+	if err != nil {
+		t.Fatalf("marshal telemetry: %v", err)
+	}
+
+	t.Run("complete fresh telemetry", func(t *testing.T) {
+		got := smartDNSStatusFromSettings(map[string]string{
+			"agent_lastseen_node": strconv.FormatInt(now, 10),
+			"agent_status_node": string(raw),
+		}, "node")
+		if got["online"] != true || got["telemetry_received"] != true {
+			t.Fatalf("complete fresh telemetry should be online and received: %#v", got)
+		}
+		if got["smartdns_available"] != false || got["smartdns_running"] != false || got["smartdns_dns_healthy"] != false {
+			t.Fatalf("valid negative SmartDNS state must remain distinguishable from missing telemetry: %#v", got)
+		}
+	})
+
+	t.Run("missing telemetry field", func(t *testing.T) {
+		incomplete := map[string]any{
+			"smartdns_available": true,
+			"smartdns_running": true,
+			"smartdns_dns_healthy": true,
+			"smartdns_version": "1.2026",
+		}
+		data, _ := json.Marshal(incomplete)
+		got := smartDNSStatusFromSettings(map[string]string{
+			"agent_lastseen_node": strconv.FormatInt(now, 10),
+			"agent_status_node": string(data),
+		}, "node")
+		if got["online"] != true || got["telemetry_received"] != false {
+			t.Fatalf("incomplete telemetry must not be treated as received: %#v", got)
+		}
+		if got["smartdns_last_error"] != "当前 Agent 版本尚未上报 SmartDNS 状态" {
+			t.Fatalf("unexpected missing telemetry diagnostic: %#v", got)
+		}
+	})
+
+	t.Run("stale heartbeat hides old telemetry", func(t *testing.T) {
+		got := smartDNSStatusFromSettings(map[string]string{
+			"agent_lastseen_node": strconv.FormatInt(now-120, 10),
+			"agent_status_node": string(raw),
+		}, "node")
+		if got["online"] != false || got["telemetry_received"] != false {
+			t.Fatalf("stale telemetry must not appear live: %#v", got)
+		}
+		if got["smartdns_last_error"] != "Agent 心跳已过期，SmartDNS 状态暂不可用" {
+			t.Fatalf("unexpected stale telemetry diagnostic: %#v", got)
+		}
+	})
+}
