@@ -146,7 +146,6 @@ func TestValidateSmartDNSConfigAllowsSafeUpstreamHostname(t *testing.T) {
 	}
 }
 
-
 func TestWriteSmartDNSFileAtomicallyFailureModes(t *testing.T) {
 	t.Run("backup directory unavailable", func(t *testing.T) {
 		root := t.TempDir()
