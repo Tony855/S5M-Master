@@ -162,7 +162,7 @@ sync_smartdns_source() {
         return 1
         ;;
     esac
-    if ! git -C "$SMARTDNS_DIR" fetch --prune origin "$SMARTDNS_BRANCH"; then
+    if ! git -C "$SMARTDNS_DIR" fetch --prune origin "+refs/heads/$SMARTDNS_BRANCH:refs/remotes/origin/$SMARTDNS_BRANCH"; then
       echo "❌ 获取 S5M Agent + SmartDNS 最新代码失败。" >&2
       return 1
     fi
