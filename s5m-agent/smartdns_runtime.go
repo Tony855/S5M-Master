@@ -311,11 +311,12 @@ func backupSmartDNSConfig(livePath, backupPath string) ([]byte, bool, error) {
 		// A backup from an earlier installation must never be mistaken for
 		// the rollback point of this first-time configuration. Remove it and
 		// durably record that no previous live config exists.
-		if removeErr := os.Remove(backupPath); removeErr != nil && !os.IsNotExist(removeErr) {
+		if removeErr := os.Remove(backupPath); removeErr == nil {
+			if syncErr := smartDNSDirectorySync(filepath.Dir(backupPath)); syncErr != nil {
+				return nil, false, fmt.Errorf("同步 SmartDNS 备份目录失败: %w", syncErr)
+			}
+		} else if !os.IsNotExist(removeErr) {
 			return nil, false, fmt.Errorf("清理过期 SmartDNS 备份失败: %w", removeErr)
-		}
-		if syncErr := smartDNSDirectorySync(filepath.Dir(backupPath)); syncErr != nil {
-			return nil, false, fmt.Errorf("同步 SmartDNS 备份目录失败: %w", syncErr)
 		}
 		return nil, false, nil
 	}
