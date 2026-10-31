@@ -25,8 +25,18 @@ on:
         type: string
         default: ""
 
+# Serialize a manual release and its matching tag-push workflow as one run.
+# Both resolve to refs/tags/s5m-agent-vX.Y.Z; ordinary branch builds remain
+# isolated by their own ref. Never cancel a run that may be publishing.
+concurrency:
+  # Serialize all stable releases together so an older version cannot race a newer one
+  # while deciding whether it is allowed to update the mutable GHCR latest tag.
+  group: s5m-agent-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.release_version != '') && 'stable-release' || (startsWith(github.ref, 'refs/tags/s5m-agent-v') && 'stable-release') || github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
+  packages: write
 
 env:
   IMAGE_NAME: ghcr.io/tony855/s5m-agent
@@ -40,6 +50,7 @@ jobs:
       packages: write
     outputs:
       release_version: ${{ steps.tags.outputs.release_version }}
+      image_tags: ${{ steps.tags.outputs.tags }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -56,7 +67,7 @@ jobs:
           if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == s5m-agent-v* ]]; then
             release_version="${GITHUB_REF_NAME#s5m-agent-v}"
           elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            # Trim accidental leading/trailing whitespace from the UI input.
+            # Preserve the raw UI input so validation and the workflow concurrency key use the same version.
             release_version="$(printf '%s' "${RELEASE_VERSION_INPUT}" | tr -d '[:space:]')"
           fi
 
@@ -75,17 +86,46 @@ jobs:
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && -n "${release_version}" ]]; then
             release_tag="s5m-agent-v${release_version}"
-            if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
+            if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+              echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to continue."
+              exit 1
+            fi
+            if [[ -n "${existing_tag_refs}" ]]; then
               echo "::error title=Release tag already exists::${release_tag} already exists. Choose a new version."
               exit 1
             fi
+          fi
+
+          publish_latest="false"
+          if [[ -n "${release_version}" ]]; then
+            # Only the numerically highest stable version may move the mutable latest tag.
+            if ! remote_release_tags="$(git ls-remote --tags --refs origin 'refs/tags/s5m-agent-v*')"; then
+              echo "::error title=Release tag listing failed::Could not determine the highest published S5M Agent version."
+              exit 1
+            fi
+            highest_version="$(
+              printf '%s\n' "${remote_release_tags}" |
+                awk '{sub(/^refs\/tags\/s5m-agent-v/, "", $2); if ($2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $2}' |
+                sort -V | tail -n 1
+            )"
+            if [[ -z "${highest_version}" || "$(printf '%s\n' "${release_version}" "${highest_version}" | sort -V | tail -n 1)" == "${release_version}" ]]; then
+              publish_latest="true"
+            fi
+            echo "latest_tag_candidate=${publish_latest}" >> "$GITHUB_OUTPUT"
           fi
 
           {
             echo "tags<<EOF"
             if [[ -n "${release_version}" ]]; then
               echo "${IMAGE_NAME}:v${release_version}"
-              echo "${IMAGE_NAME}:latest"
+              if [[ "${publish_latest}" == "true" ]]; then
+                echo "${IMAGE_NAME}:latest"
+              else
+                echo "Not moving latest: published stable version ${highest_version} is newer than ${release_version}."
+              fi
+            elif [[ "${GITHUB_REF_TYPE}" == "branch" && "${GITHUB_REF_NAME}" == "main" ]]; then
+              # Keep ordinary main builds separate from development builds.
+              echo "${IMAGE_NAME}:main"
             else
               echo "${IMAGE_NAME}:dev"
             fi
@@ -287,7 +327,7 @@ jobs:
         run: |
           mkdir -p dist
           docker save s5m-agent:amd64-test -o dist/s5m-agent-linux-amd64.tar
-          sha256sum dist/s5m-agent-linux-amd64.tar > dist/s5m-agent-linux-amd64.tar.sha256
+          (cd dist && sha256sum s5m-agent-linux-amd64.tar > s5m-agent-linux-amd64.tar.sha256)
 
       - name: Upload amd64 archive
         uses: actions/upload-artifact@v4
@@ -298,7 +338,7 @@ jobs:
           retention-days: 90
 
   build-arm64-archive:
-    name: Build ARM64 RouterOS archive
+    name: Build ARM64 Linux archive
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -323,15 +363,18 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Validate ARM64 image contents
+      - name: Validate ARM64 image contents and architecture
+        shell: bash
         run: |
+          set -euo pipefail
+          docker image inspect s5m-agent:arm64-test --format '{{.Os}}/{{.Architecture}}' | grep -Fx 'linux/arm64'
           docker run --rm --platform linux/arm64 --entrypoint /bin/sh s5m-agent:arm64-test -c 'test -x /app/s5m-agent && test -x /usr/local/bin/mihomo && test -x /healthcheck.sh && test -x /init && test -x /etc/cont-init.d/10-mihomo-config && test -x /etc/s6-overlay/s6-rc.d/mihomo/run && test -x /etc/s6-overlay/s6-rc.d/agent/run && /usr/local/bin/mihomo -v'
 
       - name: Export ARM64 archive
         run: |
           mkdir -p dist
           docker save s5m-agent:arm64-test -o dist/s5m-agent-linux-arm64.tar
-          sha256sum dist/s5m-agent-linux-arm64.tar > dist/s5m-agent-linux-arm64.tar.sha256
+          (cd dist && sha256sum s5m-agent-linux-arm64.tar > s5m-agent-linux-arm64.tar.sha256)
 
       - name: Upload ARM64 archive
         uses: actions/upload-artifact@v4
@@ -442,7 +485,7 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           docker save s5m-agent:routeros-${{ matrix.arch }}-test -o dist/s5m-agent-routeros-${{ matrix.arch }}.tar
-          sha256sum dist/s5m-agent-routeros-${{ matrix.arch }}.tar > dist/s5m-agent-routeros-${{ matrix.arch }}.tar.sha256
+          (cd dist && sha256sum s5m-agent-routeros-${{ matrix.arch }}.tar > s5m-agent-routeros-${{ matrix.arch }}.tar.sha256)
       - name: Upload RouterOS archive
         uses: actions/upload-artifact@v4
         with:
@@ -451,16 +494,190 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  publish-container-image:
+    name: Publish multi-arch Agent image to GHCR
+    if: github.event_name != 'pull_request' && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success'
+    needs: [build-and-publish, build-arm64-archive, build-routeros-archives]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Verify stable release tag before GHCR push
+        if: needs.build-and-publish.outputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          release_tag="s5m-agent-v${RELEASE_VERSION}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            # A tag-triggered release must use the commit that the pushed tag resolves to.
+            if ! tag_commit="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"; then
+              echo "::error title=Tag verification failed::Could not resolve ${GITHUB_REF} to a commit."
+              exit 1
+            fi
+            if [[ "${tag_commit}" != "${GITHUB_SHA}" ]]; then
+              echo "::error title=Tag commit mismatch::${release_tag} resolves to ${tag_commit}, but this workflow checked out ${GITHUB_SHA}."
+              exit 1
+            fi
+            if ! remote_tag_refs="$(git ls-remote origin "refs/tags/${release_tag}" "refs/tags/${release_tag}^{}")"; then
+              echo "::error title=Remote tag lookup failed::Could not verify the current remote value of ${release_tag}."
+              exit 1
+            fi
+            remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk '$2 ~ /\^\{\}$/ {print $1; found=1} END {if (!found) exit 0}')"
+            if [[ -z "${remote_tag_commit}" ]]; then
+              remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk -v ref="refs/tags/${release_tag}" '$2 == ref {print $1; exit}')"
+            fi
+            [[ "${remote_tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Remote tag moved::Remote ${release_tag} resolves to '${remote_tag_commit}', not this workflow commit ${GITHUB_SHA}."
+              exit 1
+            }
+            echo "Verified local and remote tag ${release_tag} point to workflow commit ${GITHUB_SHA}."
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # A manually requested version must be unused before its image is published.
+            if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+              echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to push release image."
+              exit 1
+            fi
+            if [[ -n "${existing_tag_refs}" ]]; then
+              echo "::error title=Release tag already exists::${release_tag} already exists; refusing to push or overwrite its image."
+              exit 1
+            fi
+            echo "Verified ${release_tag} is unused for this manual release."
+          else
+            echo "::error title=Unexpected release trigger::Stable release version was set for unsupported event ${GITHUB_EVENT_NAME}."
+            exit 1
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          # Publish with the repository-scoped token so GHCR links the package
+          # to this repository. The Dockerfiles carry the matching OCI source label.
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push tested multi-architecture Agent image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: s5m-agent/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ needs.build-and-publish.outputs.image_tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify GHCR manifest architectures and tag consistency
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+          IMAGE_TAGS: ${{ needs.build-and-publish.outputs.image_tags }}
+        run: |
+          set -euo pipefail
+          sha_tag="${IMAGE_NAME}:sha-${GITHUB_SHA}"
+          docker buildx imagetools inspect "${sha_tag}" --raw > /tmp/s5m-agent-manifest.json
+
+          python3 - /tmp/s5m-agent-manifest.json <<'PY'
+          import json, pathlib, sys
+          manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          media_type = manifest.get("mediaType", "")
+          if media_type not in {
+              "application/vnd.oci.image.index.v1+json",
+              "application/vnd.docker.distribution.manifest.list.v2+json",
+          }:
+              raise SystemExit(f"Expected a multi-platform image index, got mediaType={media_type!r}")
+          platforms = {
+              (item.get("platform") or {}).get("os", "") + "/" +
+              (item.get("platform") or {}).get("architecture", "")
+              for item in manifest.get("manifests", [])
+          }
+          required = {"linux/amd64", "linux/arm64"}
+          missing = required - platforms
+          if missing:
+              raise SystemExit(f"GHCR manifest is missing required platforms: {sorted(missing)}; found {sorted(platforms)}")
+          print("Verified GHCR platforms: " + ", ".join(sorted(required)))
+          PY
+
+          # Compare the raw manifest bytes instead of parsing human-readable
+          # Buildx output through a pipe. The latter can return exit 255 on a
+          # transient registry response even after the manifest was readable.
+          expected_manifest="$(mktemp)"
+          actual_manifest="$(mktemp)"
+          trap 'rm -f "${expected_manifest}" "${actual_manifest}"' EXIT
+
+          inspect_with_retry() {
+            local image_ref="$1"
+            local output_file="$2"
+            local attempt
+            for attempt in 1 2 3; do
+              if docker buildx imagetools inspect "${image_ref}" --raw > "${output_file}"; then
+                return 0
+              fi
+              echo "Manifest inspection attempt ${attempt}/3 failed for ${image_ref}; retrying." >&2
+              sleep "${attempt}"
+            done
+            echo "::error title=Manifest inspection failed::Could not inspect ${image_ref} after 3 attempts."
+            return 1
+          }
+
+          inspect_with_retry "${sha_tag}" "${expected_manifest}"
+          expected_digest="$(sha256sum "${expected_manifest}" | awk '{print $1}')"
+          [[ -n "${expected_digest}" ]] || {
+            echo "::error title=Image digest unavailable::Could not hash manifest for ${sha_tag}."
+            exit 1
+          }
+
+          while IFS= read -r image_tag; do
+            [[ -n "${image_tag}" ]] || continue
+            inspect_with_retry "${image_tag}" "${actual_manifest}"
+            actual_digest="$(sha256sum "${actual_manifest}" | awk '{print $1}')"
+            [[ -n "${actual_digest}" && "${actual_digest}" == "${expected_digest}" ]] || {
+              echo "::error title=Image tag digest mismatch::${image_tag} does not resolve to the commit image manifest."
+              exit 1
+            }
+          done <<< "${IMAGE_TAGS}"
+          echo "Verified every published tag resolves to manifest sha256:${expected_digest}."
   publish-github-release:
     name: Publish stable GitHub Release
     # Run the decision step after successful builds even for PR/dev runs, so
     # GitHub reports why a release was not created instead of silently skipping the job.
-    if: always() && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success'
-    needs: [build-and-publish, build-arm64-archive, build-routeros-archives]
+    if: always() && needs.build-and-publish.result == 'success' && needs.build-arm64-archive.result == 'success' && needs.build-routeros-archives.result == 'success' && (needs.publish-container-image.result == 'success' || (github.event_name == 'pull_request' && needs.publish-container-image.result == 'skipped'))
+    needs: [build-and-publish, build-arm64-archive, build-routeros-archives, publish-container-image]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - name: Checkout repository for release tag checks
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Reject an existing release tag on manual dispatch
+        if: github.event_name == 'workflow_dispatch' && needs.build-and-publish.outputs.release_version != ''
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.build-and-publish.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          release_tag="s5m-agent-v${RELEASE_VERSION}"
+          if ! existing_tag_refs="$(git ls-remote --tags origin "refs/tags/${release_tag}")"; then
+            echo "::error title=Tag lookup failed::Could not verify whether ${release_tag} exists; refusing to publish."
+            exit 1
+          fi
+          if [[ -n "${existing_tag_refs}" ]]; then
+            echo "::error title=Release tag already exists::${release_tag} already exists; refusing to overwrite an existing release."
+            exit 1
+          fi
+
       - name: Decide whether this run requested a stable release
         id: release_gate
         shell: bash
@@ -484,6 +701,65 @@ jobs:
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             echo "::notice title=Release not requested::No release_version was present in the workflow_dispatch payload. This run will only build development artifacts."
           fi
+
+      - name: Verify release tag and existing Release commit
+        if: steps.release_gate.outputs.enabled == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release_gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_commit="$(git rev-parse --verify "${GITHUB_REF}^{commit}")"
+            [[ "${tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Release tag commit mismatch::The triggering tag does not resolve to this workflow commit."
+              exit 1
+            }
+            if ! remote_tag_refs="$(git ls-remote origin "refs/tags/${RELEASE_TAG}" "refs/tags/${RELEASE_TAG}^{}")"; then
+              echo "::error title=Remote tag lookup failed::Could not verify the current remote value of ${RELEASE_TAG}."
+              exit 1
+            fi
+            remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk '$2 ~ /\^\{\}$/ {print $1; found=1} END {if (!found) exit 0}')"
+            if [[ -z "${remote_tag_commit}" ]]; then
+              remote_tag_commit="$(printf '%s\n' "${remote_tag_refs}" | awk -v ref="refs/tags/${RELEASE_TAG}" '$2 == ref {print $1; exit}')"
+            fi
+            [[ "${remote_tag_commit}" == "${GITHUB_SHA}" ]] || {
+              echo "::error title=Remote tag moved::Remote ${RELEASE_TAG} resolves to '${remote_tag_commit}', not this workflow commit ${GITHUB_SHA}."
+              exit 1
+            }
+          fi
+
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error --output "${response_file}" --write-out '%{http_code}' \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+
+          case "${http_code}" in
+            200)
+              existing_target="$(python3 - "${response_file}" <<'PY'
+          import json, pathlib, sys
+          release = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(release.get("target_commitish", ""))
+          PY
+              )"
+              if [[ "${existing_target}" != "${GITHUB_SHA}" ]]; then
+                echo "::error title=Release commit mismatch::Existing Release targets '${existing_target}', but this run builds '${GITHUB_SHA}'. Refusing to replace its assets."
+                exit 1
+              fi
+              echo "Existing Release target matches ${GITHUB_SHA}; same-commit asset retry is allowed."
+              ;;
+            404)
+              echo "No existing GitHub Release for ${RELEASE_TAG}; creation may proceed."
+              ;;
+            *)
+              echo "::error title=Release lookup failed::GitHub API returned HTTP ${http_code}; refusing to publish assets."
+              cat "${response_file}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Download amd64 archive
         if: steps.release_gate.outputs.enabled == 'true'
@@ -513,6 +789,51 @@ jobs:
           name: s5m-agent-routeros-arm64
           path: dist/routeros-arm64
 
+      - name: Verify all four archive checksums
+        if: steps.release_gate.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd dist/amd64
+            sha256sum --check s5m-agent-linux-amd64.tar.sha256
+          )
+          (
+            cd dist/arm64
+            sha256sum --check s5m-agent-linux-arm64.tar.sha256
+          )
+          (
+            cd dist/routeros-amd64
+            sha256sum --check s5m-agent-routeros-amd64.tar.sha256
+          )
+          (
+            cd dist/routeros-arm64
+            sha256sum --check s5m-agent-routeros-arm64.tar.sha256
+          )
+
+          expected_files=(
+            dist/amd64/s5m-agent-linux-amd64.tar
+            dist/amd64/s5m-agent-linux-amd64.tar.sha256
+            dist/arm64/s5m-agent-linux-arm64.tar
+            dist/arm64/s5m-agent-linux-arm64.tar.sha256
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar
+            dist/routeros-amd64/s5m-agent-routeros-amd64.tar.sha256
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar
+            dist/routeros-arm64/s5m-agent-routeros-arm64.tar.sha256
+          )
+          for asset in "${expected_files[@]}"; do
+            [[ -s "${asset}" ]] || {
+              echo "::error title=Release asset missing::${asset} is missing or empty."
+              exit 1
+            }
+          done
+          actual_count="$(find dist -type f | wc -l | tr -d ' ')"
+          [[ "${actual_count}" == "${#expected_files[@]}" ]] || {
+            echo "::error title=Unexpected release asset count::Expected ${#expected_files[@]} files, found ${actual_count}."
+            find dist -type f -print >&2
+            exit 1
+          }
+
       - name: Publish release and attach archives
         if: steps.release_gate.outputs.enabled == 'true'
         uses: softprops/action-gh-release@v2
@@ -521,6 +842,11 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: ${{ steps.release_gate.outputs.name }}
           generate_release_notes: true
+          make_latest: legacy
+          prerelease: false
+          draft: false
+          # Re-running the same immutable tag replaces matching assets instead of duplicating them.
+          overwrite_files: true
           fail_on_unmatched_files: true
           files: |
             dist/amd64/s5m-agent-linux-amd64.tar
