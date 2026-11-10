@@ -2484,14 +2484,60 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 // 返回所有已注册的机器码 -> Token 映射
 // 依赖 store 里 settings 表的 agent_machine_<code> 键
 
+
+func (a *App) handleDeleteAgentInstance(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		AgentType string `json:"agent_type"`
+		InstanceID string `json:"instance_id"`
+	}
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "实例身份 JSON 无效")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.AgentType = strings.TrimSpace(in.AgentType)
+	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		writeErr(w, http.StatusBadRequest, "实例身份参数无效")
+		return
+	}
+	a.agentWSMu.Lock()
+	if err := a.store.DeleteAgentInstance(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusInternalServerError, "撤销 Agent 实例失败")
+		return
+	}
+	if a.agentWSGeneration == nil {
+		a.agentWSGeneration = make(map[string]uint64)
+	}
+	sessionKey := in.MachineCode + "|" + in.AgentType + "|" + in.InstanceID
+	a.agentWSGeneration[sessionKey]++
+	if session := a.agentWSConnections[sessionKey]; session != nil {
+		delete(a.agentWSConnections, sessionKey)
+		if session.conn != nil {
+			closeAgentWebSocket(session.conn, "Agent instance authorization revoked")
+		}
+	}
+	delete(a.agentHeartbeatAt, sessionKey)
+	a.agentWSMu.Unlock()
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.instance.revoked", "machine_code": in.MachineCode,
+		"agent_type": in.AgentType, "instance_id": in.InstanceID, "at": time.Now().Unix(),
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Agent 实例已撤销"})
+}
+
 // handleListAgentInstances exposes composite Agent identities without credentials.
 func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 	machineCode := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	var instances []AgentIdentity
+	var err error
 	if machineCode == "" {
-		writeErr(w, http.StatusBadRequest, "缺少机器码")
-		return
+		instances, err = a.store.ListAllAgentInstances()
+	} else {
+		instances, err = a.store.ListAgentInstances(machineCode)
 	}
-	instances, err := a.store.ListAgentInstances(machineCode)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, "读取 Agent 实例失败")
 		return
