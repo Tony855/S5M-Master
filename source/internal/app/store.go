@@ -688,8 +688,7 @@ func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
 	return err
 }
 
-
-// AgentIdentity is the stable identity of one Agent runtime on a physical machine.
+ is the stable identity of one Agent runtime on a physical machine.
 type AgentIdentity struct {
 	MachineCode      string          `json:"machine_code"`
 	AgentType        string          `json:"agent_type"`
