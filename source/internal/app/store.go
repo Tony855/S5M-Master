@@ -601,6 +601,11 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 			return err
 		}
 	}
+	// Revoke every composite Agent identity for this machine in the same
+	// transaction. Configs and command queues cascade with their parent identity.
+	if _, err := tx.Exec(`DELETE FROM agent_instances WHERE machine_code=?`, machineCode); err != nil {
+		return err
+	}
 	// Remove the live template binding in the same transaction as revoking the
 	// machine credential. Keep node_configs and node_template_history for audit
 	// and possible re-registration; only the active binding must disappear.
