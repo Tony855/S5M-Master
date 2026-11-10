@@ -1,12 +1,12 @@
 package app
 
 import (
-	"fmt"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -522,7 +522,6 @@ func TestAgentInstanceStoreRejectsInvalidIdentityAndStatus(t *testing.T) {
 		t.Fatal("negative last_seen was accepted")
 	}
 }
-
 
 func TestAgentInstanceConfigAndCommandStorageIsolated(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-config-command.db"))
