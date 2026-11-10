@@ -677,7 +677,6 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 	}
 }
 
-
 func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "latest-agent-command.db"))
 	if err != nil {
