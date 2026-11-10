@@ -1411,7 +1411,6 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", strings.Repeat("w", 40)); err != nil {
 		t.Fatalf("provision WireGuard: %v", err)
 	}
-	admin := &User{Role: "admin"}
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
