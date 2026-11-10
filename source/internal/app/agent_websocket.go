@@ -65,8 +65,6 @@ type browserControlMessage struct {
 	SHA256          string          `json:"sha256"`
 	Config          string          `json:"config"`
 	ConfigYAML      string          `json:"config_yaml"`
-	AgentType       string          `json:"agent_type"`
-	InstanceID      string          `json:"instance_id"`
 	CommandID       string          `json:"command_id"`
 	Command         json.RawMessage `json:"command"`
 	Note            string          `json:"note"`
@@ -192,15 +190,6 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 		case "agents.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
-		case "agents.instances.list.get":
-			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
-		case "agent.instance.revoke":
-			body, _ := json.Marshal(map[string]string{
-				"machine_code": message.MachineCode, "agent_type": message.AgentType, "instance_id": message.InstanceID,
-			})
-			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents/instances", strings.NewReader(string(body)))
-			req.Header.Set("Content-Type", "application/json")
-			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgentInstance, req)
 		case "agents.instances.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
 		case "agent.instance.config.save":
