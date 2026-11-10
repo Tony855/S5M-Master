@@ -779,10 +779,15 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			switch msg.Type {
 			case "config.request", "command.request", "command.ack":
 				if identity.InstanceID != "" {
-					err = fmt.Errorf("该 Agent 实例尚未启用实例级配置与命令 WebSocket 通道")
-					break
-				}
-				if msg.Type == "config.request" {
+					switch msg.Type {
+					case "config.request":
+						err = a.sendAgentWSInstanceConfig(conn, identity, msg.ID, msg.ConfigHash)
+					case "command.request":
+						err = a.sendAgentWSInstanceCommand(conn, identity, msg.ID)
+					case "command.ack":
+						err = a.ackAgentWSInstanceCommand(identity, msg.ID, msg.CommandStatus, msg.Message)
+					}
+				} else if msg.Type == "config.request" {
 					err = a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash)
 				} else if msg.Type == "command.request" {
 					err = a.sendAgentWSCommand(conn, machineCode, msg.ID)
@@ -922,6 +927,77 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+
+// sendAgentWSInstanceConfig serves only the desired configuration belonging to
+// the authenticated composite Agent identity. The stored bytes and digest are
+// checked again before delivery to detect database corruption.
+func (a *App) sendAgentWSInstanceConfig(conn *websocket.Conn, identity agentRequestIdentity, requestID, clientHash string) error {
+	config, err := a.store.GetAgentInstanceConfig(identity.MachineCode, identity.AgentType, identity.InstanceID)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return fmt.Errorf("该 Agent 实例尚未分配配置")
+	}
+	sum := sha256.Sum256([]byte(config.YAML))
+	actualHash := hex.EncodeToString(sum[:])
+	if actualHash != config.SHA256 {
+		return fmt.Errorf("Agent 实例配置 SHA-256 与存储记录不匹配")
+	}
+	if clientHash == actualHash {
+		return writeAgentWSJSON(conn, identity.MachineCode, map[string]any{
+			"type": "config.unchanged", "id": requestID, "sha256": actualHash,
+		})
+	}
+	return writeAgentWSJSON(conn, identity.MachineCode, map[string]any{
+		"type": "config.sync", "id": requestID, "sha256": actualHash, "yaml": config.YAML,
+	})
+}
+
+// sendAgentWSInstanceCommand redelivers the pending command for exactly one
+// composite identity until its matching ACK is durably recorded.
+func (a *App) sendAgentWSInstanceCommand(conn *websocket.Conn, identity agentRequestIdentity, requestID string) error {
+	command, err := a.store.GetPendingAgentInstanceCommand(identity.MachineCode, identity.AgentType, identity.InstanceID)
+	if err != nil {
+		return err
+	}
+	if command == nil {
+		return writeAgentWSJSON(conn, identity.MachineCode, map[string]any{"type": "command.none", "id": requestID})
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(command.CommandJSON, &payload); err != nil || payload == nil {
+		return fmt.Errorf("已排队的 Agent 实例命令数据损坏")
+	}
+	var payloadID string
+	if err := json.Unmarshal(payload["id"], &payloadID); err != nil || payloadID != command.CommandID {
+		return fmt.Errorf("已排队的 Agent 实例命令 ID 不匹配")
+	}
+	return writeAgentWSJSON(conn, identity.MachineCode, map[string]any{
+		"type": "command.deliver", "id": requestID, "command": json.RawMessage(command.CommandJSON),
+	})
+}
+
+// ackAgentWSInstanceCommand stores a result only against the exact authenticated
+// instance and command ID. Replays cannot acknowledge a replacement command.
+func (a *App) ackAgentWSInstanceCommand(identity agentRequestIdentity, commandID, status, message string) error {
+	if strings.TrimSpace(commandID) == "" || (status != "success" && status != "failed") || len(message) > 2048 {
+		return fmt.Errorf("命令 ID、状态或结果消息无效")
+	}
+	message = sanitizeAgentWebSocketText(message)
+	if err := a.store.AckAgentInstanceCommand(identity.MachineCode, identity.AgentType, identity.InstanceID, commandID, status, message); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("命令已被替换、已确认或不存在")
+		}
+		return fmt.Errorf("保存 Agent 实例命令结果失败: %w", err)
+	}
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.command.updated", "machine_code": identity.MachineCode,
+		"agent_type": identity.AgentType, "instance_id": identity.InstanceID,
+		"command_id": commandID, "status": status, "message": message, "at": time.Now().Unix(),
+	})
+	return nil
 }
 
 // sendAgentWSConfig returns only the configuration assigned to the authenticated machine.
