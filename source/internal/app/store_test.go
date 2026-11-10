@@ -419,8 +419,7 @@ func TestAgentInstanceCompositeIdentityAllowsSameMachineDifferentAgents(t *testi
 	}
 }
 
-
-func TestAgentInstanceStoreAPIsIsolateCredentialsAndTelemetry(t *testing.T) {
+IsolateCredentialsAndTelemetry(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-store-api.db"))
 	if err != nil {
 		t.Fatalf("OpenStore: %v", err)
