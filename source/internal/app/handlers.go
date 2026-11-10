@@ -2484,7 +2484,6 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 // 返回所有已注册的机器码 -> Token 映射
 // 依赖 store 里 settings 表的 agent_machine_<code> 键
 
-
 // handleListAgentInstances exposes composite Agent identities without credentials.
 func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 	machineCode := strings.TrimSpace(r.URL.Query().Get("machine_code"))
@@ -2498,12 +2497,12 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type instanceView struct {
-		MachineCode string          `json:"machine_code"`
-		AgentType string             `json:"agent_type"`
-		InstanceID string            `json:"instance_id"`
-		Status json.RawMessage       `json:"status"`
-		LastSeen int64               `json:"last_seen"`
-		ConfigSHA256 string          `json:"config_sha256,omitempty"`
+		MachineCode    string                `json:"machine_code"`
+		AgentType      string                `json:"agent_type"`
+		InstanceID     string                `json:"instance_id"`
+		Status         json.RawMessage       `json:"status"`
+		LastSeen       int64                 `json:"last_seen"`
+		ConfigSHA256   string                `json:"config_sha256,omitempty"`
 		PendingCommand *AgentInstanceCommand `json:"pending_command,omitempty"`
 	}
 	result := make([]instanceView, 0, len(instances))
@@ -2552,9 +2551,9 @@ func (a *App) handleGetAgentInstanceConfig(w http.ResponseWriter, r *http.Reques
 func (a *App) handleSaveAgentInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		AgentType string `json:"agent_type"`
-		InstanceID string `json:"instance_id"`
-		ConfigYAML string `json:"config_yaml"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+		ConfigYAML  string `json:"config_yaml"`
 	}
 	if err := decodeLimited(r, agentInstanceConfigMaxBytes+(16<<10), "2 MiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "配置请求 JSON 无效或超过 2 MiB")
@@ -2589,10 +2588,10 @@ func (a *App) handleSaveAgentInstanceConfig(w http.ResponseWriter, r *http.Reque
 func (a *App) handleQueueAgentInstanceCommand(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		AgentType string `json:"agent_type"`
-		InstanceID string `json:"instance_id"`
-		CommandID string `json:"command_id"`
-		Command json.RawMessage `json:"command"`
+		AgentType   string          `json:"agent_type"`
+		InstanceID  string          `json:"instance_id"`
+		CommandID   string          `json:"command_id"`
+		Command     json.RawMessage `json:"command"`
 	}
 	if err := decodeLimited(r, agentInstanceCommandMaxBytes+(8<<10), "72 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "命令请求 JSON 无效或超过 72 KiB")
