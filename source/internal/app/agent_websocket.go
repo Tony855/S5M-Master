@@ -817,7 +817,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		agentType := strings.TrimSpace(msg.AgentType)
 		if identity.InstanceID != "" {
 			if agentType != "" && agentType != identity.AgentType {
-				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type":"error","id":msg.ID,"message":"心跳 Agent 类型与注册身份不匹配"})
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "心跳 Agent 类型与注册身份不匹配"})
 				continue
 			}
 			agentType = identity.AgentType
