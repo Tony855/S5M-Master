@@ -63,6 +63,10 @@ type browserControlMessage struct {
 	SHA256          string          `json:"sha256"`
 	Config          string          `json:"config"`
 	ConfigYAML      string          `json:"config_yaml"`
+	AgentType       string          `json:"agent_type"`
+	InstanceID      string          `json:"instance_id"`
+	CommandID       string          `json:"command_id"`
+	Command         json.RawMessage `json:"command"`
 	Note            string          `json:"note"`
 	Confirm         bool            `json:"confirm"`
 	PasswordOld     string          `json:"old"`
@@ -186,6 +190,36 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 		case "agents.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "agents.instances.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
+		case "agent.instance.config.save":
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType,
+				"instance_id": message.InstanceID, "config_yaml": message.ConfigYAML,
+			})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/instances/config", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleSaveAgentInstanceConfig, req)
+		case "agent.instance.command.queue":
+			body, marshalErr := json.Marshal(map[string]any{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType,
+				"instance_id": message.InstanceID, "command_id": message.CommandID,
+				"command": message.Command,
+			})
+			if marshalErr != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "命令请求格式无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/instances/commands", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleQueueAgentInstanceCommand, req)
+		case "agent.instance.revoke":
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType, "instance_id": message.InstanceID,
+			})
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents/instances", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgentInstance, req)
 		case "proxies.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
 		case "auth.password.change":
