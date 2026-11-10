@@ -2452,18 +2452,23 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	if a.agentWSGeneration == nil {
 		a.agentWSGeneration = make(map[string]uint64)
 	}
-	// Force any existing WebSocket connection to fail its generation check
-	// before it can persist another heartbeat.
-	a.agentWSGeneration[code]++
-	delete(a.agentHeartbeatAt, code)
-	// Close the live socket immediately so a revoked idle Agent cannot remain
-	// connected until its next heartbeat timeout.
-	if session := a.agentWSConnections[code]; session != nil {
-		delete(a.agentWSConnections, code)
-		if session.conn != nil {
+	// Revoke the legacy session and every composite instance session for this
+	// machine. Composite session keys use machine|agent_type|instance_id.
+	for sessionKey, session := range a.agentWSConnections {
+		if sessionKey != code && !strings.HasPrefix(sessionKey, code+"|") {
+			continue
+		}
+		a.agentWSGeneration[sessionKey]++
+		delete(a.agentWSConnections, sessionKey)
+		delete(a.agentHeartbeatAt, sessionKey)
+		if session != nil && session.conn != nil {
 			closeAgentWebSocket(session.conn, "Agent authorization revoked")
 		}
 	}
+	// Preserve a generation tombstone for the legacy key even if it had no
+	// active socket, preventing an in-flight pre-revocation handshake from ABA reuse.
+	a.agentWSGeneration[code]++
+	delete(a.agentHeartbeatAt, code)
 	a.agentWSMu.Unlock()
 
 	// Publish only after revocation is committed and the Agent heartbeat lock is released.
