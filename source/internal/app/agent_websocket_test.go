@@ -1549,6 +1549,7 @@ func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
 			"instance_id": instanceID, "secret": secret,
 		})
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
+		req.RemoteAddr = "198.51.100.11:1234"
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		app.handleAgentRegister(rec, req)
