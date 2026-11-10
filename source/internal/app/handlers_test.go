@@ -1468,6 +1468,14 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
 	}
+	if err := store.AckAgentInstanceCommand(machine, "wireguard", "routeros-1", "wg-up-1", "failed", "test failure result"); err != nil { t.Fatalf("ack test command: %v", err) }
+	withResult := request(http.MethodGet, "/api/v1/agents/instances", "")
+	if withResult.Code != http.StatusOK || !strings.Contains(withResult.Body.String(), `"latest_command"`) ||
+		!strings.Contains(withResult.Body.String(), `"command_id":"wg-up-1"`) ||
+		!strings.Contains(withResult.Body.String(), `"message":"test failure result"`) {
+		t.Fatalf("latest command result missing: status=%d body=%s", withResult.Code, withResult.Body.String())
+	}
+	if strings.Contains(withResult.Body.String(), `"command_json"`) { t.Fatalf("raw command payload leaked: %s", withResult.Body.String()) }
 	wireguardSessionKey := machine + "|wireguard|routeros-1"
 	mihomoSessionKey := machine + "|mihomo|default"
 	app.agentWSGeneration = map[string]uint64{wireguardSessionKey: 1, mihomoSessionKey: 2}
