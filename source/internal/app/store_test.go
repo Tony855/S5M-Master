@@ -672,7 +672,7 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 	if configs != 0 || commands != 0 {
 		t.Fatalf("cascade left configs=%d commands=%d", configs, commands)
 	}
-	if _, err := store.GetSetting("agent_machine_"+machine); err != sql.ErrNoRows {
+	if _, err := store.GetSetting("agent_machine_" + machine); err != sql.ErrNoRows {
 		t.Fatalf("legacy binding remains after revoke: err=%v", err)
 	}
 }
