@@ -486,6 +486,22 @@ checks["per-instance revoke is serialized with registration and invalidates only
 )
 
 
+checks["composite instance YAML editor reads and saves only through authenticated browser WebSocket"] = (
+    'case "agent.instance.config.get":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+    and "type: 'agent.instance.config.get'" in app_js
+    and "type: 'agent.instance.config.save'" in app_js
+    and "openAgentInstanceConfig" in app_js
+    and "saveAgentInstanceConfig" in app_js
+    and "实例配置" in html
+)
+
+checks["instance YAML editor enforces 2 MiB and verifies exact saved bytes plus SHA-256 by readback"] = (
+    "2 * 1024 * 1024" in app_js
+    and "new TextEncoder().encode(yamlText).length" in app_js
+    and "保存后回读校验失败" in app_js
+    and "String(actual.config_yaml || '') !== yamlText" in app_js
+)
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
