@@ -1432,7 +1432,7 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if rec := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody); rec.Code != http.StatusAccepted {
 		t.Fatalf("queue instance command status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	listRec := request(http.MethodGet, "/api/v1/agents/instances?machine_code=admin-instance-node", "")
+	listRec := request(http.MethodGet, "/api/v1/agents/instances", "")
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"agent_type":"mihomo"`) ||
 		!strings.Contains(listRec.Body.String(), `"agent_type":"wireguard"`) ||
 		strings.Contains(listRec.Body.String(), "CredentialSHA256") || strings.Contains(listRec.Body.String(), strings.Repeat("m", 40)) {
@@ -1441,6 +1441,21 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	duplicate := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody)
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
+	}
+	deleteBody := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1"}`
+	if rec := request(http.MethodDelete, "/api/v1/agents/instances", deleteBody); rec.Code != http.StatusOK {
+		t.Fatalf("revoke one instance status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	remaining := request(http.MethodGet, "/api/v1/agents/instances", "")
+	if remaining.Code != http.StatusOK || !strings.Contains(remaining.Body.String(), `"agent_type":"mihomo"`) ||
+		strings.Contains(remaining.Body.String(), `"agent_type":"wireguard"`) {
+		t.Fatalf("per-instance revoke removed wrong identities: status=%d body=%s", remaining.Code, remaining.Body.String())
+	}
+	if config, err := store.GetAgentInstanceConfig(machine, "wireguard", "routeros-1"); err != nil || config != nil {
+		t.Fatalf("WireGuard config survived instance revocation: %#v err=%v", config, err)
+	}
+	if pending, err := store.GetPendingAgentInstanceCommand(machine, "wireguard", "routeros-1"); err != nil || pending != nil {
+		t.Fatalf("WireGuard command survived instance revocation: %#v err=%v", pending, err)
 	}
 	badConfig := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"missing","config_yaml":"x: y"}`
 	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", badConfig); rec.Code != http.StatusNotFound {
