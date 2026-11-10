@@ -1392,7 +1392,18 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-management.db"))
 	if err != nil { t.Fatalf("OpenStore: %v", err) }
 	defer store.db.Close()
-	app := &App{store: store}
+	app := &App{store: store, jwtKey: []byte("agent-instance-management-test-key")}
+	if err := store.CreateUser("instance-admin", "test-hash", "admin"); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	admin, err := store.UserByUsername("instance-admin")
+	if err != nil {
+		t.Fatalf("load admin: %v", err)
+	}
+	adminToken, err := app.signToken(admin)
+	if err != nil {
+		t.Fatalf("sign admin token: %v", err)
+	}
 	const machine = "admin-instance-node"
 	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", strings.Repeat("m", 40)); err != nil {
 		t.Fatalf("provision Mihomo: %v", err)
@@ -1404,7 +1415,7 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
-		req = req.WithContext(context.WithValue(req.Context(), userKey, admin))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		rec := httptest.NewRecorder()
 		app.Router(nil).ServeHTTP(rec, req)
 		return rec
