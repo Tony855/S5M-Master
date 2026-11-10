@@ -649,11 +649,11 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 			t.Fatalf("save %s config: %v", item.agentType, err)
 		}
 	}
-	if err := store.QueueAgentInstanceCommand(machine, "mihomo", "default", "revoke-cmd",json.RawMessage(`{"id":"revoke-cmd","type":"restart"}`)); err != nil {
+	if err := store.QueueAgentInstanceCommand(machine, "mihomo", "default", "revoke-cmd", json.RawMessage(`{"id":"revoke-cmd","type":"restart"}`)); err != nil {
 		t.Fatalf("queue command: %v", err)
 	}
 	if err := store.UpdateSettings(map[string]string{"agent_machine_" + machine: "legacy-secret"}); err != nil {
-		t.Fatalf("seed legacy binding: %v",err)
+		t.Fatalf("seed legacy binding: %v", err)
 	}
 	if err := store.DeleteAgentBinding(machine); err != nil {
 		t.Fatalf("DeleteAgentBinding: %v", err)
