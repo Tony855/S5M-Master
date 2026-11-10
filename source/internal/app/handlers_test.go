@@ -1460,9 +1460,28 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
 	}
+	wireguardSessionKey := machine + "|wireguard|routeros-1"
+	mihomoSessionKey := machine + "|mihomo|default"
+	app.agentWSGeneration = map[string]uint64{wireguardSessionKey: 1, mihomoSessionKey: 2}
+	app.agentWSConnections = map[string]*agentWSConnection{
+		wireguardSessionKey: {}, mihomoSessionKey: {},
+	}
+	app.agentHeartbeatAt = map[string]int64{wireguardSessionKey: 10, mihomoSessionKey: 20}
 	deleteBody := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1"}`
 	if rec := request(http.MethodDelete, "/api/v1/agents/instances", deleteBody); rec.Code != http.StatusOK {
 		t.Fatalf("revoke one instance status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok := app.agentWSConnections[wireguardSessionKey]; ok {
+		t.Fatal("revoked WireGuard WebSocket session remains registered")
+	}
+	if _, ok := app.agentWSConnections[mihomoSessionKey]; !ok {
+		t.Fatal("revoking WireGuard unexpectedly removed Mihomo session")
+	}
+	if app.agentWSGeneration[wireguardSessionKey] != 2 {
+		t.Fatalf("revoked session generation=%d, want 2", app.agentWSGeneration[wireguardSessionKey])
+	}
+	if _, ok := app.agentHeartbeatAt[wireguardSessionKey]; ok {
+		t.Fatal("revoked instance heartbeat ordering state remains")
 	}
 	remaining := request(http.MethodGet, "/api/v1/agents/instances", "")
 	if remaining.Code != http.StatusOK || !strings.Contains(remaining.Body.String(), `"agent_type":"mihomo"`) ||
