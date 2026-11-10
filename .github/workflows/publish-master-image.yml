@@ -138,10 +138,93 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+  image-test-arm64:
+    name: Build and smoke-test ARM64 image
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Build local ARM64 test image
+        uses: docker/build-push-action@v7
+        with:
+          context: source
+          file: source/Dockerfile
+          platforms: linux/arm64
+          load: true
+          tags: s5m-master:ci-test-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify ARM64 non-root runtime and health endpoint
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          image=s5m-master:ci-test-arm64
+          container=s5m-master-ci-arm64
+          volume=s5m-master-ci-arm64-data
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+            docker volume rm "$volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          [[ "$(docker image inspect --format '{{.Architecture}}' "$image")" == arm64 ]] || {
+            echo "Expected ARM64 image architecture" >&2
+            exit 1
+          }
+          docker volume create "$volume" >/dev/null
+          docker run -d --name "$container" \
+            -p 127.0.0.1:18082:8080 \
+            -e S5M_ADMIN_USER=ci-admin \
+            -e S5M_ADMIN_PASSWORD='ci-only-password-not-for-production' \
+            -e S5M_JWT_SECRET='ci-only-jwt-secret-not-for-production-0123456789abcdef' \
+            -v "$volume:/data" \
+            "$image" >/dev/null
+
+          for attempt in $(seq 1 60); do
+            state="$(docker inspect --format '{{.State.Status}}' "$container")"
+            health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' "$container")"
+            if [[ "$state" != running ]]; then
+              docker logs "$container" >&2
+              exit 1
+            fi
+            if [[ "$health" == healthy ]]; then break; fi
+            sleep 2
+          done
+
+          [[ "$(docker inspect --format '{{.State.Health.Status}}' "$container")" == healthy ]] || {
+            docker logs "$container" >&2
+            docker inspect --format '{{json .State.Health}}' "$container" >&2
+            exit 1
+          }
+          runtime_user="$(docker inspect --format '{{.Config.User}}' "$container")"
+          [[ "$runtime_user" == s5m ]] || {
+            echo "Expected non-root runtime user s5m, got: $runtime_user" >&2
+            exit 1
+          }
+          curl --fail --silent --show-error --max-time 10 \
+            http://127.0.0.1:18082/api/v1/health |
+            python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status") == "ok" and d.get("database") == "ok", d'
+          echo "PASS: ARM64 image starts as non-root, initializes persistent SQLite, and passes HTTP health check"
+      - name: Scan ARM64 image for fixable HIGH and CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: s5m-master:ci-test-arm64
+          version: v0.76.2
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   publish:
     name: Publish AMD64 and ARM64 image to GHCR
     runs-on: ubuntu-latest
-    needs: [test, image-test]
+    needs: [test, image-test, image-test-arm64]
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/s5m-master-v'))
     permissions:
       contents: read
@@ -212,6 +295,16 @@ jobs:
           cache-to: type=gha,mode=max
           sbom: true
           provenance: mode=max
+      - name: Verify published multi-platform manifest
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx imagetools inspect "${IMAGE_NAME}@${IMAGE_DIGEST}" | tee /tmp/s5m-master-manifest.txt
+          grep -Fq "Platform: linux/amd64" /tmp/s5m-master-manifest.txt
+          grep -Fq "Platform: linux/arm64" /tmp/s5m-master-manifest.txt
+          echo "PASS: published manifest contains linux/amd64 and linux/arm64"
       - name: Attest image build provenance
         uses: actions/attest-build-provenance@v3
         with:
