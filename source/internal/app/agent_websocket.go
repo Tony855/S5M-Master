@@ -526,7 +526,6 @@ func validateAgentWSStatus(status map[string]any) error {
 	return nil
 }
 
-
 // validateWireGuardWSStatus validates WireGuard telemetry independently from Mihomo.
 // A WireGuard Agent must never spoof Mihomo health fields.
 func validateWireGuardWSStatus(status map[string]any) error {
