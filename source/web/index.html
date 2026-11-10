@@ -311,6 +311,7 @@
                 <div class="instance-statuses">
                   <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
                   <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
+                  <span class="status-badge status-online">{{ item.agentType === 'wireguard' ? 'WireGuard Agent' : 'Mihomo + SmartDNS Agent' }}</span>
                 </div>
                 <div class="instance-host-system">
                   <span class="instance-host-label">主机与系统</span>
@@ -319,9 +320,17 @@
               </div>
               <div class="instance-summary">
                 <div class="instance-summary-secondary">
-                  <span>连接数：<strong>{{ item.connections ?? '—' }}</strong></span>
-                  <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
-                  <span>实时下载：<strong>{{ fmtSpeed(item.downloadSpeed || 0) }}</strong></span>
+                  <template v-if="item.agentType === 'wireguard'">
+                    <span>WireGuard Peer：<strong>{{ item.wireguardPeerCount ?? '—' }}</strong></span>
+                    <span>监听端口：<strong>{{ item.wireguardListenPort || '—' }}</strong></span>
+                    <span>接收：<strong>{{ fmtBytes(item.wireguardRX || 0) }}</strong></span>
+                    <span>发送：<strong>{{ fmtBytes(item.wireguardTX || 0) }}</strong></span>
+                  </template>
+                  <template v-else>
+                    <span>连接数：<strong>{{ item.connections ?? '—' }}</strong></span>
+                    <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
+                    <span>实时下载：<strong>{{ fmtSpeed(item.downloadSpeed || 0) }}</strong></span>
+                  </template>
                   <span>最后上报：<strong>{{ item.updated_at || '暂无记录' }}</strong></span>
                   <div v-if="item.agentType === 'wireguard'" class="instance-mihomo-status">
                      <div class="instance-mihomo-runtime">
