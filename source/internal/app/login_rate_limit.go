@@ -98,7 +98,7 @@ func (l *loginAttemptLimiter) allowWithLimit(key string, now time.Time, limit in
 		}
 		if oldestKey != "" {
 			delete(l.entries, oldestKey)
-	}
+		}
 	}
 	if !exists || entry.windowStart.IsZero() || now.Sub(entry.windowStart) >= loginAttemptWindow {
 		entry = loginAttempt{windowStart: now}
