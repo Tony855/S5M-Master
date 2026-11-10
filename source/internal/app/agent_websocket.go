@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
