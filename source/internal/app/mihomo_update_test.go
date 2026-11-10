@@ -2,8 +2,8 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -38,10 +38,10 @@ func TestFindMihomoCompatibleAssetRequiresOfficialDigestAndURL(t *testing.T) {
 	const version = "v1.19.33"
 	const digest = "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 	asset := mihomoReleaseAsset{
-		Name: "mihomo-linux-amd64-compatible-" + version + ".gz",
+		Name:               "mihomo-linux-amd64-compatible-" + version + ".gz",
 		BrowserDownloadURL: "https://github.com/MetaCubeX/mihomo/releases/download/" + version + "/mihomo-linux-amd64-compatible-" + version + ".gz",
-		Size: 3,
-		Digest: digest,
+		Size:               3,
+		Digest:             digest,
 	}
 	got, err := findMihomoCompatibleAsset([]mihomoReleaseAsset{asset}, version)
 	if err != nil || got != asset {
@@ -52,13 +52,17 @@ func TestFindMihomoCompatibleAssetRequiresOfficialDigestAndURL(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
+		name   string
 		mutate func(*mihomoReleaseAsset)
 	}{
 		{name: "missing digest", mutate: func(a *mihomoReleaseAsset) { a.Digest = "" }},
 		{name: "invalid digest", mutate: func(a *mihomoReleaseAsset) { a.Digest = "sha256:bad" }},
-		{name: "wrong host", mutate: func(a *mihomoReleaseAsset) { a.BrowserDownloadURL = strings.Replace(a.BrowserDownloadURL, "github.com", "example.com", 1) }},
-		{name: "wrong repository path", mutate: func(a *mihomoReleaseAsset) { a.BrowserDownloadURL = strings.Replace(a.BrowserDownloadURL, "MetaCubeX/mihomo", "attacker/mihomo", 1) }},
+		{name: "wrong host", mutate: func(a *mihomoReleaseAsset) {
+			a.BrowserDownloadURL = strings.Replace(a.BrowserDownloadURL, "github.com", "example.com", 1)
+		}},
+		{name: "wrong repository path", mutate: func(a *mihomoReleaseAsset) {
+			a.BrowserDownloadURL = strings.Replace(a.BrowserDownloadURL, "MetaCubeX/mihomo", "attacker/mihomo", 1)
+		}},
 		{name: "query string", mutate: func(a *mihomoReleaseAsset) { a.BrowserDownloadURL += "?redirect=1" }},
 		{name: "version mismatch", mutate: func(a *mihomoReleaseAsset) { a.Name = "mihomo-linux-amd64-compatible-v1.19.32.gz" }},
 		{name: "oversized compressed asset", mutate: func(a *mihomoReleaseAsset) { a.Size = maxMihomoCompressedAssetBytes + 1 }},
@@ -75,13 +79,16 @@ func TestFindMihomoCompatibleAssetRequiresOfficialDigestAndURL(t *testing.T) {
 	}
 }
 
-
 func TestDecompressMihomoAssetEnforcesOutputLimitAndChecksum(t *testing.T) {
 	makeGzip := func(data []byte) []byte {
 		var compressed bytes.Buffer
 		writer := gzip.NewWriter(&compressed)
-		if _, err := writer.Write(data); err != nil { t.Fatal(err) }
-		if err := writer.Close(); err != nil { t.Fatal(err) }
+		if _, err := writer.Write(data); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
 		return compressed.Bytes()
 	}
 	var limited bytes.Buffer
@@ -95,13 +102,16 @@ func TestDecompressMihomoAssetEnforcesOutputLimitAndChecksum(t *testing.T) {
 	}
 }
 
-
 func TestAcquireMihomoServerUpdateSerializesRequests(t *testing.T) {
 	unlock, ok := acquireMihomoServerUpdate()
 	if !ok || unlock == nil {
 		t.Fatal("first update request should acquire the update lock")
 	}
-	defer func() { if unlock != nil { unlock() } }()
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
 	if secondUnlock, secondOK := acquireMihomoServerUpdate(); secondOK || secondUnlock != nil {
 		t.Fatal("concurrent update request must be rejected while an update is active")
 	}
@@ -113,7 +123,6 @@ func TestAcquireMihomoServerUpdateSerializesRequests(t *testing.T) {
 	}
 	defer thirdUnlock()
 }
-
 
 func TestDownloadMihomoAssetEnforcesStreamingLimitWithoutContentLength(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
