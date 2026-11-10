@@ -1387,10 +1387,11 @@ func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
 	}
 }
 
-
 func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-management.db"))
-	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
 	defer store.db.Close()
 	app := &App{store: store, jwtKey: []byte("agent-instance-management-test-key")}
 	if err := store.CreateUser("instance-admin", "test-hash", "admin"); err != nil {
