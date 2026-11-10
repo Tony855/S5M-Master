@@ -302,8 +302,8 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE_NAME}@${IMAGE_DIGEST}" | tee /tmp/s5m-master-manifest.txt
-          grep -Fq "Platform: linux/amd64" /tmp/s5m-master-manifest.txt
-          grep -Fq "Platform: linux/arm64" /tmp/s5m-master-manifest.txt
+          grep -Eq "Platform:[[:space:]]+linux/amd64([[:space:]]|$)" /tmp/s5m-master-manifest.txt
+          grep -Eq "Platform:[[:space:]]+linux/arm64([[:space:]]|$)" /tmp/s5m-master-manifest.txt
           echo "PASS: published manifest contains linux/amd64 and linux/arm64"
       - name: Attest image build provenance
         uses: actions/attest-build-provenance@v3
