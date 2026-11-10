@@ -14,9 +14,10 @@ import (
 )
 
 type App struct {
-	cfg    Config
-	store  *Store
-	jwtKey []byte
+	cfg          Config
+	store        *Store
+	jwtKey       []byte
+	loginLimiter loginAttemptLimiter
 
 	agentWSMu          sync.Mutex
 	agentWSGeneration  map[string]uint64
