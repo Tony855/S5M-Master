@@ -690,10 +690,15 @@ func safeAgentWebSocketError(operation string, err error) string {
 }
 
 func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
-	machineCode, err := a.agentMachineFromRequest(r)
+	identity, err := a.agentIdentityFromRequest(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
+	}
+	machineCode := identity.MachineCode
+	sessionKey := machineCode
+	if identity.InstanceID != "" {
+		sessionKey = machineCode + "|" + identity.AgentType + "|" + identity.InstanceID
 	}
 
 	conn, err := agentWSUpgrader.Upgrade(w, r, nil)
@@ -709,23 +714,23 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 	if a.agentWSGeneration == nil {
 		a.agentWSGeneration = make(map[string]uint64)
 	}
-	a.agentWSGeneration[machineCode]++
-	generation := a.agentWSGeneration[machineCode]
+	a.agentWSGeneration[sessionKey]++
+	generation := a.agentWSGeneration[sessionKey]
 	if a.agentWSConnections == nil {
 		a.agentWSConnections = make(map[string]*agentWSConnection)
 	}
 	// Actively close the previous socket, rather than merely waiting for its
 	// next heartbeat/request to notice the generation change.
-	if previous := a.agentWSConnections[machineCode]; previous != nil && previous.conn != nil {
+	if previous := a.agentWSConnections[sessionKey]; previous != nil && previous.conn != nil {
 		closeAgentWebSocket(previous.conn, "Agent connection superseded")
 	}
 	session := &agentWSConnection{conn: conn}
-	a.agentWSConnections[machineCode] = session
+	a.agentWSConnections[sessionKey] = session
 	a.agentWSMu.Unlock()
 	defer func() {
 		a.agentWSMu.Lock()
-		if a.agentWSConnections[machineCode] == session {
-			delete(a.agentWSConnections, machineCode)
+		if a.agentWSConnections[sessionKey] == session {
+			delete(a.agentWSConnections, sessionKey)
 		}
 		a.agentWSMu.Unlock()
 	}()
@@ -760,24 +765,30 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			// Serialize sensitive WebSocket operations with connection replacement and
 			// credential revocation. The delete-agent handler uses the same mutex.
 			a.agentWSMu.Lock()
-			if a.agentWSGeneration[machineCode] != generation {
+			if a.agentWSGeneration[sessionKey] != generation {
 				a.agentWSMu.Unlock()
 				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent WebSocket 连接已被更新连接取代"})
 				return
 			}
-			authorizedCode, authErr := a.agentMachineFromRequest(r)
-			if authErr != nil || authorizedCode != machineCode {
+			authorizedIdentity, authErr := a.agentIdentityFromRequest(r)
+			if authErr != nil || authorizedIdentity != identity {
 				a.agentWSMu.Unlock()
 				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "Agent 未授权或授权已失效"})
 				return
 			}
 			switch msg.Type {
-			case "config.request":
-				err = a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash)
-			case "command.request":
-				err = a.sendAgentWSCommand(conn, machineCode, msg.ID)
-			case "command.ack":
-				err = a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message)
+			case "config.request", "command.request", "command.ack":
+				if identity.InstanceID != "" {
+					err = fmt.Errorf("该 Agent 实例尚未启用实例级配置与命令 WebSocket 通道")
+					break
+				}
+				if msg.Type == "config.request" {
+					err = a.sendAgentWSConfig(conn, machineCode, msg.ID, msg.ConfigHash)
+				} else if msg.Type == "command.request" {
+					err = a.sendAgentWSCommand(conn, machineCode, msg.ID)
+				} else {
+					err = a.ackAgentWSCommand(machineCode, msg.ID, msg.CommandStatus, msg.Message)
+				}
 			}
 			a.agentWSMu.Unlock()
 			if err != nil {
@@ -804,7 +815,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		agentType := strings.TrimSpace(msg.AgentType)
-		if agentType == "" {
+		if identity.InstanceID != "" {
+			if agentType != "" && agentType != identity.AgentType {
+				_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "心跳 Agent 类型与注册身份不匹配"})
+				continue
+			}
+			agentType = identity.AgentType
+		} else if agentType == "" {
 			agentType = "mihomo" // Backward compatibility for existing Agents.
 		}
 		var statusErr error
@@ -836,7 +853,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		a.agentWSMu.Lock()
-		if a.agentWSGeneration[machineCode] != generation {
+		if a.agentWSGeneration[sessionKey] != generation {
 			a.agentWSMu.Unlock()
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
@@ -849,8 +866,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		// operations. This closes the handshake/revocation race where a socket
 		// authenticated just before revocation could register its generation
 		// just after the revocation handler removed the binding.
-		authorizedCode, authErr := a.agentMachineFromRequest(r)
-		if authErr != nil || authorizedCode != machineCode {
+		authorizedIdentity, authErr := a.agentIdentityFromRequest(r)
+		if authErr != nil || authorizedIdentity != identity {
 			a.agentWSMu.Unlock()
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
@@ -862,7 +879,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if a.agentHeartbeatAt == nil {
 			a.agentHeartbeatAt = make(map[string]int64)
 		}
-		if receivedAt.UnixNano() < a.agentHeartbeatAt[machineCode] {
+		if receivedAt.UnixNano() < a.agentHeartbeatAt[sessionKey] {
 			a.agentWSMu.Unlock()
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
@@ -871,10 +888,16 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		if err := a.store.UpdateSettings(map[string]string{
-			"agent_lastseen_" + machineCode: now,
-			"agent_status_" + machineCode:   string(payload),
-		}); err != nil {
+		var persistErr error
+		if identity.InstanceID != "" {
+			persistErr = a.store.UpdateAgentInstanceStatus(machineCode, identity.AgentType, identity.InstanceID, json.RawMessage(payload), receivedAt.Unix())
+		} else {
+			persistErr = a.store.UpdateSettings(map[string]string{
+				"agent_lastseen_" + machineCode: now,
+				"agent_status_" + machineCode:   string(payload),
+			})
+		}
+		if persistErr != nil {
 			a.agentWSMu.Unlock()
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
@@ -883,9 +906,13 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			})
 			continue
 		}
-		a.agentHeartbeatAt[machineCode] = receivedAt.UnixNano()
+		a.agentHeartbeatAt[sessionKey] = receivedAt.UnixNano()
 		a.agentWSMu.Unlock()
-		a.publishBrowserEvent(map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "agent_type": agentType, "last_seen": receivedAt.Unix(), "status": msg.Status})
+		event := map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "agent_type": agentType, "last_seen": receivedAt.Unix(), "status": msg.Status}
+		if identity.InstanceID != "" {
+			event["instance_id"] = identity.InstanceID
+		}
+		a.publishBrowserEvent(event)
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
 		if err := writeAgentWSJSON(conn, machineCode, map[string]any{
 			"type": "heartbeat.ack",
