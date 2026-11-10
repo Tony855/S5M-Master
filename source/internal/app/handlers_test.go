@@ -1412,6 +1412,13 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", strings.Repeat("w", 40)); err != nil {
 		t.Fatalf("provision WireGuard: %v", err)
 	}
+	const secondMachine = "admin-instance-node-2"
+	if err := store.ProvisionAgentInstance(secondMachine, "mihomo", "default", strings.Repeat("z", 40)); err != nil {
+		t.Fatalf("provision second machine: %v", err)
+	}
+	if err := store.SaveAgentInstanceConfig(secondMachine, "mihomo", "default", "mixed-port: 7891\nmode: global\n"); err != nil {
+		t.Fatalf("save second machine config: %v", err)
+	}
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -1419,6 +1426,24 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 		rec := httptest.NewRecorder()
 		app.Router(nil).ServeHTTP(rec, req)
 		return rec
+	}
+	if err := store.CreateUser("instance-viewer", "test-hash", "user"); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	viewer, err := store.UserByUsername("instance-viewer")
+	if err != nil {
+		t.Fatalf("load viewer: %v", err)
+	}
+	viewerToken, err := app.signToken(viewer)
+	if err != nil {
+		t.Fatalf("sign viewer token: %v", err)
+	}
+	viewerReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil)
+	viewerReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	viewerRec := httptest.NewRecorder()
+	app.Router(nil).ServeHTTP(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin instance list status=%d body=%s, want 403", viewerRec.Code, viewerRec.Body.String())
 	}
 	configBody := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"default","config_yaml":"mixed-port: 7890\nmode: rule\n"}`
 	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", configBody); rec.Code != http.StatusOK {
@@ -1432,15 +1457,50 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if rec := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody); rec.Code != http.StatusAccepted {
 		t.Fatalf("queue instance command status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	listRec := request(http.MethodGet, "/api/v1/agents/instances?machine_code=admin-instance-node", "")
+	listRec := request(http.MethodGet, "/api/v1/agents/instances", "")
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"agent_type":"mihomo"`) ||
 		!strings.Contains(listRec.Body.String(), `"agent_type":"wireguard"`) ||
+		!strings.Contains(listRec.Body.String(), secondMachine) ||
 		strings.Contains(listRec.Body.String(), "CredentialSHA256") || strings.Contains(listRec.Body.String(), strings.Repeat("m", 40)) {
 		t.Fatalf("instance list leaked credentials or omitted instances: status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
 	duplicate := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody)
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
+	}
+	wireguardSessionKey := machine + "|wireguard|routeros-1"
+	mihomoSessionKey := machine + "|mihomo|default"
+	app.agentWSGeneration = map[string]uint64{wireguardSessionKey: 1, mihomoSessionKey: 2}
+	app.agentWSConnections = map[string]*agentWSConnection{
+		wireguardSessionKey: {}, mihomoSessionKey: {},
+	}
+	app.agentHeartbeatAt = map[string]int64{wireguardSessionKey: 10, mihomoSessionKey: 20}
+	deleteBody := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1"}`
+	if rec := request(http.MethodDelete, "/api/v1/agents/instances", deleteBody); rec.Code != http.StatusOK {
+		t.Fatalf("revoke one instance status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok := app.agentWSConnections[wireguardSessionKey]; ok {
+		t.Fatal("revoked WireGuard WebSocket session remains registered")
+	}
+	if _, ok := app.agentWSConnections[mihomoSessionKey]; !ok {
+		t.Fatal("revoking WireGuard unexpectedly removed Mihomo session")
+	}
+	if app.agentWSGeneration[wireguardSessionKey] != 2 {
+		t.Fatalf("revoked session generation=%d, want 2", app.agentWSGeneration[wireguardSessionKey])
+	}
+	if _, ok := app.agentHeartbeatAt[wireguardSessionKey]; ok {
+		t.Fatal("revoked instance heartbeat ordering state remains")
+	}
+	remaining := request(http.MethodGet, "/api/v1/agents/instances", "")
+	if remaining.Code != http.StatusOK || !strings.Contains(remaining.Body.String(), `"agent_type":"mihomo"`) ||
+		strings.Contains(remaining.Body.String(), `"agent_type":"wireguard"`) {
+		t.Fatalf("per-instance revoke removed wrong identities: status=%d body=%s", remaining.Code, remaining.Body.String())
+	}
+	if config, err := store.GetAgentInstanceConfig(machine, "wireguard", "routeros-1"); err != nil || config != nil {
+		t.Fatalf("WireGuard config survived instance revocation: %#v err=%v", config, err)
+	}
+	if pending, err := store.GetPendingAgentInstanceCommand(machine, "wireguard", "routeros-1"); err != nil || pending != nil {
+		t.Fatalf("WireGuard command survived instance revocation: %#v err=%v", pending, err)
 	}
 	badConfig := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"missing","config_yaml":"x: y"}`
 	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", badConfig); rec.Code != http.StatusNotFound {

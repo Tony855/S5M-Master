@@ -37,11 +37,19 @@ createApp({
     const filteredAgentEntries = computed(() => {
       const query = String(agentSearch.value || '').trim().toLowerCase();
       return agentEntries.value.filter(item => {
-        const matchesQuery = !query || [item.code, item.hostname, item.os, item.arch].some(value => String(value || '').toLowerCase().includes(query));
+        const matchesQuery = !query || [item.code, item.instanceId, item.agentType, item.hostname, item.os, item.arch].some(value => String(value || '').toLowerCase().includes(query));
         const matchesStatus = agentStatusFilter.value === 'all'
           || (agentStatusFilter.value === 'online' && item.online)
           || (agentStatusFilter.value === 'offline' && !item.online);
         return matchesQuery && matchesStatus;
+      });
+    });
+    const agentMachineEntries = computed(() => {
+      const seen = new Set();
+      return agentEntries.value.filter(item => {
+        if (seen.has(item.code)) return false;
+        seen.add(item.code);
+        return true;
       });
     });
     const subUrl = ref('');
@@ -302,6 +310,15 @@ createApp({
             loadAgentsData();
             return;
           }
+          if (message.type === 'agent.instance.revoked' && message.machine_code) {
+            const code = String(message.machine_code);
+            const agentType = String(message.agent_type || '');
+            const instanceId = String(message.instance_id || '');
+            agentBindingRevision++;
+            agentEntries.value = agentEntries.value.filter(item => !(item.code === code && item.agentType === agentType && item.instanceId === instanceId));
+            loadAgentsData();
+            return;
+          }
           if (message.type === 'agent.binding.updated') {
             // A registration/rebind event must invalidate older list snapshots
             // just like revocation; otherwise the newly authorized node can
@@ -322,7 +339,7 @@ createApp({
               down: Math.max(0, Number(status.download_speed) || 0),
               conns: Math.max(0, Number(status.connections) || 0)
             };
-            const index = agentEntries.value.findIndex(item => item.code === code);
+            const index = agentEntries.value.findIndex(item => item.code === code && (message.instance_id ? item.agentType === message.agent_type && item.instanceId === String(message.instance_id) : !item.instanceId));
             if (index >= 0) {
               const previous = agentEntries.value[index];
               const updated = {
@@ -358,7 +375,7 @@ createApp({
             }
           } else if ((message.type === 'agent.command.updated' || message.type === 'agent.command.queued') && message.machine_code) {
             const code = String(message.machine_code);
-            const index = agentEntries.value.findIndex(item => item.code === code);
+            const index = agentEntries.value.findIndex(item => item.code === code && (message.instance_id ? item.agentType === message.agent_type && item.instanceId === String(message.instance_id) : !item.instanceId));
             if (index >= 0) {
               const previous = agentEntries.value[index];
               const queued = message.type === 'agent.command.queued';
@@ -937,6 +954,68 @@ createApp({
             commandResult: item.command_result && typeof item.command_result === 'object' ? item.command_result : null
           });
         });
+        // Composite identities are the source of truth when a machine hosts
+        // multiple Agent runtimes. Keep legacy machine entries only where no
+        // composite instance has been provisioned yet.
+        try {
+          const instanceResult = await sendBrowserWSControl({ type: 'agents.instances.list.get' });
+          const instances = Array.isArray(instanceResult.data) ? instanceResult.data : [];
+          if (instances.length) {
+            const compositeCodes = new Set(instances.map(item => String(item.machine_code || '')));
+            const compositeList = instances.map(item => {
+              const code = String(item.machine_code || '');
+              const instanceId = String(item.instance_id || '');
+              const agentType = item.agent_type === 'wireguard' ? 'wireguard' : 'mihomo';
+              const status = item.status && typeof item.status === 'object' ? item.status : {};
+              const last = Number(item.last_seen) || 0;
+              const ageSeconds = now - last;
+              const online = last > 0 && ageSeconds >= 0 && ageSeconds < 90;
+              const reportedAt = Number(status.received_at) || 0;
+              const hostname = String(status.hostname || '');
+              const os = String(status.os || '');
+              const arch = String(status.arch || '');
+              const mihomoVersion = normalizeMihomoVersion(status.mihomo_version);
+              const runtimeReported = reportedAt > 0 || Boolean(hostname || os || arch || mihomoVersion || status.interface_name);
+              const lastError = String(status.last_error || '');
+              let runtimeMessage = '';
+              if (!runtimeReported) runtimeMessage = last > 0
+                ? '有认证通信记录，但没有有效运行状态；请检查 Agent 心跳上报日志'
+                : '尚无通信记录；请检查 Agent 是否启动及网络连接';
+              else if (!online) runtimeMessage = '运行状态已记录，但心跳已超时；请检查 Agent 进程和网络连接';
+              else if (agentType === 'wireguard' && status.interface_up !== true) runtimeMessage = lastError || 'WireGuard 接口未运行';
+              else if (agentType === 'mihomo' && status.mihomo_healthy !== true) runtimeMessage = lastError || 'Mihomo API 未通过健康检查';
+              const pending = item.pending_command && typeof item.pending_command === 'object'
+                ? item.pending_command.command : null;
+              return {
+                code, agentType, instanceId, instanceKey: code + '|' + agentType + '|' + instanceId,
+                authorized: true, tokenConfigured: true,
+                connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : null,
+                uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
+                downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
+                online, last_seen: last, hostname, os, arch,
+                mihomoRunning: online && status.mihomo_healthy === true && agentType === 'mihomo',
+                wireguardRunning: online && status.interface_up === true && agentType === 'wireguard',
+                wireguardBackend: String(status.backend || ''),
+                wireguardInterface: String(status.interface_name || ''),
+                wireguardRole: String(status.role || ''),
+                wireguardPeerCount: Number.isFinite(Number(status.peer_count)) ? Math.max(0, Number(status.peer_count)) : null,
+                wireguardListenPort: Number.isFinite(Number(status.listen_port)) ? Math.max(0, Number(status.listen_port)) : null,
+                wireguardRX: Number.isFinite(Number(status.rx_bytes)) ? Math.max(0, Number(status.rx_bytes)) : 0,
+                wireguardTX: Number.isFinite(Number(status.tx_bytes)) ? Math.max(0, Number(status.tx_bytes)) : 0,
+                wireguardRevision: String(status.applied_revision || ''),
+                mihomoVersion, runtimeReported, runtimeMessage, lastError,
+                desiredConfigSHA256: String(item.config_sha256 || ''),
+                pendingCommand: pending, commandResult: null,
+                updated_at: (reportedAt > 0 || last > 0)
+                  ? new Date((reportedAt > 0 ? reportedAt : last) * 1000).toLocaleString() : ''
+              };
+            });
+            const legacyList = list.filter(item => !compositeCodes.has(item.code));
+            list.splice(0, list.length, ...legacyList, ...compositeList);
+          }
+        } catch (instanceError) {
+          console.warn('读取复合 Agent 实例失败，暂时保留旧版机器列表', instanceError);
+        }
         list.sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
         if (revocationRevision !== agentBindingRevision) {
           // A revoke event arrived while this snapshot was loading. Discard it
@@ -1038,7 +1117,18 @@ createApp({
       }
     };
 
-    const deleteAgent = async (code) => {
+    const deleteAgent = async (target) => {
+      const item = target && typeof target === 'object' ? target : null;
+      const code = item ? item.code : String(target || '');
+      if (item && item.instanceId) {
+        if (!confirm('确定撤销 ' + code + ' / ' + item.agentType + ' / ' + item.instanceId + ' 这个 Agent 实例？同机器其他实例不会受影响。')) return;
+        try {
+          await sendBrowserWSControl({ type: 'agent.instance.revoke', machine_code: code, agent_type: item.agentType, instance_id: item.instanceId });
+          await loadAgentsData();
+          showMsg('已撤销指定 Agent 实例', 'success');
+        } catch (e) { showMsg(e.message || '撤销实例失败', 'error'); }
+        return;
+      }
       if (!confirm('确定删除机器码 "' + code + '" 的 Token？')) return;
       try {
         await sendBrowserWSControl({ type: 'agent.binding.revoke', machine_code: code });
@@ -1424,7 +1514,7 @@ createApp({
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
-      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      newMachineCode, generatedToken, generating, agentEntries, agentMachineEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,

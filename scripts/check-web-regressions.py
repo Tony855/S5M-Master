@@ -12,6 +12,7 @@ handlers = Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
 handlers_test = Path("source/internal/app/handlers_test.go").read_text(encoding="utf-8")
 template_source = Path("source/internal/app/template.go").read_text(encoding="utf-8")
 router = Path("source/internal/app/router.go").read_text(encoding="utf-8")
+store = Path("source/internal/app/store.go").read_text(encoding="utf-8")
 import_handler = handlers[handlers.index("func (a *App) handleImportProxies"):handlers.index("func (a *App) handleAgentRegister")]
 rollback_impl = configgen[configgen.index("func (a *App) Rollback"):configgen.index("func (a *App) Rollback")+5000]
 ui = html + "\n" + app_js
@@ -162,14 +163,14 @@ instance_card_checks = {
     "offline Agent never presents cached Mihomo health as currently running": "mihomoRunning: online && status.mihomo_healthy === true" in app_js and "状态未知（Agent 离线）" in html and "最后上报 v" in html and "!item.online ? 'is-unknown'" in html,
     "Mihomo version normalization regression covers plain, single-prefix, and repeated-prefix values": "vv1.19.33" in Path("scripts/check-web-regressions.py").read_text(encoding="utf-8") and "1.19.33" in Path("scripts/check-web-regressions.py").read_text(encoding="utf-8"),
     "instance cards show last-report timestamp once in the compact summary with no removed details panel": instance_card_section.count("最后上报：") == 1 and "状态更新时间" not in instance_card_section and "instance-detail-label" not in instance_card_section and "instance-summary-updated" not in instance_card_section,
-    "scheme A shows the full machine-code copy label and preserves the four original actions": "复制机器码" in instance_card_section and "safeCopy(item.code)" in instance_card_section and all(handler in instance_card_section for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
+    "scheme A shows the full machine-code copy label and preserves the four original actions": "复制机器码" in instance_card_section and "safeCopy(item.code)" in instance_card_section and all(handler in instance_card_section for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item)")),
     "scheme A combines Mihomo runtime state and version on one row, with update result on the next row": "Mihomo 运行状态" in instance_card_section and "instance-mihomo-runtime" in instance_card_section and "instance-summary-mihomo" in instance_card_section and "instance-mihomo-version" in instance_card_section and "instance-update-row" in instance_card_section and "instance-summary-update" in instance_card_section and "Mihomo：" not in instance_card_section and "Mihomo 更新：" not in instance_card_section,
     "scheme A keeps host, authorization, Agent state, and live telemetry visible": "instance-host-system" in instance_card_section and "item.authorized" in instance_card_section and "item.online" in instance_card_section and "item.connections" in instance_card_section and "item.uploadSpeed" in instance_card_section and "item.downloadSpeed" in instance_card_section and "item.updated_at" in instance_card_section and "proxyCountForMachine(item.code)" in instance_card_section,
     "instance list refresh is manual and silent, with no 10-second polling timer": "const agentRefreshing = ref(false);" in app_js and "if (agentLoading.value || agentRefreshing.value) return;" in app_js and "静默刷新实例失败，保留现有列表" in app_js and "instanceRefreshTimer" not in app_js and ' :loading="agentLoading || agentRefreshing"' in html,
-    "silent instance refresh keeps stable card identity and does not reset search/filter state": 'v-for="item in filteredAgentEntries" :key="item.code"' in html and "const agentSearch = ref('');" in app_js and "const agentStatusFilter = ref('all');" in app_js and "const loadAgentsData = async () => {" in app_js and "agentSearch.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000] and "agentStatusFilter.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000],
+    "silent instance refresh keeps stable card identity and does not reset search/filter state": 'v-for="item in filteredAgentEntries" :key="item.instanceKey || item.code"' in html and "const agentSearch = ref('');" in app_js and "const agentStatusFilter = ref('all');" in app_js and "const loadAgentsData = async () => {" in app_js and "agentSearch.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000] and "agentStatusFilter.value =" not in app_js[app_js.index("const loadAgentsData = async () => {"):app_js.index("const loadAgentsData = async () => {") + 9000],
     "instance cards use tighter padding and restrained action-button colors": ".instance-row { padding: 13px; border-radius: 12px;" in css and "--el-button-bg-color: #f0f6ff" in css and "--el-button-bg-color: #fff8ed" in css,
     "runtime status palette includes online, offline, warning, and unknown states": all(token in css for token in (".status-badge.status-online", ".status-badge.status-offline", ".status-badge.status-warning", ".status-badge.status-unknown")),
-    "instance list does not expose token plaintext and keeps all four management actions": "{{ item.token }}" not in html and "item.token" not in html and all(handler in html for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item.code)")),
+    "instance list does not expose token plaintext and keeps all four management actions": "{{ item.token }}" not in html and "item.token" not in html and all(handler in html for handler in ("openProxiesForMachine(item.code)", "openNodeConfigForMachine(item.code)", "openAgentKernelUpdate(item.code)", "deleteAgent(item)")),
     "instance card layout prevents long machine identifiers from forcing overflow": ".instance-row {\n  min-width: 0;" in css and ".instance-row .agent-code {\n  min-width: 0;" in css and "overflow-wrap: anywhere;" in css,
 }
 checks.update(instance_card_checks)
@@ -447,6 +448,41 @@ checks["node YAML quick settings use real newlines, safe indentation, and reject
     and "if (line.trim() && yamlIndent(line) <= keyIndent) break;" in quick_settings_js
     and "if (indent > bounds.sectionIndent) childIndent = Math.min(childIndent, indent);" in quick_settings_js
     and "yamlIndent(line) > bounds.sectionIndent &&" not in quick_settings_js
+)
+
+
+checks["shared panel loads all composite Agent instances over authenticated browser WebSocket RPC"] = (
+    "sendBrowserWSControl({ type: 'agents.instances.list.get' })" in app_js
+    and 'case "agents.instances.list.get":' in browser_ws_source
+    and "func (s *Store) ListAllAgentInstances()" in store
+)
+
+checks["composite Agent cards use stable composite identity and independent revoke"] = (
+    'v-for="item in filteredAgentEntries" :key="item.instanceKey || item.code"' in html
+    and "item.instanceId" in html
+    and "type: 'agent.instance.revoke'" in app_js
+    and 'case "agent.instance.revoke":' in browser_ws_source
+    and '"type": "agent.instance.revoked"' in handlers
+)
+
+checks["composite Mihomo cards cannot accidentally invoke machine-scoped config or update actions"] = (
+    "实例级配置编辑与内核更新入口将在后续批次接入" in html
+    and 'v-if="item.instanceId"' in html
+    and "agentMachineEntries" in app_js
+)
+
+
+checks["browser WebSocket accepts bounded instance YAML frames without removing the payload limit"] = (
+    "conn.SetReadLimit(agentInstanceConfigMaxBytes + (32 << 10))" in browser_ws_source
+    and "agent.instance.config.save" in browser_ws_source
+    and "decodeLimited(r, agentInstanceConfigMaxBytes+(16<<10)" in handlers
+)
+
+checks["per-instance revoke is serialized with registration and invalidates only its session generation"] = (
+    "agentTokenGenerateMu.Lock()" in handlers
+    and "a.agentWSMu.Lock()" in handlers
+    and 'sessionKey := in.MachineCode + "|" + in.AgentType + "|" + in.InstanceID' in handlers
+    and '"type": "agent.instance.revoked"' in handlers
 )
 
 

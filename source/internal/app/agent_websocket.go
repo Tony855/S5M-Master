@@ -54,6 +54,8 @@ type browserControlMessage struct {
 	RequestID       string          `json:"request_id"`
 	TaskID          string          `json:"task_id"`
 	MachineCode     string          `json:"machine_code"`
+	AgentType       string          `json:"agent_type"`
+	InstanceID      string          `json:"instance_id"`
 	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
 	YAML            string          `json:"yaml"`
@@ -63,6 +65,8 @@ type browserControlMessage struct {
 	SHA256          string          `json:"sha256"`
 	Config          string          `json:"config"`
 	ConfigYAML      string          `json:"config_yaml"`
+	CommandID       string          `json:"command_id"`
+	Command         json.RawMessage `json:"command"`
 	Note            string          `json:"note"`
 	Confirm         bool            `json:"confirm"`
 	PasswordOld     string          `json:"old"`
@@ -128,7 +132,9 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	_ = client.writeJSON(map[string]any{"type": "connected", "at": time.Now().Unix()})
 	// WebSocket is the primary live control channel. HTTP remains the
 	// authentication/ticket, initial snapshot, health, and recovery path.
-	conn.SetReadLimit(16 << 10)
+	// Browser RPC carries instance YAML snapshots; keep a strict bound that
+	// accommodates the 2 MiB config API limit plus JSON framing overhead.
+	conn.SetReadLimit(agentInstanceConfigMaxBytes + (32 << 10))
 	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
 		fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err)
 		return
@@ -186,6 +192,36 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 		case "agents.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "agents.instances.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
+		case "agent.instance.config.save":
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType,
+				"instance_id": message.InstanceID, "config_yaml": message.ConfigYAML,
+			})
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/instances/config", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleSaveAgentInstanceConfig, req)
+		case "agent.instance.command.queue":
+			body, marshalErr := json.Marshal(map[string]any{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType,
+				"instance_id": message.InstanceID, "command_id": message.CommandID,
+				"command": message.Command,
+			})
+			if marshalErr != nil {
+				_ = client.writeJSON(map[string]any{"type": "request.result", "request_id": message.RequestID, "ok": false, "error": "命令请求格式无效"})
+				continue
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/instances/commands", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleQueueAgentInstanceCommand, req)
+		case "agent.instance.revoke":
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType, "instance_id": message.InstanceID,
+			})
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents/instances", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgentInstance, req)
 		case "proxies.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListProxies, httptest.NewRequest(http.MethodGet, "/api/v1/proxies", nil))
 		case "auth.password.change":
