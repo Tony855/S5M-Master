@@ -534,9 +534,29 @@ func validateWireGuardWSStatus(status map[string]any) error {
 		"listen_port", "peer_count", "rx_bytes", "tx_bytes", "config_sha256",
 		"desired_revision", "applied_revision", "last_error",
 	}
+	allowed := map[string]bool{
+		"backend": true, "available": true, "interface_name": true, "interface_up": true,
+		"role": true, "listen_port": true, "peer_count": true, "rx_bytes": true,
+		"tx_bytes": true, "config_sha256": true, "desired_revision": true,
+		"applied_revision": true, "last_error": true, "hostname": true, "os": true,
+		"arch": true, "agent_version": true,
+	}
+	for key := range status {
+		if !allowed[key] {
+			return fmt.Errorf("WireGuard 心跳包含不允许的字段: %s", key)
+		}
+	}
 	for _, key := range required {
 		if _, ok := status[key]; !ok {
 			return fmt.Errorf("WireGuard 心跳缺少必需字段: %s", key)
+		}
+	}
+	for _, key := range []string{"hostname", "os", "arch", "agent_version"} {
+		if value, ok := status[key]; ok {
+			text, valid := value.(string)
+			if !valid || len(text) > 128 {
+				return fmt.Errorf("WireGuard %s 必须是长度不超过 128 字节的字符串", key)
+			}
 		}
 	}
 	backend, ok := status["backend"].(string)
@@ -806,6 +826,9 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 		receivedAt := time.Now()
 		msg.Status["agent_type"] = agentType
+		if agentType == "wireguard" {
+			msg.Status["last_error"] = sanitizeAgentWebSocketText(msg.Status["last_error"].(string))
+		}
 		msg.Status["received_at"] = receivedAt.Unix()
 		payload, marshalErr := json.Marshal(msg.Status)
 		if marshalErr != nil {
