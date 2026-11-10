@@ -2562,6 +2562,10 @@ func (a *App) handleSaveAgentInstanceConfig(w http.ResponseWriter, r *http.Reque
 	in.MachineCode = strings.TrimSpace(in.MachineCode)
 	in.AgentType = strings.TrimSpace(in.AgentType)
 	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	if len(in.ConfigYAML) > agentInstanceConfigMaxBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "Agent 实例配置超过 2 MiB 限制")
+		return
+	}
 	instance, err := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID)
 	if err != nil || instance == nil {
 		writeErr(w, http.StatusNotFound, "目标 Agent 实例不存在")
