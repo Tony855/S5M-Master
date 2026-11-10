@@ -1,5 +1,5 @@
 # Multi-stage build: keep the runtime image small and run as non-root.
-FROM golang:1.23-alpine AS builder
+FROM golang:1.27.3-alpine AS builder
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /src
 COPY go.mod go.sum ./
