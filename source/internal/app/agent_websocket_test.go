@@ -1622,8 +1622,12 @@ func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
 		t.Fatalf("read WireGuard instance: %#v err=%v", wireguard, err)
 	}
 	var gotMihomo, gotWireGuard map[string]any
-	if err := json.Unmarshal(mihomo.StatusJSON, &gotMihomo); err != nil { t.Fatal(err) }
-	if err := json.Unmarshal(wireguard.StatusJSON, &gotWireGuard); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(mihomo.StatusJSON, &gotMihomo); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(wireguard.StatusJSON, &gotWireGuard); err != nil {
+		t.Fatal(err)
+	}
 	if gotMihomo["mihomo_version"] != "v1.19.33" || gotMihomo["interface_name"] != nil {
 		t.Fatalf("Mihomo instance status contaminated: %#v", gotMihomo)
 	}
