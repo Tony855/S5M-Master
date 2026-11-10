@@ -2502,6 +2502,10 @@ func (a *App) handleDeleteAgentInstance(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "实例身份参数无效")
 		return
 	}
+	// Serialize instance deletion with registration so a concurrent register
+	// cannot mint a fresh JWT after the identity has been revoked.
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
 	a.agentWSMu.Lock()
 	if err := a.store.DeleteAgentInstance(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
 		a.agentWSMu.Unlock()
