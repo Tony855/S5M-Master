@@ -916,7 +916,7 @@ createApp({
             hostname,
             os,
             arch,
-            mihomoRunning: agentType === 'mihomo' && online && status.mihomo_healthy === true,
+            mihomoRunning: online && status.mihomo_healthy === true && agentType === 'mihomo',
             wireguardRunning: agentType === 'wireguard' && online && status.interface_up === true,
             wireguardBackend: String(status.backend || ''),
             wireguardInterface: String(status.interface_name || ''),
