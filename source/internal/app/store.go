@@ -686,3 +686,147 @@ func (s *Store) SaveNodeConfigIfEmpty(machineCode, yamlText string) error {
 		machineCode, yamlText, time.Now().Format(time.RFC3339))
 	return err
 }
+
+
+// AgentIdentity is the stable identity of one Agent runtime on a physical machine.
+type AgentIdentity struct {
+	MachineCode      string          `json:"machine_code"`
+	AgentType        string          `json:"agent_type"`
+	InstanceID       string          `json:"instance_id"`
+	CredentialSHA256 string          `json:"-"`
+	StatusJSON       json.RawMessage `json:"status"`
+	LastSeen         int64           `json:"last_seen"`
+	CreatedAt        string          `json:"created_at"`
+	UpdatedAt        string          `json:"updated_at"`
+}
+
+func validateAgentIdentity(machineCode, agentType, instanceID string) error {
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(machineCode) {
+		return fmt.Errorf("机器码格式无效")
+	}
+	if agentType != "mihomo" && agentType != "wireguard" {
+		return fmt.Errorf("Agent 类型无效")
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9_.-]{1,96}$`).MatchString(instanceID) {
+		return fmt.Errorf("Agent 实例 ID 格式无效")
+	}
+	return nil
+}
+
+// ProvisionAgentInstance stores only a SHA-256 fingerprint of the dedicated
+// credential. Rotating a credential deliberately preserves status and last_seen.
+func (s *Store) ProvisionAgentInstance(machineCode, agentType, instanceID, secret string) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	if len(secret) < 32 || len(secret) > 256 || strings.TrimSpace(secret) != secret {
+		return fmt.Errorf("Agent 专属凭据长度或格式无效")
+	}
+	sum := sha256.Sum256([]byte(secret))
+	hash := hex.EncodeToString(sum[:])
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(`INSERT INTO agent_instances(
+		machine_code, agent_type, instance_id, credential_sha256, status_json,
+		last_seen, created_at, updated_at
+	) VALUES(?, ?, ?, ?, '{}', 0, ?, ?)
+	ON CONFLICT(machine_code, agent_type, instance_id) DO UPDATE SET
+		credential_sha256=excluded.credential_sha256,
+		updated_at=excluded.updated_at`,
+		machineCode, agentType, instanceID, hash, now, now)
+	return err
+}
+
+// AgentInstanceCredentialHash returns the stored credential fingerprint for
+// constant-time comparison by the authentication layer.
+func (s *Store) AgentInstanceCredentialHash(machineCode, agentType, instanceID string) (string, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return "", err
+	}
+	var hash string
+	err := s.db.QueryRow(`SELECT credential_sha256 FROM agent_instances
+		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
+		machineCode, agentType, instanceID).Scan(&hash)
+	return hash, err
+}
+
+// UpdateAgentInstanceStatus atomically updates telemetry for exactly one Agent
+// instance; it never writes to the legacy machine-scoped settings keys.
+func (s *Store) UpdateAgentInstanceStatus(machineCode, agentType, instanceID string, status json.RawMessage, lastSeen int64) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	if lastSeen < 0 || len(status) == 0 || len(status) > 64<<10 || !json.Valid(status) {
+		return fmt.Errorf("Agent 实例状态数据无效")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.Exec(`UPDATE agent_instances SET status_json=?, last_seen=?, updated_at=?
+		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
+		string(status), lastSeen, now, machineCode, agentType, instanceID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) GetAgentInstance(machineCode, agentType, instanceID string) (*AgentIdentity, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return nil, err
+	}
+	item := &AgentIdentity{}
+	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, credential_sha256,
+		status_json, last_seen, created_at, updated_at FROM agent_instances
+		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
+		machineCode, agentType, instanceID).Scan(
+		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.CredentialSHA256,
+		&item.StatusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+func (s *Store) ListAgentInstances(machineCode string) ([]AgentIdentity, error) {
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`).MatchString(machineCode) {
+		return nil, fmt.Errorf("机器码格式无效")
+	}
+	rows, err := s.db.Query(`SELECT machine_code, agent_type, instance_id, status_json,
+		last_seen, created_at, updated_at FROM agent_instances
+		WHERE machine_code=? ORDER BY agent_type, instance_id`, machineCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AgentIdentity
+	for rows.Next() {
+		var item AgentIdentity
+		if err := rows.Scan(&item.MachineCode, &item.AgentType, &item.InstanceID,
+			&item.StatusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) DeleteAgentInstance(machineCode, agentType, instanceID string) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM agent_instances
+		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
+		machineCode, agentType, instanceID)
+	return err
+}
