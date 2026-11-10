@@ -2546,24 +2546,24 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type instanceView struct {
-		MachineCode    string                `json:"machine_code"`
-		AgentType      string                `json:"agent_type"`
-		InstanceID     string                `json:"instance_id"`
-		Status         json.RawMessage       `json:"status"`
-		LastSeen       int64                 `json:"last_seen"`
-		ConfigSHA256   string                `json:"config_sha256,omitempty"`
+		MachineCode    string               `json:"machine_code"`
+		AgentType      string               `json:"agent_type"`
+		InstanceID     string               `json:"instance_id"`
+		Status         json.RawMessage      `json:"status"`
+		LastSeen       int64                `json:"last_seen"`
+		ConfigSHA256   string               `json:"config_sha256,omitempty"`
 		PendingCommand *instanceCommandView `json:"pending_command,omitempty"`
-		LatestCommand *instanceCommandView `json:"latest_command,omitempty"`
+		LatestCommand  *instanceCommandView `json:"latest_command,omitempty"`
 	}
 	type instanceCommandView struct {
-		Command map[string]string `json:"command,omitempty"`
-		CommandID string `json:"command_id"`
-		Type string `json:"type,omitempty"`
-		Version string `json:"version,omitempty"`
-		Status string `json:"status"`
-		Message string `json:"message,omitempty"`
-		CreatedAt string `json:"created_at"`
-		UpdatedAt string `json:"updated_at"`
+		Command   map[string]string `json:"command,omitempty"`
+		CommandID string            `json:"command_id"`
+		Type      string            `json:"type,omitempty"`
+		Version   string            `json:"version,omitempty"`
+		Status    string            `json:"status"`
+		Message   string            `json:"message,omitempty"`
+		CreatedAt string            `json:"created_at"`
+		UpdatedAt string            `json:"updated_at"`
 	}
 	result := make([]instanceView, 0, len(instances))
 	for _, instance := range instances {
@@ -2585,22 +2585,30 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if pending != nil {
-			var meta struct { Type string `json:"type"`; Version string `json:"version"` }
+			var meta struct {
+				Type    string `json:"type"`
+				Version string `json:"version"`
+			}
 			if err := json.Unmarshal(pending.CommandJSON, &meta); err != nil {
-				writeErr(w, http.StatusInternalServerError, "读取实例待执行命令摘要失败"); return
+				writeErr(w, http.StatusInternalServerError, "读取实例待执行命令摘要失败")
+				return
 			}
 			item.PendingCommand = &instanceCommandView{
-				Command: map[string]string{"id": pending.CommandID, "type": meta.Type, "version": meta.Version},
+				Command:   map[string]string{"id": pending.CommandID, "type": meta.Type, "version": meta.Version},
 				CommandID: pending.CommandID, Type: meta.Type, Version: meta.Version,
-				Status: pending.Status, CreatedAt: pending.CreatedAt, UpdatedAt: pending.UpdatedAt,
+				Status:    pending.Status,
+				CreatedAt: pending.CreatedAt,
+				UpdatedAt: pending.UpdatedAt,
 			}
 		}
 		latest, latestErr := a.store.GetLatestAgentInstanceCommand(instance.MachineCode, instance.AgentType, instance.InstanceID)
-		if latestErr != nil { writeErr(w, http.StatusInternalServerError, "读取实例最近命令结果失败"); return }
+		if latestErr != nil { writeErr(w, http.StatusInternalServerError, "读取实例最近命令结果失败")
+			return }
 		if latest != nil {
 			var meta struct { Type string `json:"type"`; Version string `json:"version"` }
 			if err := json.Unmarshal(latest.CommandJSON, &meta); err != nil {
-				writeErr(w, http.StatusInternalServerError, "读取实例命令摘要失败"); return
+				writeErr(w, http.StatusInternalServerError, "读取实例命令摘要失败")
+				return
 			}
 			item.LatestCommand = &instanceCommandView{
 				CommandID: latest.CommandID, Type: meta.Type, Version: meta.Version,
