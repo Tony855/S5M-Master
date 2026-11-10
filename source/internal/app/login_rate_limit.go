@@ -11,21 +11,21 @@ import (
 )
 
 const (
-	loginAttemptWindow = time.Minute
-	loginAttemptLimit = 10
+	loginAttemptWindow            = time.Minute
+	loginAttemptLimit             = 10
 	agentRegistrationAttemptLimit = 600
-	loginAttemptMaxKeys = 4096
-	loginAttemptRetention = 10 * time.Minute
+	loginAttemptMaxKeys           = 4096
+	loginAttemptRetention         = 10 * time.Minute
 )
 
 type loginAttempt struct {
 	windowStart time.Time
-	lastSeen time.Time
-	count int
+	lastSeen    time.Time
+	count       int
 }
 
 type loginAttemptLimiter struct {
-	mu sync.Mutex
+	mu      sync.Mutex
 	entries map[string]loginAttempt
 }
 
@@ -33,13 +33,14 @@ type loginAttemptLimiter struct {
 // enrollment does not consume administrator login attempts.
 var agentRegistrationLimiter loginAttemptLimiter
 
-
 // loginClientKey trusts proxy-supplied addresses only when the immediate peer
 // is loopback. The bundled nginx installer proxies from 127.0.0.1 and sets
 // X-Real-IP; direct clients cannot spoof these headers.
 func loginClientKey(r *http.Request) string {
 	remoteHost, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err != nil { remoteHost = strings.TrimSpace(r.RemoteAddr) }
+	if err != nil {
+		remoteHost = strings.TrimSpace(r.RemoteAddr)
+	}
 	remoteIP := net.ParseIP(remoteHost)
 	if remoteIP != nil && remoteIP.IsLoopback() {
 		for _, candidate := range []string{r.Header.Get("X-Real-IP"), firstForwardedFor(r.Header.Get("X-Forwarded-For"))} {
@@ -48,13 +49,19 @@ func loginClientKey(r *http.Request) string {
 			}
 		}
 	}
-	if remoteIP != nil { return remoteIP.String() }
-	if remoteHost == "" { return "unknown" }
+	if remoteIP != nil {
+		return remoteIP.String()
+	}
+	if remoteHost == "" {
+		return "unknown"
+	}
 	return remoteHost
 }
 
 func firstForwardedFor(value string) string {
-	if i := strings.IndexByte(value, ','); i >= 0 { return strings.TrimSpace(value[:i]) }
+	if i := strings.IndexByte(value, ','); i >= 0 {
+		return strings.TrimSpace(value[:i])
+	}
 	return strings.TrimSpace(value)
 }
 
@@ -63,14 +70,22 @@ func (l *loginAttemptLimiter) allow(key string, now time.Time) (bool, time.Durat
 }
 
 func (l *loginAttemptLimiter) allowWithLimit(key string, now time.Time, limit int) (bool, time.Duration) {
-	if limit < 1 { limit = loginAttemptLimit }
+	if limit < 1 {
+		limit = loginAttemptLimit
+	}
 	key = strings.TrimSpace(key)
-	if key == "" { key = "unknown" }
+	if key == "" {
+		key = "unknown"
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.entries == nil { l.entries = make(map[string]loginAttempt) }
+	if l.entries == nil {
+		l.entries = make(map[string]loginAttempt)
+	}
 	for existing, entry := range l.entries {
-		if now.Sub(entry.lastSeen) > loginAttemptRetention { delete(l.entries, existing) }
+		if now.Sub(entry.lastSeen) > loginAttemptRetention {
+			delete(l.entries, existing)
+		}
 	}
 	entry, exists := l.entries[key]
 	if !exists && len(l.entries) >= loginAttemptMaxKeys {
@@ -81,7 +96,9 @@ func (l *loginAttemptLimiter) allowWithLimit(key string, now time.Time, limit in
 				oldestKey, oldest = existing, candidate.lastSeen
 			}
 		}
-		if oldestKey != "" { delete(l.entries, oldestKey) }
+		if oldestKey != "" {
+			delete(l.entries, oldestKey)
+	}
 	}
 	if !exists || entry.windowStart.IsZero() || now.Sub(entry.windowStart) >= loginAttemptWindow {
 		entry = loginAttempt{windowStart: now}
