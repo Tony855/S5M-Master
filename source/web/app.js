@@ -44,6 +44,14 @@ createApp({
         return matchesQuery && matchesStatus;
       });
     });
+    const agentMachineEntries = computed(() => {
+      const seen = new Set();
+      return agentEntries.value.filter(item => {
+        if (seen.has(item.code)) return false;
+        seen.add(item.code);
+        return true;
+      });
+    });
     const subUrl = ref('');
     const retryingNodeConfigSync = ref(false);
     const configYaml = ref('');
@@ -1506,7 +1514,7 @@ createApp({
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
-      newMachineCode, generatedToken, generating, agentEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      newMachineCode, generatedToken, generating, agentEntries, agentMachineEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,
