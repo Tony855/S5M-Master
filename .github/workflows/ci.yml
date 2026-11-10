@@ -104,7 +104,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.27.x'
           cache: true
           cache-dependency-path: source/go.sum
       - name: Verify Go formatting
@@ -179,7 +179,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.22.x'
+          go-version: '1.27.x'
           cache: true
           cache-dependency-path: s5m-agent/go.sum
       - name: Verify Go formatting
