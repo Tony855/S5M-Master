@@ -371,7 +371,7 @@
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
                 <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
                 <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
-                <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
+                <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销绑定</el-button>
               </div>
             </div>
           </div>
