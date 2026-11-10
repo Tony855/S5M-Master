@@ -1412,6 +1412,13 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", strings.Repeat("w", 40)); err != nil {
 		t.Fatalf("provision WireGuard: %v", err)
 	}
+	const secondMachine = "admin-instance-node-2"
+	if err := store.ProvisionAgentInstance(secondMachine, "mihomo", "default", strings.Repeat("z", 40)); err != nil {
+		t.Fatalf("provision second machine: %v", err)
+	}
+	if err := store.SaveAgentInstanceConfig(secondMachine, "mihomo", "default", "mixed-port: 7891\nmode: global\n"); err != nil {
+		t.Fatalf("save second machine config: %v", err)
+	}
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -1453,6 +1460,7 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	listRec := request(http.MethodGet, "/api/v1/agents/instances", "")
 	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"agent_type":"mihomo"`) ||
 		!strings.Contains(listRec.Body.String(), `"agent_type":"wireguard"`) ||
+		!strings.Contains(listRec.Body.String(), secondMachine) ||
 		strings.Contains(listRec.Body.String(), "CredentialSHA256") || strings.Contains(listRec.Body.String(), strings.Repeat("m", 40)) {
 		t.Fatalf("instance list leaked credentials or omitted instances: status=%d body=%s", listRec.Code, listRec.Body.String())
 	}
