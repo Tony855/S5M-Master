@@ -242,7 +242,7 @@ createApp({
         agentEntries.value = agentEntries.value.map(item => {
           const age = now - (Number(item.last_seen) || 0);
           if (item.online && (age < 0 || age >= 90)) {
-            return { ...item, online: false, mihomoRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
+            return { ...item, online: false, mihomoRunning: false, wireguardRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
           }
           return item;
         });
@@ -313,6 +313,7 @@ createApp({
           if (message.type === 'agent.status.updated' && message.machine_code) {
             const code = String(message.machine_code);
             const status = message.status && typeof message.status === 'object' ? message.status : {};
+            const agentType = status.agent_type === 'wireguard' ? 'wireguard' : 'mihomo';
             const receivedAt = Number(message.last_seen) || Math.floor(Date.now() / 1000);
             // Live telemetry is authoritative while WebSocket is connected.
             // HTTP is only used for initial/reconnect snapshots, not polling.
@@ -327,18 +328,28 @@ createApp({
               const updated = {
                 ...previous,
                 online: true,
+                agentType,
                 last_seen: receivedAt,
                 hostname: String(status.hostname || previous.hostname || ''),
                 os: String(status.os || previous.os || ''),
                 arch: String(status.arch || previous.arch || ''),
-                mihomoRunning: status.mihomo_healthy === true,
+                mihomoRunning: agentType === 'mihomo' && status.mihomo_healthy === true,
+                wireguardRunning: agentType === 'wireguard' && status.interface_up === true,
+                wireguardBackend: String(status.backend || previous.wireguardBackend || ''),
+                wireguardInterface: String(status.interface_name || previous.wireguardInterface || ''),
+                wireguardRole: String(status.role || previous.wireguardRole || ''),
+                wireguardPeerCount: Number.isFinite(Number(status.peer_count)) ? Math.max(0, Number(status.peer_count)) : previous.wireguardPeerCount,
+                wireguardListenPort: Number.isFinite(Number(status.listen_port)) ? Math.max(0, Number(status.listen_port)) : previous.wireguardListenPort,
+                wireguardRX: Number.isFinite(Number(status.rx_bytes)) ? Math.max(0, Number(status.rx_bytes)) : previous.wireguardRX,
+                wireguardTX: Number.isFinite(Number(status.tx_bytes)) ? Math.max(0, Number(status.tx_bytes)) : previous.wireguardTX,
+                wireguardRevision: String(status.applied_revision || previous.wireguardRevision || ''),
                 mihomoVersion: normalizeMihomoVersion(status.mihomo_version || previous.mihomoVersion),
                 connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : previous.connections,
                 uploadSpeed: Math.max(0, Number(status.upload_speed) || 0),
                 downloadSpeed: Math.max(0, Number(status.download_speed) || 0),
                 runtimeReported: true,
                 lastError: String(status.last_error || ''),
-                runtimeMessage: status.mihomo_healthy === true ? '' : String(status.last_error || 'Agent 已连接，但 Mihomo 健康检查未通过'),
+                runtimeMessage: agentType === 'wireguard' ? (status.interface_up === true ? '' : String(status.last_error || 'WireGuard 接口未运行')) : (status.mihomo_healthy === true ? '' : String(status.last_error || 'Agent 已连接，但 Mihomo 健康检查未通过')),
                 updated_at: new Date(receivedAt * 1000).toLocaleString()
               };
               agentEntries.value.splice(index, 1, updated);
@@ -875,6 +886,7 @@ createApp({
           const os = String(status.os || '');
           const arch = String(status.arch || '');
           const mihomoVersion = normalizeMihomoVersion(status.mihomo_version);
+          const agentType = status.agent_type === 'wireguard' ? 'wireguard' : 'mihomo';
           const runtimeReported = reportedAt > 0 || Boolean(hostname || os || arch || mihomoVersion);
           const lastError = String(status.last_error || '');
 
@@ -885,12 +897,15 @@ createApp({
               : '尚无通信记录；请检查 Agent 是否启动、绑定 Token 和主控地址';
           } else if (!online) {
             runtimeMessage = '运行状态已记录，但心跳已超时；请检查 Agent 进程和网络连接';
-          } else if (!status.mihomo_healthy) {
+          } else if (agentType === 'wireguard' && status.interface_up !== true) {
+            runtimeMessage = lastError || 'Agent 已连接，但 WireGuard 接口未运行';
+          } else if (agentType === 'mihomo' && !status.mihomo_healthy) {
             runtimeMessage = lastError || 'Agent 已上报，但 Mihomo API 未通过健康检查';
           }
 
           list.push({
             code,
+            agentType,
             authorized: item.authorized === true,
             tokenConfigured: item.token_configured === true,
             connections: Number.isFinite(Number(status.connections)) ? Math.max(0, Number(status.connections)) : null,
@@ -901,7 +916,16 @@ createApp({
             hostname,
             os,
             arch,
-            mihomoRunning: online && status.mihomo_healthy === true,
+            mihomoRunning: agentType === 'mihomo' && online && status.mihomo_healthy === true,
+            wireguardRunning: agentType === 'wireguard' && online && status.interface_up === true,
+            wireguardBackend: String(status.backend || ''),
+            wireguardInterface: String(status.interface_name || ''),
+            wireguardRole: String(status.role || ''),
+            wireguardPeerCount: Number.isFinite(Number(status.peer_count)) ? Math.max(0, Number(status.peer_count)) : null,
+            wireguardListenPort: Number.isFinite(Number(status.listen_port)) ? Math.max(0, Number(status.listen_port)) : null,
+            wireguardRX: Number.isFinite(Number(status.rx_bytes)) ? Math.max(0, Number(status.rx_bytes)) : 0,
+            wireguardTX: Number.isFinite(Number(status.tx_bytes)) ? Math.max(0, Number(status.tx_bytes)) : 0,
+            wireguardRevision: String(status.applied_revision || ''),
             mihomoVersion,
             runtimeReported,
             runtimeMessage,
