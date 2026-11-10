@@ -170,7 +170,7 @@ jobs:
             publish_latest=true
           elif [[ "$GITHUB_REF" == refs/tags/s5m-master-v* ]]; then
             current_version="${GITHUB_REF_NAME#s5m-master-v}"
-            [[ "$current_version" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || {
+            [[ "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
               echo "::error::Release tag must use s5m-master-vX.Y.Z"
               exit 1
             }
@@ -178,10 +178,10 @@ jobs:
               echo "::error::Could not verify published release tags; refusing to move latest"
               exit 1
             fi
-            highest_version="$(printf '%s\\n' "$remote_tags" |
-              awk '{sub(/^refs\\/tags\\/s5m-master-v/, "", $2); if ($2 ~ /^[0-9]+\\.[0-9]+\\.[0-9]+$/) print $2}' |
+            highest_version="$(printf '%s\n' "$remote_tags" |
+              awk '{sub(/^refs\/tags\/s5m-master-v/, "", $2); if ($2 ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print $2}' |
               sort -V | tail -n 1)"
-            if [[ -z "$highest_version" || "$(printf '%s\\n' "$current_version" "$highest_version" | sort -V | tail -n 1)" == "$current_version" ]]; then
+            if [[ -z "$highest_version" || "$(printf '%s\n' "$current_version" "$highest_version" | sort -V | tail -n 1)" == "$current_version" ]]; then
               publish_latest=true
             fi
           fi
