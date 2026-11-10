@@ -1,7 +1,9 @@
 package app
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -318,5 +320,100 @@ func TestSaveNodeConfigIfUnchangedCanInitializeMissingNode(t *testing.T) {
 	got, err := store.GetNodeConfig("node-new")
 	if err != nil || got == nil || got.YAML != want {
 		t.Fatalf("initialized config = %#v, err=%v", got, err)
+	}
+}
+
+func TestLegacyAgentMigrationCreatesDefaultMihomoInstance(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-migration.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "shared-node_01"
+	const secret = "legacy-dedicated-secret"
+	const status = `{"agent_type":"mihomo","mihomo_healthy":true}`
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + machineCode:  secret,
+		"agent_status_" + machineCode:   status,
+		"agent_lastseen_" + machineCode: "1794300000",
+		"agent_machine_invalid/slash":   "must-not-migrate",
+	}); err != nil {
+		t.Fatalf("seed legacy settings: %v", err)
+	}
+	if err := store.migrateLegacyAgentInstances(); err != nil {
+		t.Fatalf("migrateLegacyAgentInstances: %v", err)
+	}
+
+	var gotHash, gotStatus string
+	var gotLastSeen int64
+	err = store.db.QueryRow(`SELECT credential_sha256, status_json, last_seen
+		FROM agent_instances
+		WHERE machine_code=? AND agent_type='mihomo' AND instance_id='default'`,
+		machineCode).Scan(&gotHash, &gotStatus, &gotLastSeen)
+	if err != nil {
+		t.Fatalf("read migrated instance: %v", err)
+	}
+	sum := sha256.Sum256([]byte(secret))
+	if gotHash != hex.EncodeToString(sum[:]) {
+		t.Fatalf("credential hash = %q, want SHA-256 of legacy secret", gotHash)
+	}
+	if gotStatus != status || gotLastSeen != 1794300000 {
+		t.Fatalf("migrated telemetry = (%q, %d), want (%q, %d)", gotStatus, gotLastSeen, status, int64(1794300000))
+	}
+	if _, err := store.db.Exec(`INSERT INTO agent_instances(
+		machine_code, agent_type, instance_id, credential_sha256, created_at, updated_at
+	) VALUES(?, 'wireguard', 'container-a', ?, 'now', 'now')`, machineCode, "wireguard-secret-hash"); err != nil {
+		t.Fatalf("insert independent WireGuard instance: %v", err)
+	}
+
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instances WHERE machine_code=?`, machineCode).Scan(&count); err != nil {
+		t.Fatalf("count instances: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("instance count = %d, want 2 (Mihomo + WireGuard)", count)
+	}
+	if err := store.migrateLegacyAgentInstances(); err != nil {
+		t.Fatalf("repeat migration: %v", err)
+	}
+	var preserved string
+	if err := store.db.QueryRow(`SELECT credential_sha256 FROM agent_instances
+		WHERE machine_code=? AND agent_type='wireguard' AND instance_id='container-a'`, machineCode).Scan(&preserved); err != nil {
+		t.Fatalf("read WireGuard instance after repeat migration: %v", err)
+	}
+	if preserved != "wireguard-secret-hash" {
+		t.Fatalf("repeat migration overwrote independent instance: %q", preserved)
+	}
+}
+
+func TestAgentInstanceCompositeIdentityAllowsSameMachineDifferentAgents(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-identity.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	insert := `INSERT INTO agent_instances(
+		machine_code, agent_type, instance_id, credential_sha256, created_at, updated_at
+	) VALUES(?, ?, ?, ?, 'now', 'now')`
+	for _, item := range []struct{ agentType, instanceID string }{
+		{"mihomo", "default"},
+		{"wireguard", "default"},
+		{"wireguard", "routeros-container-2"},
+	} {
+		if _, err := store.db.Exec(insert, "same-physical-machine", item.agentType, item.instanceID, "hash-"+item.agentType+"-"+item.instanceID); err != nil {
+			t.Fatalf("insert %s/%s: %v", item.agentType, item.instanceID, err)
+		}
+	}
+	if _, err := store.db.Exec(insert, "same-physical-machine", "wireguard", "default", "duplicate"); err == nil {
+		t.Fatal("duplicate machine/type/instance identity unexpectedly succeeded")
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instances WHERE machine_code=?`, "same-physical-machine").Scan(&count); err != nil {
+		t.Fatalf("count instances: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("instance count = %d, want 3", count)
 	}
 }
