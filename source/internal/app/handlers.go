@@ -1,9 +1,8 @@
 package app
 
 import (
-	"context"
-	"math"
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -14,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -1065,7 +1065,7 @@ func (a *App) handleUpdateMihomo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var release struct {
-		TagName string "json:\"tag_name\""
+		TagName string               "json:\"tag_name\""
 		Assets  []mihomoReleaseAsset "json:\"assets\""
 	}
 	if err := json.Unmarshal(metadata, &release); err != nil {
