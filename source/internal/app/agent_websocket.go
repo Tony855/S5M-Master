@@ -54,6 +54,8 @@ type browserControlMessage struct {
 	RequestID       string          `json:"request_id"`
 	TaskID          string          `json:"task_id"`
 	MachineCode     string          `json:"machine_code"`
+	AgentType       string          `json:"agent_type"`
+	InstanceID      string          `json:"instance_id"`
 	ProxyID         string          `json:"proxy_id"`
 	ProxyPayload    json.RawMessage `json:"proxy"`
 	YAML            string          `json:"yaml"`
@@ -190,6 +192,15 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleMonitorTraffic, httptest.NewRequest(http.MethodGet, "/api/v1/monitor/traffic", nil))
 		case "agents.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
+		case "agents.instances.list.get":
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
+		case "agent.instance.revoke":
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode, "agent_type": message.AgentType, "instance_id": message.InstanceID,
+			})
+			req := httptest.NewRequest(http.MethodDelete, "/api/v1/agents/instances", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleDeleteAgentInstance, req)
 		case "agents.instances.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
 		case "agent.instance.config.save":
