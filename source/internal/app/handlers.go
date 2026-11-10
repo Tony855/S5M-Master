@@ -2139,6 +2139,9 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if identity.InstanceID != "" {
+		return "", fmt.Errorf("该 Agent 实例尚未启用机器级 HTTP 接口")
+	}
 	return identity.MachineCode, nil
 }
 
