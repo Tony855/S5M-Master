@@ -465,7 +465,7 @@ checks["composite Agent cards use stable composite identity and independent revo
     and '"type": "agent.instance.revoked"' in handlers
 )
 
-composite_action_start = instance_card_section.index('v-if="item.instanceId"')
+composite_action_start = instance_card_section.index('<template v-if="item.instanceId">')
 composite_action_end = instance_card_section.index("</template>", composite_action_start)
 composite_action_section = instance_card_section[composite_action_start:composite_action_end]
 
