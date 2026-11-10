@@ -1014,7 +1014,9 @@ func (s *Store) GetPendingAgentInstanceCommand(machineCode, agentType, instanceI
 
 // GetLatestAgentInstanceCommand returns the most recent command state for one exact instance.
 func (s *Store) GetLatestAgentInstanceCommand(machineCode, agentType, instanceID string) (*AgentInstanceCommand, error) {
-	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil { return nil, err }
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return nil, err
+	}
 	item := &AgentInstanceCommand{}
 	var commandJSON []byte
 	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, command_id, command_json,
@@ -1024,8 +1026,12 @@ func (s *Store) GetLatestAgentInstanceCommand(machineCode, agentType, instanceID
 		machineCode, agentType, instanceID).Scan(
 		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.CommandID, &commandJSON,
 		&item.Status, &item.Result, &item.CreatedAt, &item.UpdatedAt)
-	if err == sql.ErrNoRows { return nil, nil }
-	if err != nil { return nil, err }
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	item.CommandJSON = json.RawMessage(commandJSON)
 	return item, nil
 }
