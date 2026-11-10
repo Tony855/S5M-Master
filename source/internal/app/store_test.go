@@ -323,7 +323,6 @@ func TestSaveNodeConfigIfUnchangedCanInitializeMissingNode(t *testing.T) {
 	}
 }
 
-
 func TestLegacyAgentMigrationCreatesDefaultMihomoInstance(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-migration.db"))
 	if err != nil {
@@ -335,10 +334,10 @@ func TestLegacyAgentMigrationCreatesDefaultMihomoInstance(t *testing.T) {
 	const secret = "legacy-dedicated-secret"
 	const status = `{"agent_type":"mihomo","mihomo_healthy":true}`
 	if err := store.UpdateSettings(map[string]string{
-		"agent_machine_" + machineCode: secret,
-		"agent_status_" + machineCode: status,
+		"agent_machine_" + machineCode:  secret,
+		"agent_status_" + machineCode:   status,
 		"agent_lastseen_" + machineCode: "1794300000",
-		"agent_machine_invalid/slash": "must-not-migrate",
+		"agent_machine_invalid/slash":   "must-not-migrate",
 	}); err != nil {
 		t.Fatalf("seed legacy settings: %v", err)
 	}
