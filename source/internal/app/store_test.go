@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
