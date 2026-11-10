@@ -519,5 +519,6 @@ checks["composite Agent instance list exposes sanitized latest command result wi
     and "GetLatestAgentInstanceCommand" in Path("source/internal/app/handlers.go").read_text(encoding="utf-8")
     and "item.latest_command" in app_js
     and "commandResult: latestCommand ?" in app_js
+    and "loadAgentsData();" in app_js[app_js.index("message.type === 'agent.command.updated'"):app_js.index("message.type === 'agent.command.updated'") + 1800]
     and "GetLatestAgentInstanceCommand" in Path("source/internal/app/store_test.go").read_text(encoding="utf-8")
 )
