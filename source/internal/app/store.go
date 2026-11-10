@@ -857,6 +857,32 @@ func (s *Store) ListAgentInstances(machineCode string) ([]AgentIdentity, error) 
 	return out, nil
 }
 
+// ListAllAgentInstances returns every composite Agent identity for the shared control panel.
+func (s *Store) ListAllAgentInstances() ([]AgentIdentity, error) {
+	rows, err := s.db.Query(`SELECT machine_code, agent_type, instance_id, status_json,
+		last_seen, created_at, updated_at FROM agent_instances
+		ORDER BY machine_code, agent_type, instance_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AgentIdentity
+	for rows.Next() {
+		var item AgentIdentity
+		var statusJSON []byte
+		if err := rows.Scan(&item.MachineCode, &item.AgentType, &item.InstanceID,
+			&statusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		item.StatusJSON = json.RawMessage(statusJSON)
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) DeleteAgentInstance(machineCode, agentType, instanceID string) error {
 	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
 		return err
