@@ -471,6 +471,20 @@ checks["composite Mihomo cards cannot accidentally invoke machine-scoped config 
 )
 
 
+checks["browser WebSocket accepts bounded instance YAML frames without removing the payload limit"] = (
+    "conn.SetReadLimit(agentInstanceConfigMaxBytes + (32 << 10))" in browser_ws_source
+    and "agent.instance.config.save" in browser_ws_source
+    and "decodeLimited(r, agentInstanceConfigMaxBytes+(16<<10)" in handlers
+)
+
+checks["per-instance revoke is serialized with registration and invalidates only its session generation"] = (
+    "agentTokenGenerateMu.Lock()" in handlers
+    and "a.agentWSMu.Lock()" in handlers
+    and 'sessionKey := in.MachineCode + "|" + in.AgentType + "|" + in.InstanceID' in handlers
+    and '"type": "agent.instance.revoked"' in handlers
+)
+
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
