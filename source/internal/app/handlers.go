@@ -2587,7 +2587,7 @@ func (a *App) handleSaveAgentInstanceConfig(w http.ResponseWriter, r *http.Reque
 // handleQueueAgentInstanceCommand queues a bounded JSON command for one instance.
 func (a *App) handleQueueAgentInstanceCommand(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		MachineCode string `json:"machine_code"`
+		MachineCode string          `json:"machine_code"`
 		AgentType   string          `json:"agent_type"`
 		InstanceID  string          `json:"instance_id"`
 		CommandID   string          `json:"command_id"`
