@@ -97,6 +97,11 @@ func TestCompositeAgentRegistrationBindsTypeAndInstanceAndRevokesIndependently(t
 	if got := authenticate(wireguardToken); got != (agentRequestIdentity{MachineCode: machineCode, AgentType: "wireguard", InstanceID: "routeros-1"}) {
 		t.Fatalf("WireGuard identity = %#v", got)
 	}
+	legacyHTTPReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/config", nil)
+	legacyHTTPReq.Header.Set("Authorization", "Bearer "+mihomoToken)
+	if _, err := app.agentMachineFromRequest(legacyHTTPReq); err == nil {
+		t.Fatal("composite instance token was accepted by a legacy machine-scoped HTTP handler")
+	}
 	if err := app.store.ProvisionAgentInstance(machineCode, "wireguard", "routeros-1", "wireguard-rotated-registration-secret-123456"); err != nil {
 		t.Fatalf("rotate WireGuard credential: %v", err)
 	}
