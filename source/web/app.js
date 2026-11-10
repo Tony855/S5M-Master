@@ -76,6 +76,14 @@ createApp({
     const publishing = ref(false);
     const updatingKernel = ref(false);
     const kernelUpdateDialog = ref(false);
+    const instanceConfigDialog = ref(false);
+    const instanceConfigTarget = ref(null);
+    const instanceConfigYaml = ref('');
+    const instanceConfigSHA256 = ref('');
+    const instanceConfigUpdatedAt = ref('');
+    const instanceConfigLoading = ref(false);
+    const instanceConfigSaving = ref(false);
+    const instanceConfigError = ref('');
     const kernelUpdateMachineCode = ref('');
     const kernelUpdateVersion = ref('');
     const kernelUpdateSHA256 = ref('');
@@ -1117,6 +1125,93 @@ createApp({
       }
     };
 
+    const openAgentInstanceConfig = async (item) => {
+      if (!item || !item.instanceId || item.agentType !== 'mihomo') {
+        showMsg('仅支持编辑 Mihomo Agent 的实例 YAML 配置', 'warning');
+        return;
+      }
+      instanceConfigTarget.value = {
+        code: String(item.code || ''),
+        agentType: String(item.agentType || ''),
+        instanceId: String(item.instanceId || '')
+      };
+      instanceConfigYaml.value = '';
+      instanceConfigSHA256.value = '';
+      instanceConfigUpdatedAt.value = '';
+      instanceConfigError.value = '';
+      instanceConfigLoading.value = true;
+      instanceConfigDialog.value = true;
+      try {
+        const target = instanceConfigTarget.value;
+        const result = await sendBrowserWSControl({
+          type: 'agent.instance.config.get',
+          machine_code: target.code,
+          agent_type: target.agentType,
+          instance_id: target.instanceId
+        });
+        const data = result.data || {};
+        instanceConfigYaml.value = String(data.config_yaml || '');
+        instanceConfigSHA256.value = String(data.sha256 || '');
+        instanceConfigUpdatedAt.value = String(data.updated_at || '');
+      } catch (e) {
+        if (String(e.message || '').includes('尚未分配配置')) {
+          instanceConfigError.value = '该实例尚未分配期望配置；可以在下方创建并保存第一份配置。';
+        } else {
+          instanceConfigError.value = e.message || '读取实例配置失败';
+        }
+      } finally {
+        instanceConfigLoading.value = false;
+      }
+    };
+
+    const saveAgentInstanceConfig = async () => {
+      const target = instanceConfigTarget.value;
+      const yamlText = String(instanceConfigYaml.value || '');
+      if (!target) return;
+      if (!yamlText.trim()) return showMsg('配置 YAML 不能为空', 'warning');
+      const byteLength = new TextEncoder().encode(yamlText).length;
+      if (byteLength > 2 * 1024 * 1024) return showMsg('配置超过 2 MiB 限制', 'warning');
+      if (instanceConfigSaving.value) return;
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          '确认保存 ' + target.code + ' / ' + target.agentType + ' / ' + target.instanceId + ' 的期望配置？该操作只影响此实例。',
+          '保存实例配置',
+          { type: 'warning', confirmButtonText: '保存配置', cancelButtonText: '取消' }
+        );
+      } catch (_) { return; }
+      instanceConfigSaving.value = true;
+      instanceConfigError.value = '';
+      try {
+        const saved = await sendBrowserWSControl({
+          type: 'agent.instance.config.save',
+          machine_code: target.code,
+          agent_type: target.agentType,
+          instance_id: target.instanceId,
+          config_yaml: yamlText
+        });
+        const expectedHash = String((saved.data || {}).sha256 || '').toLowerCase();
+        const verified = await sendBrowserWSControl({
+          type: 'agent.instance.config.get',
+          machine_code: target.code,
+          agent_type: target.agentType,
+          instance_id: target.instanceId
+        });
+        const actual = verified.data || {};
+        if (!expectedHash || expectedHash !== String(actual.sha256 || '').toLowerCase() || String(actual.config_yaml || '') !== yamlText) {
+          throw new Error('保存后回读校验失败：SHA-256 或 YAML 原文不一致');
+        }
+        instanceConfigSHA256.value = expectedHash;
+        instanceConfigUpdatedAt.value = String(actual.updated_at || '');
+        showMsg('实例期望配置已保存，SHA-256 回读校验通过', 'success');
+        await loadAgentsData();
+      } catch (e) {
+        instanceConfigError.value = e.message || '保存实例配置失败';
+        showMsg(instanceConfigError.value, 'error');
+      } finally {
+        instanceConfigSaving.value = false;
+      }
+    };
+
     const deleteAgent = async (target) => {
       const item = target && typeof target === 'object' ? target : null;
       const code = item ? item.code : String(target || '');
@@ -1515,6 +1610,8 @@ createApp({
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
       newMachineCode, generatedToken, generating, agentEntries, agentMachineEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      instanceConfigDialog, instanceConfigTarget, instanceConfigYaml, instanceConfigSHA256, instanceConfigUpdatedAt,
+      instanceConfigLoading, instanceConfigSaving, instanceConfigError, openAgentInstanceConfig, saveAgentInstanceConfig,
       retryingNodeConfigSync, retryNodeConfigSync,
       configYaml, configTunEnabled, configDnsEnabled, configDnsNameservers, syncConfigQuickSettingsFromYaml, applyConfigQuickSettings,
       selectedConfigNode, savingConfig, publishing, updatingKernel,
