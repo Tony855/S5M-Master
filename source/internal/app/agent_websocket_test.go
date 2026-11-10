@@ -1639,3 +1639,148 @@ func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
 		t.Fatal("one or both instance heartbeats were not timestamped")
 	}
 }
+
+func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.T) {
+	app, machineCode, _ := websocketTestApp(t)
+	mihomoSecret := "mihomo-ws-config-secret-123456789"
+	wireguardSecret := "wireguard-ws-config-secret-123456789"
+	if err := app.store.ProvisionAgentInstance(machineCode, "mihomo", "default", mihomoSecret); err != nil {
+		t.Fatalf("provision Mihomo: %v", err)
+	}
+	if err := app.store.ProvisionAgentInstance(machineCode, "wireguard", "routeros-1", wireguardSecret); err != nil {
+		t.Fatalf("provision WireGuard: %v", err)
+	}
+	mihomoYAML := "mixed-port: 7890\nmode: rule\n"
+	wireguardYAML := "interface: wg0\nlisten-port: 51820\n"
+	if err := app.store.SaveAgentInstanceConfig(machineCode, "mihomo", "default", mihomoYAML); err != nil {
+		t.Fatalf("save Mihomo config: %v", err)
+	}
+	if err := app.store.SaveAgentInstanceConfig(machineCode, "wireguard", "routeros-1", wireguardYAML); err != nil {
+		t.Fatalf("save WireGuard config: %v", err)
+	}
+	commandJSON := json.RawMessage(`{"id":"wg-restart-1","type":"restart"}`)
+	if err := app.store.QueueAgentInstanceCommand(machineCode, "wireguard", "routeros-1", "wg-restart-1", commandJSON); err != nil {
+		t.Fatalf("queue WireGuard command: %v", err)
+	}
+	register := func(agentType, instanceID, secret string) string {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{
+			"machine_code": machineCode, "agent_type": agentType,
+			"instance_id": instanceID, "secret": secret,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
+		req.RemoteAddr = "198.51.100.12:1234"
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		app.handleAgentRegister(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("register %s: status=%d body=%s", agentType, rec.Code, rec.Body.String())
+		}
+		var response struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response.Token == "" {
+			t.Fatalf("decode %s token: %v", agentType, err)
+		}
+		return response.Token
+	}
+	mihomoToken := register("mihomo", "default", mihomoSecret)
+	wireguardToken := register("wireguard", "routeros-1", wireguardSecret)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	dial := func(token string) *websocket.Conn {
+		t.Helper()
+		header := http.Header{}
+		header.Set("Authorization", "Bearer "+token)
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil {
+			t.Fatalf("dial composite Agent: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		var welcome map[string]any
+		if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
+			conn.Close()
+			t.Fatalf("read welcome: %#v err=%v", welcome, err)
+		}
+		return conn
+	}
+	mihomoConn := dial(mihomoToken)
+	defer mihomoConn.Close()
+	wireguardConn := dial(wireguardToken)
+	defer wireguardConn.Close()
+
+	if err := mihomoConn.WriteJSON(map[string]any{"type": "config.request", "id": "mihomo-config", "config_sha256": ""}); err != nil {
+		t.Fatal(err)
+	}
+	var mihomoConfig map[string]any
+	if err := mihomoConn.ReadJSON(&mihomoConfig); err != nil {
+		t.Fatal(err)
+	}
+	if mihomoConfig["type"] != "config.sync" || mihomoConfig["yaml"] != mihomoYAML {
+		t.Fatalf("Mihomo config response crossed identity or was malformed: %#v", mihomoConfig)
+	}
+	mihomoHash, _ := mihomoConfig["sha256"].(string)
+	if err := mihomoConn.WriteJSON(map[string]any{"type": "config.request", "id": "mihomo-config-same", "config_sha256": mihomoHash}); err != nil {
+		t.Fatal(err)
+	}
+	var unchanged map[string]any
+	if err := mihomoConn.ReadJSON(&unchanged); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged["type"] != "config.unchanged" || unchanged["sha256"] != mihomoHash {
+		t.Fatalf("same config hash should return unchanged: %#v", unchanged)
+	}
+
+	if err := mihomoConn.WriteJSON(map[string]any{"type": "command.request", "id": "mihomo-command"}); err != nil {
+		t.Fatal(err)
+	}
+	var noMihomoCommand map[string]any
+	if err := mihomoConn.ReadJSON(&noMihomoCommand); err != nil {
+		t.Fatal(err)
+	}
+	if noMihomoCommand["type"] != "command.none" {
+		t.Fatalf("Mihomo received another instance command: %#v", noMihomoCommand)
+	}
+	if err := wireguardConn.WriteJSON(map[string]any{"type": "command.request", "id": "wg-command"}); err != nil {
+		t.Fatal(err)
+	}
+	var delivered map[string]any
+	if err := wireguardConn.ReadJSON(&delivered); err != nil {
+		t.Fatal(err)
+	}
+	if delivered["type"] != "command.deliver" {
+		t.Fatalf("WireGuard command not delivered: %#v", delivered)
+	}
+	command, ok := delivered["command"].(map[string]any)
+	if !ok || command["id"] != "wg-restart-1" {
+		t.Fatalf("WireGuard received wrong command: %#v", delivered)
+	}
+	if err := wireguardConn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "restarted",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var ack map[string]any
+	if err := wireguardConn.ReadJSON(&ack); err != nil {
+		t.Fatal(err)
+	}
+	if ack["type"] != "command.acknowledged" || ack["id"] != "wg-restart-1" || ack["ok"] != true {
+		t.Fatalf("WireGuard command ACK rejected: %#v", ack)
+	}
+	pending, err := app.store.GetPendingAgentInstanceCommand(machineCode, "wireguard", "routeros-1")
+	if err != nil || pending != nil {
+		t.Fatalf("acknowledged WireGuard command remains pending: %#v err=%v", pending, err)
+	}
+	if err := wireguardConn.WriteJSON(map[string]any{
+		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "duplicate",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var duplicate map[string]any
+	if err := wireguardConn.ReadJSON(&duplicate); err != nil {
+		t.Fatal(err)
+	}
+	if duplicate["type"] != "error" {
+		t.Fatalf("duplicate ACK must not be acknowledged as a new command: %#v", duplicate)
+	}
+}

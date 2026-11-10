@@ -1386,3 +1386,68 @@ func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
 		t.Fatal("invalid routing mode was persisted")
 	}
 }
+
+func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-management.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	app := &App{store: store, jwtKey: []byte("agent-instance-management-test-key")}
+	if err := store.CreateUser("instance-admin", "test-hash", "admin"); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	admin, err := store.UserByUsername("instance-admin")
+	if err != nil {
+		t.Fatalf("load admin: %v", err)
+	}
+	adminToken, err := app.signToken(admin)
+	if err != nil {
+		t.Fatalf("sign admin token: %v", err)
+	}
+	const machine = "admin-instance-node"
+	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", strings.Repeat("m", 40)); err != nil {
+		t.Fatalf("provision Mihomo: %v", err)
+	}
+	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", strings.Repeat("w", 40)); err != nil {
+		t.Fatalf("provision WireGuard: %v", err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+		rec := httptest.NewRecorder()
+		app.Router(nil).ServeHTTP(rec, req)
+		return rec
+	}
+	configBody := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"default","config_yaml":"mixed-port: 7890\nmode: rule\n"}`
+	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", configBody); rec.Code != http.StatusOK {
+		t.Fatalf("save instance config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	configRec := request(http.MethodGet, "/api/v1/agents/instances/config?machine_code=admin-instance-node&agent_type=mihomo&instance_id=default", "")
+	if configRec.Code != http.StatusOK || !strings.Contains(configRec.Body.String(), `"sha256"`) {
+		t.Fatalf("get instance config status=%d body=%s", configRec.Code, configRec.Body.String())
+	}
+	commandBody := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1","command_id":"wg-up-1","command":{"id":"wg-up-1","type":"restart"}}`
+	if rec := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody); rec.Code != http.StatusAccepted {
+		t.Fatalf("queue instance command status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	listRec := request(http.MethodGet, "/api/v1/agents/instances?machine_code=admin-instance-node", "")
+	if listRec.Code != http.StatusOK || !strings.Contains(listRec.Body.String(), `"agent_type":"mihomo"`) ||
+		!strings.Contains(listRec.Body.String(), `"agent_type":"wireguard"`) ||
+		strings.Contains(listRec.Body.String(), "CredentialSHA256") || strings.Contains(listRec.Body.String(), strings.Repeat("m", 40)) {
+		t.Fatalf("instance list leaked credentials or omitted instances: status=%d body=%s", listRec.Code, listRec.Body.String())
+	}
+	duplicate := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
+	}
+	badConfig := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"missing","config_yaml":"x: y"}`
+	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", badConfig); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown instance config status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	oversized := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"default","config_yaml":"` + strings.Repeat("x", agentInstanceConfigMaxBytes+1) + `"}`
+	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", oversized); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized config status=%d, want 413", rec.Code)
+	}
+}
