@@ -2484,12 +2484,11 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 // 返回所有已注册的机器码 -> Token 映射
 // 依赖 store 里 settings 表的 agent_machine_<code> 键
 
-
 func (a *App) handleDeleteAgentInstance(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
-		AgentType string `json:"agent_type"`
-		InstanceID string `json:"instance_id"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "实例身份 JSON 无效")
