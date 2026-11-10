@@ -135,6 +135,33 @@ CREATE TABLE IF NOT EXISTS agent_instances(
  updated_at TEXT NOT NULL,
  PRIMARY KEY(machine_code, agent_type, instance_id)
 );
+CREATE TABLE IF NOT EXISTS agent_instance_configs(
+ machine_code TEXT NOT NULL,
+ agent_type TEXT NOT NULL,
+ instance_id TEXT NOT NULL,
+ yaml_text TEXT NOT NULL,
+ sha256 TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY(machine_code, agent_type, instance_id),
+ FOREIGN KEY(machine_code, agent_type, instance_id)
+   REFERENCES agent_instances(machine_code, agent_type, instance_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS agent_instance_commands(
+ machine_code TEXT NOT NULL,
+ agent_type TEXT NOT NULL,
+ instance_id TEXT NOT NULL,
+ command_id TEXT NOT NULL,
+ command_json TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('pending','success','failed')),
+ result_message TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY(machine_code, agent_type, instance_id, command_id),
+ FOREIGN KEY(machine_code, agent_type, instance_id)
+   REFERENCES agent_instances(machine_code, agent_type, instance_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_instance_one_pending_command
+ ON agent_instance_commands(machine_code, agent_type, instance_id) WHERE status='pending';
 CREATE INDEX IF NOT EXISTS idx_agent_instances_machine ON agent_instances(machine_code);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
@@ -833,4 +860,150 @@ func (s *Store) DeleteAgentInstance(machineCode, agentType, instanceID string) e
 		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
 		machineCode, agentType, instanceID)
 	return err
+}
+
+
+// AgentInstanceConfig is the desired configuration for one independent Agent runtime.
+type AgentInstanceConfig struct {
+	MachineCode string `json:"machine_code"`
+	AgentType   string `json:"agent_type"`
+	InstanceID  string `json:"instance_id"`
+	YAML        string `json:"config_yaml"`
+	SHA256      string `json:"sha256"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// AgentInstanceCommand is a command scoped to one Agent runtime.
+type AgentInstanceCommand struct {
+	MachineCode string          `json:"machine_code"`
+	AgentType   string          `json:"agent_type"`
+	InstanceID  string          `json:"instance_id"`
+	CommandID   string          `json:"command_id"`
+	CommandJSON json.RawMessage `json:"command"`
+	Status      string          `json:"status"`
+	Result      string          `json:"result,omitempty"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+}
+
+const agentInstanceConfigMaxBytes = 2 << 20
+const agentInstanceCommandMaxBytes = 64 << 10
+
+// SaveAgentInstanceConfig stores the exact YAML bytes and their SHA-256 for one
+// composite identity. It never reads or writes the legacy machine-wide config.
+func (s *Store) SaveAgentInstanceConfig(machineCode, agentType, instanceID, yamlText string) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(yamlText) == "" || len(yamlText) > agentInstanceConfigMaxBytes {
+		return fmt.Errorf("Agent 实例配置为空或超过 2 MiB")
+	}
+	sum := sha256.Sum256([]byte(yamlText))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(`INSERT INTO agent_instance_configs(
+		machine_code, agent_type, instance_id, yaml_text, sha256, updated_at
+	) VALUES(?, ?, ?, ?, ?, ?)
+	ON CONFLICT(machine_code, agent_type, instance_id) DO UPDATE SET
+		yaml_text=excluded.yaml_text, sha256=excluded.sha256, updated_at=excluded.updated_at`,
+		machineCode, agentType, instanceID, yamlText, hex.EncodeToString(sum[:]), now)
+	return err
+}
+
+// GetAgentInstanceConfig returns nil when the instance has no assigned config.
+func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string) (*AgentInstanceConfig, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return nil, err
+	}
+	item := &AgentInstanceConfig{}
+	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, yaml_text, sha256, updated_at
+		FROM agent_instance_configs WHERE machine_code=? AND agent_type=? AND instance_id=?`,
+		machineCode, agentType, instanceID).Scan(
+		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.YAML, &item.SHA256, &item.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// QueueAgentInstanceCommand allows at most one pending command per Agent instance.
+func (s *Store) QueueAgentInstanceCommand(machineCode, agentType, instanceID, commandID string, command json.RawMessage) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,96}$`).MatchString(commandID) ||
+		len(command) == 0 || len(command) > agentInstanceCommandMaxBytes || !json.Valid(command) {
+		return fmt.Errorf("Agent 实例命令 ID 或 JSON 数据无效")
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(command, &payload); err != nil || payload == nil {
+		return fmt.Errorf("Agent 实例命令必须是 JSON 对象")
+	}
+	var payloadID string
+	if raw := payload["id"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &payloadID)
+	}
+	if payloadID != commandID {
+		return fmt.Errorf("Agent 实例命令 ID 与载荷不匹配")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	_, err := s.db.Exec(`INSERT INTO agent_instance_commands(
+		machine_code, agent_type, instance_id, command_id, command_json, status, result_message, created_at, updated_at
+	) VALUES(?, ?, ?, ?, ?, 'pending', '', ?, ?)`,
+		machineCode, agentType, instanceID, commandID, string(command), now, now)
+	if err != nil {
+		return fmt.Errorf("写入 Agent 实例命令失败: %w", err)
+	}
+	return nil
+}
+
+// GetPendingAgentInstanceCommand returns only the pending command for this exact instance.
+func (s *Store) GetPendingAgentInstanceCommand(machineCode, agentType, instanceID string) (*AgentInstanceCommand, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return nil, err
+	}
+	item := &AgentInstanceCommand{}
+	var commandJSON []byte
+	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, command_id, command_json,
+		status, result_message, created_at, updated_at FROM agent_instance_commands
+		WHERE machine_code=? AND agent_type=? AND instance_id=? AND status='pending'`,
+		machineCode, agentType, instanceID).Scan(
+		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.CommandID, &commandJSON,
+		&item.Status, &item.Result, &item.CreatedAt, &item.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.CommandJSON = json.RawMessage(commandJSON)
+	return item, nil
+}
+
+// AckAgentInstanceCommand atomically acknowledges exactly one pending command.
+func (s *Store) AckAgentInstanceCommand(machineCode, agentType, instanceID, commandID, status, resultMessage string) error {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return err
+	}
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{1,96}$`).MatchString(commandID) ||
+		(status != "success" && status != "failed") || len(resultMessage) > 2048 {
+		return fmt.Errorf("Agent 实例命令 ACK 参数无效")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	res, err := s.db.Exec(`UPDATE agent_instance_commands SET status=?, result_message=?, updated_at=?
+		WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=? AND status='pending'`,
+		status, resultMessage, now, machineCode, agentType, instanceID, commandID)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
