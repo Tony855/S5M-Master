@@ -48,7 +48,6 @@ func TestAgentRegisterTokenAuthenticatesAndIsRevokedAfterRotation(t *testing.T) 
 	}
 }
 
-
 func TestCompositeAgentRegistrationBindsTypeAndInstanceAndRevokesIndependently(t *testing.T) {
 	app, machineCode, _ := websocketTestApp(t)
 	mihomoSecret := "mihomo-instance-registration-secret-123456"
@@ -72,7 +71,9 @@ func TestCompositeAgentRegistrationBindsTypeAndInstanceAndRevokesIndependently(t
 		if rec.Code != http.StatusOK {
 			t.Fatalf("register %s/%s status=%d body=%s", agentType, instanceID, rec.Code, rec.Body.String())
 		}
-		var response struct { Token string `json:"token"` }
+		var response struct {
+			Token string `json:"token"`
+		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response.Token == "" {
 			t.Fatalf("decode %s/%s token: token=%q err=%v", agentType, instanceID, response.Token, err)
 		}
@@ -85,13 +86,15 @@ func TestCompositeAgentRegistrationBindsTypeAndInstanceAndRevokesIndependently(t
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		identity, err := app.agentIdentityFromRequest(req)
-		if err != nil { t.Fatalf("authenticate composite token: %v", err) }
+		if err != nil {
+			t.Fatalf("authenticate composite token: %v", err)
+		}
 		return identity
 	}
-	if got := authenticate(mihomoToken); got != (agentRequestIdentity{MachineCode:machineCode, AgentType:"mihomo", InstanceID:"default"}) {
+	if got := authenticate(mihomoToken); got != (agentRequestIdentity{MachineCode: machineCode, AgentType: "mihomo", InstanceID: "default"}) {
 		t.Fatalf("Mihomo identity = %#v", got)
 	}
-	if got := authenticate(wireguardToken); got != (agentRequestIdentity{MachineCode:machineCode, AgentType:"wireguard", InstanceID:"routeros-1"}) {
+	if got := authenticate(wireguardToken); got != (agentRequestIdentity{MachineCode: machineCode, AgentType: "wireguard", InstanceID: "routeros-1"}) {
 		t.Fatalf("WireGuard identity = %#v", got)
 	}
 	if err := app.store.ProvisionAgentInstance(machineCode, "wireguard", "routeros-1", "wireguard-rotated-registration-secret-123456"); err != nil {
