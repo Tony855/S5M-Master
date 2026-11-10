@@ -300,7 +300,7 @@
           <div v-else-if="!agentEntries.length" class="empty-state">暂无已注册实例。请先在上方生成实例 Token，并在目标机器部署 Agent。</div>
           <div v-else-if="!filteredAgentEntries.length" class="empty-state">没有符合搜索条件的实例，请调整关键词或状态筛选。</div>
           <div v-else class="instance-list">
-            <div v-for="item in filteredAgentEntries" :key="item.code" class="agent-item instance-row">
+            <div v-for="item in filteredAgentEntries" :key="item.instanceKey || item.code" class="agent-item instance-row">
               <div class="instance-main">
                 <div class="instance-identity">
                   <div class="instance-identity-top">
@@ -312,6 +312,7 @@
                   <span :class="item.authorized ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.authorized ? '已授权' : '未授权' }}</span>
                   <span :class="item.online ? 'status-badge status-online' : 'status-badge status-offline'">{{ item.online ? 'Agent 在线' : 'Agent 离线' }}</span>
                   <span class="status-badge status-online">{{ item.agentType === 'wireguard' ? 'WireGuard Agent' : 'Mihomo + SmartDNS Agent' }}</span>
+                  <span v-if="item.instanceId" class="status-badge">{{ '实例：' + item.instanceId }}</span>
                 </div>
                 <div class="instance-host-system">
                   <span class="instance-host-label">主机与系统</span>
@@ -364,7 +365,7 @@
               </div>
               <div v-if="item.agentType === 'wireguard'" class="instance-actions">
                 <span class="instance-summary-error">WireGuard 配置与 Peer 控制接口尚未开放；此处不会调用 Mihomo 配置或更新命令。</span>
-                <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
+                <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销绑定</el-button>
               </div>
               <div v-else class="instance-actions">
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
