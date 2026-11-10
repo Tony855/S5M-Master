@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -930,7 +930,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 }
-
 
 // sendAgentWSInstanceConfig serves only the desired configuration belonging to
 // the authenticated composite Agent identity. The stored bytes and digest are
