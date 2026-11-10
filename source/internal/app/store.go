@@ -175,7 +175,7 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 // into the instance table as the default Mihomo instance. Legacy settings remain
 // untouched during this compatibility phase, so existing Agents keep authenticating.
 func (s *Store) migrateLegacyAgentInstances() error {
-	rows, err := s.db.Query(`SELECT key, value FROM settings WHERE key LIKE 'agent_machine_%'`)
+	rows, err := s.db.Query(`SELECT key, value FROM settings WHERE substr(key, 1, 14) = 'agent_machine_'`)
 	if err != nil {
 		return err
 	}
