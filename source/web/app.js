@@ -242,7 +242,7 @@ createApp({
         agentEntries.value = agentEntries.value.map(item => {
           const age = now - (Number(item.last_seen) || 0);
           if (item.online && (age < 0 || age >= 90)) {
-            return { ...item, online: false, mihomoRunning: false, wireguardRunning: false, runtimeMessage: '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
+            return { ...item, online: false, mihomoRunning: false, wireguardRunning: false, runtimeMessage: item.agentType === 'wireguard' ? '运行状态已记录，但心跳已超时；当前 WireGuard 状态未知' : '运行状态已记录，但心跳已超时；当前 Mihomo 状态未知' };
           }
           return item;
         });
