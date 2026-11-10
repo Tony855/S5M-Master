@@ -417,3 +417,107 @@ func TestAgentInstanceCompositeIdentityAllowsSameMachineDifferentAgents(t *testi
 		t.Fatalf("instance count = %d, want 3", count)
 	}
 }
+
+
+func TestAgentInstanceStoreAPIsIsolateCredentialsAndTelemetry(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-store-api.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machine = "router-node-01"
+	const secretA = "mihomo-instance-secret-0123456789"
+	const secretB = "wireguard-instance-secret-0123456789"
+	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", secretA); err != nil {
+		t.Fatalf("provision Mihomo: %v", err)
+	}
+	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", secretB); err != nil {
+		t.Fatalf("provision WireGuard: %v", err)
+	}
+	hashA, err := store.AgentInstanceCredentialHash(machine, "mihomo", "default")
+	if err != nil {
+		t.Fatalf("read Mihomo credential hash: %v", err)
+	}
+	hashB, err := store.AgentInstanceCredentialHash(machine, "wireguard", "routeros-1")
+	if err != nil {
+		t.Fatalf("read WireGuard credential hash: %v", err)
+	}
+	sumA := sha256.Sum256([]byte(secretA))
+	sumB := sha256.Sum256([]byte(secretB))
+	if hashA != hex.EncodeToString(sumA[:]) || hashB != hex.EncodeToString(sumB[:]) || hashA == hashB {
+		t.Fatal("instance credential fingerprints were not isolated")
+	}
+
+	statusA := json.RawMessage(`{"agent_type":"mihomo","healthy":true}`)
+	statusB := json.RawMessage(`{"agent_type":"wireguard","peer_count":3}`)
+	if err := store.UpdateAgentInstanceStatus(machine, "mihomo", "default", statusA, 100); err != nil {
+		t.Fatalf("update Mihomo status: %v", err)
+	}
+	if err := store.UpdateAgentInstanceStatus(machine, "wireguard", "routeros-1", statusB, 200); err != nil {
+		t.Fatalf("update WireGuard status: %v", err)
+	}
+	gotA, err := store.GetAgentInstance(machine, "mihomo", "default")
+	if err != nil || gotA == nil {
+		t.Fatalf("get Mihomo instance: item=%#v err=%v", gotA, err)
+	}
+	gotB, err := store.GetAgentInstance(machine, "wireguard", "routeros-1")
+	if err != nil || gotB == nil {
+		t.Fatalf("get WireGuard instance: item=%#v err=%v", gotB, err)
+	}
+	if string(gotA.StatusJSON) != string(statusA) || gotA.LastSeen != 100 {
+		t.Fatalf("Mihomo telemetry overwritten: %#v", gotA)
+	}
+	if string(gotB.StatusJSON) != string(statusB) || gotB.LastSeen != 200 {
+		t.Fatalf("WireGuard telemetry overwritten: %#v", gotB)
+	}
+
+	// Credential rotation must preserve the last accepted runtime state.
+	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", "wireguard-rotated-secret-0123456789"); err != nil {
+		t.Fatalf("rotate WireGuard credential: %v", err)
+	}
+	gotB, err = store.GetAgentInstance(machine, "wireguard", "routeros-1")
+	if err != nil || gotB == nil || string(gotB.StatusJSON) != string(statusB) || gotB.LastSeen != 200 {
+		t.Fatalf("credential rotation lost telemetry: item=%#v err=%v", gotB, err)
+	}
+	list, err := store.ListAgentInstances(machine)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("list instances = %d, err=%v; want 2", len(list), err)
+	}
+	if err := store.DeleteAgentInstance(machine, "wireguard", "routeros-1"); err != nil {
+		t.Fatalf("delete WireGuard instance: %v", err)
+	}
+	if got, err := store.GetAgentInstance(machine, "wireguard", "routeros-1"); err != nil || got != nil {
+		t.Fatalf("deleted instance still exists: item=%#v err=%v", got, err)
+	}
+	if got, err := store.GetAgentInstance(machine, "mihomo", "default"); err != nil || got == nil {
+		t.Fatalf("deleting WireGuard affected Mihomo: item=%#v err=%v", got, err)
+	}
+}
+
+func TestAgentInstanceStoreRejectsInvalidIdentityAndStatus(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-invalid.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	if err := store.ProvisionAgentInstance("bad/code", "wireguard", "default", "wireguard-secret-0123456789"); err == nil {
+		t.Fatal("invalid machine code was accepted")
+	}
+	if err := store.ProvisionAgentInstance("node-1", "unknown", "default", "wireguard-secret-0123456789"); err == nil {
+		t.Fatal("unknown Agent type was accepted")
+	}
+	if err := store.ProvisionAgentInstance("node-1", "wireguard", "../escape", "wireguard-secret-0123456789"); err == nil {
+		t.Fatal("path-like instance ID was accepted")
+	}
+	if err := store.ProvisionAgentInstance("node-1", "wireguard", "default", "short"); err == nil {
+		t.Fatal("short credential was accepted")
+	}
+	if err := store.UpdateAgentInstanceStatus("node-1", "wireguard", "default", json.RawMessage(`not-json`), 1); err == nil {
+		t.Fatal("invalid JSON status was accepted")
+	}
+	if err := store.UpdateAgentInstanceStatus("node-1", "wireguard", "default", json.RawMessage(`{}`), -1); err == nil {
+		t.Fatal("negative last_seen was accepted")
+	}
+}
