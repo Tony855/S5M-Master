@@ -465,12 +465,15 @@ checks["composite Agent cards use stable composite identity and independent revo
     and '"type": "agent.instance.revoked"' in handlers
 )
 
+composite_action_start = instance_card_section.index('v-if="item.instanceId"')
+composite_action_end = instance_card_section.index("</template>", composite_action_start)
+composite_action_section = instance_card_section[composite_action_start:composite_action_end]
+
 checks["composite Mihomo cards expose only the instance-scoped config action, never machine-scoped config or update actions"] = (
-    'v-if="item.instanceId"' in html
-    and 'openAgentInstanceConfig(item)' in instance_card_section
+    'openAgentInstanceConfig(item)' in composite_action_section
     and "agentMachineEntries" in app_js
-    and "openNodeConfigForMachine(item.code)" not in instance_card_section
-    and "openAgentKernelUpdate(item.code)" not in instance_card_section
+    and "openNodeConfigForMachine(item.code)" not in composite_action_section
+    and "openAgentKernelUpdate(item.code)" not in composite_action_section
 )
 
 
