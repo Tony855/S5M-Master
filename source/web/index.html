@@ -358,11 +358,15 @@
                       </span>
                     </div>
                   </div>
-                  <span>关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
+                  <span v-if="item.agentType !== 'wireguard'">关联代理：<strong>{{ proxyCountForMachine(item.code) }}</strong></span>
                   <span v-if="item.runtimeMessage || item.lastError" class="instance-summary-error">Agent 状态/错误信息：{{ item.runtimeMessage || item.lastError }}</span>
                 </div>
               </div>
-              <div class="instance-actions">
+              <div v-if="item.agentType === 'wireguard'" class="instance-actions">
+                <span class="instance-summary-error">WireGuard 配置与 Peer 控制接口尚未开放；此处不会调用 Mihomo 配置或更新命令。</span>
+                <el-button size="small" type="danger" plain @click="deleteAgent(item.code)">撤销绑定</el-button>
+              </div>
+              <div v-else class="instance-actions">
                 <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
                 <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
                 <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
