@@ -368,10 +368,16 @@
                 <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销绑定</el-button>
               </div>
               <div v-else class="instance-actions">
-                <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
-                <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
-                <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
-                <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销绑定</el-button>
+                <template v-if="item.instanceId">
+                  <span class="instance-summary-error">实例身份已隔离；实例级配置编辑与内核更新入口将在后续批次接入，暂不调用机器级配置或命令。</span>
+                  <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销此实例</el-button>
+                </template>
+                <template v-else>
+                  <el-button size="small" type="primary" plain @click="openProxiesForMachine(item.code)">关联代理（{{ proxyCountForMachine(item.code) }}）</el-button>
+                  <el-button size="small" @click="openNodeConfigForMachine(item.code)">独立配置</el-button>
+                  <el-button size="small" type="warning" plain @click="openAgentKernelUpdate(item.code)">更新 Mihomo</el-button>
+                  <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销绑定</el-button>
+                </template>
               </div>
             </div>
           </div>
@@ -389,7 +395,7 @@
           <p class="import-note">如果之前出现“代理已保存，但节点配置同步失败”，可在修复导致失败的配置问题后点击此按钮。操作会重建所有已授权节点的代理规则，并保留节点 YAML 中其他自定义设置。</p>
           <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
             <el-select v-model="selectedConfigNode" placeholder="选择要编辑的节点机器码" filterable style="flex:1;min-width:240px;" @change="loadNodeConfig">
-              <el-option v-for="item in agentEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
+              <el-option v-for="item in agentMachineEntries" :key="item.code" :label="item.code + (item.online ? '（在线）' : '（离线）')" :value="item.code"></el-option>
             </el-select>
             <el-button @click="loadAgentsData">刷新节点</el-button>
             <el-button @click="loadNodeConfig" :disabled="!selectedConfigNode">重新加载 YAML</el-button>
