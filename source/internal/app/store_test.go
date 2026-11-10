@@ -639,8 +639,8 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 	defer store.db.Close()
 	const machine = "machine-revoke-all"
 	for _, item := range []struct{ agentType, instanceID, secret string }{
-		{"mihomo", "default", "mihomo-revoke-secret-0123456789"},
-		{"wireguard", "routeros-1", "wireguard-revoke-secret-0123456789"},
+		{"mihomo", "default", "mihomo-revoke-secret-0123456789-extra"},
+		{"wireguard", "routeros-1", "wireguard-revoke-secret-0123456789-extra"},
 	} {
 		if err := store.ProvisionAgentInstance(machine, item.agentType, item.instanceID, item.secret); err != nil {
 			t.Fatalf("provision %s: %v", item.agentType, err)
