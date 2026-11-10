@@ -1773,7 +1773,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	if err := wireguardConn.WriteJSON(map[string]any{
 		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "duplicate",
-	}); err != nil { t.Fatal(err) }
+	}); err != nil {
+		t.Fatal(err)
+	}
 	var duplicate map[string]any
 	if err := wireguardConn.ReadJSON(&duplicate); err != nil {
 		t.Fatal(err)
