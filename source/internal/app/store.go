@@ -2,12 +2,15 @@ package app
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +123,18 @@ CREATE TABLE IF NOT EXISTS settings(
  key TEXT PRIMARY KEY,
  value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_instances(
+ machine_code TEXT NOT NULL,
+ agent_type TEXT NOT NULL CHECK(agent_type IN ('mihomo','wireguard')),
+ instance_id TEXT NOT NULL,
+ credential_sha256 TEXT NOT NULL,
+ status_json TEXT NOT NULL DEFAULT '{}',
+ last_seen INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL,
+ PRIMARY KEY(machine_code, agent_type, instance_id)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_instances_machine ON agent_instances(machine_code);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
 	_, err := s.db.Exec(schema)
@@ -137,6 +152,10 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 		s.db.Exec("ALTER TABLE proxies ADD COLUMN machine_code TEXT NOT NULL DEFAULT ''")
 	}
 
+	if err := s.migrateLegacyAgentInstances(); err != nil {
+		return fmt.Errorf("迁移旧 Agent 身份到实例表失败: %w", err)
+	}
+
 	// TUN is disabled by default for new installations. Preserve an existing explicit operator choice.
 	s.db.Exec(`INSERT OR IGNORE INTO settings (key, value) VALUES ('tun_enable', 'false')`)
 	// 首次启动时自动生成随机 Agent 注册密钥（不再硬编码默认值）
@@ -150,6 +169,85 @@ CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 		}
 	}
 	return nil
+}
+
+// migrateLegacyAgentInstances copies legacy machine-scoped credentials and telemetry
+// into the instance table as the default Mihomo instance. Legacy settings remain
+// untouched during this compatibility phase, so existing Agents keep authenticating.
+func (s *Store) migrateLegacyAgentInstances() error {
+	rows, err := s.db.Query(`SELECT key, value FROM settings WHERE key LIKE 'agent_machine_%'`)
+	if err != nil {
+		return err
+	}
+	type legacyAgent struct {
+		machineCode string
+		secret      string
+	}
+	var agents []legacyAgent
+	for rows.Next() {
+		var key, secret string
+		if err := rows.Scan(&key, &secret); err != nil {
+			rows.Close()
+			return err
+		}
+		code := strings.TrimPrefix(key, "agent_machine_")
+		if len(code) == 0 || len(code) > 64 || strings.TrimSpace(secret) == "" {
+			continue
+		}
+		valid := true
+		for _, ch := range code {
+			if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+				(ch >= '0' && ch <= '9') || ch == '_' || ch == '-') {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			agents = append(agents, legacyAgent{machineCode: code, secret: secret})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(agents) == 0 {
+		return nil
+	}
+
+	settings, err := s.GetSettings()
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, agent := range agents {
+		sum := sha256.Sum256([]byte(agent.secret))
+		status := settings["agent_status_"+agent.machineCode]
+		if !json.Valid([]byte(status)) {
+			status = "{}"
+		}
+		lastSeen, parseErr := strconv.ParseInt(strings.TrimSpace(settings["agent_lastseen_"+agent.machineCode]), 10, 64)
+		if parseErr != nil || lastSeen < 0 {
+			lastSeen = 0
+		}
+		_, err := tx.Exec(`INSERT INTO agent_instances(
+			machine_code, agent_type, instance_id, credential_sha256,
+			status_json, last_seen, created_at, updated_at
+		) VALUES(?, 'mihomo', 'default', ?, ?, ?, ?, ?)
+		ON CONFLICT(machine_code, agent_type, instance_id) DO NOTHING`,
+			agent.machineCode, hex.EncodeToString(sum[:]), status, lastSeen, now, now)
+		if err != nil {
+			return fmt.Errorf("迁移机器 %q 的旧 Agent 身份失败: %w", agent.machineCode, err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) GetSetting(key string) (string, error) {
