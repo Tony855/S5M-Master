@@ -2560,7 +2560,7 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 			MachineCode: instance.MachineCode, AgentType: instance.AgentType,
 			InstanceID: instance.InstanceID, Status: instance.StatusJSON, LastSeen: instance.LastSeen,
 		}
-		config, configErr := a.store.GetAgentInstanceConfig(machineCode, instance.AgentType, instance.InstanceID)
+		config, configErr := a.store.GetAgentInstanceConfig(instance.MachineCode, instance.AgentType, instance.InstanceID)
 		if configErr != nil {
 			writeErr(w, http.StatusInternalServerError, "读取实例配置摘要失败")
 			return
@@ -2568,7 +2568,7 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 		if config != nil {
 			item.ConfigSHA256 = config.SHA256
 		}
-		pending, commandErr := a.store.GetPendingAgentInstanceCommand(machineCode, instance.AgentType, instance.InstanceID)
+		pending, commandErr := a.store.GetPendingAgentInstanceCommand(instance.MachineCode, instance.AgentType, instance.InstanceID)
 		if commandErr != nil {
 			writeErr(w, http.StatusInternalServerError, "读取实例待执行命令失败")
 			return
