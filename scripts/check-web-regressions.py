@@ -450,6 +450,27 @@ checks["node YAML quick settings use real newlines, safe indentation, and reject
 )
 
 
+checks["shared panel loads all composite Agent instances over authenticated browser WebSocket RPC"] = (
+    "sendBrowserWSControl({ type: 'agents.instances.list.get' })" in app_js
+    and 'case "agents.instances.list.get":' in browser_ws_source
+    and "func (s *Store) ListAllAgentInstances()" in store
+)
+
+checks["composite Agent cards use stable composite identity and independent revoke"] = (
+    'v-for="item in filteredAgentEntries" :key="item.instanceKey || item.code"' in html
+    and "item.instanceId" in html
+    and "type: 'agent.instance.revoke'" in app_js
+    and 'case "agent.instance.revoke":' in browser_ws_source
+    and '"type": "agent.instance.revoked"' in handlers
+)
+
+checks["composite Mihomo cards cannot accidentally invoke machine-scoped config or update actions"] = (
+    "实例级配置编辑与内核更新入口将在后续批次接入" in html
+    and 'v-if="item.instanceId"' in html
+    and "agentMachineEntries" in app_js
+)
+
+
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():
     print(("PASS" if ok else "FAIL") + ": " + name)
