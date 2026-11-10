@@ -994,6 +994,8 @@ createApp({
               else if (agentType === 'mihomo' && status.mihomo_healthy !== true) runtimeMessage = lastError || 'Mihomo API 未通过健康检查';
               const pending = item.pending_command && typeof item.pending_command === 'object'
                 ? item.pending_command.command : null;
+              const latestCommand = item.latest_command && typeof item.latest_command === 'object'
+                ? item.latest_command : null;
               return {
                 code, agentType, instanceId, instanceKey: code + '|' + agentType + '|' + instanceId,
                 authorized: true, tokenConfigured: true,
@@ -1013,7 +1015,15 @@ createApp({
                 wireguardRevision: String(status.applied_revision || ''),
                 mihomoVersion, runtimeReported, runtimeMessage, lastError,
                 desiredConfigSHA256: String(item.config_sha256 || ''),
-                pendingCommand: pending, commandResult: null,
+                pendingCommand: pending,
+                commandResult: latestCommand ? {
+                  type: String(latestCommand.type || ''),
+                  status: String(latestCommand.status || ''),
+                  message: String(latestCommand.message || ''),
+                  commandId: String(latestCommand.command_id || ''),
+                  updated_at: Number.isFinite(Date.parse(String(latestCommand.updated_at || '')))
+                    ? Math.floor(Date.parse(String(latestCommand.updated_at)) / 1000) : 0
+                } : null,
                 updated_at: (reportedAt > 0 || last > 0)
                   ? new Date((reportedAt > 0 ? reportedAt : last) * 1000).toLocaleString() : ''
               };
