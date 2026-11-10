@@ -643,30 +643,36 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 		{"wireguard", "routeros-1", "wireguard-revoke-secret-0123456789"},
 	} {
 		if err := store.ProvisionAgentInstance(machine, item.agentType, item.instanceID, item.secret); err != nil {
-			t.Fatalf("provision %s: %v",item.agentType,err)
+			t.Fatalf("provision %s: %v", item.agentType, err)
 		}
-		if err := store.SaveAgentInstanceConfig(machine,item.agentType,item.instanceID,"key: value\n"); err != nil {
-			t.Fatalf("save %s config: %v",item.agentType,err)
+		if err := store.SaveAgentInstanceConfig(machine, item.agentType, item.instanceID, "key: value\n"); err != nil {
+			t.Fatalf("save %s config: %v", item.agentType, err)
 		}
 	}
 	if err := store.QueueAgentInstanceCommand(machine, "mihomo", "default", "revoke-cmd",json.RawMessage(`{"id":"revoke-cmd","type":"restart"}`)); err != nil {
-		t.Fatalf("queue command: %v",err)
+		t.Fatalf("queue command: %v", err)
 	}
-	if err := store.UpdateSettings(map[string]string{"agent_machine_"+machine:"legacy-secret"}); err != nil {
+	if err := store.UpdateSettings(map[string]string{"agent_machine_" + machine: "legacy-secret"}); err != nil {
 		t.Fatalf("seed legacy binding: %v",err)
 	}
-	if err := store.DeleteAgentBinding(machine); err != nil { t.Fatalf("DeleteAgentBinding: %v",err) }
+	if err := store.DeleteAgentBinding(machine); err != nil {
+		t.Fatalf("DeleteAgentBinding: %v", err)
+	}
 	instances, err := store.ListAgentInstances(machine)
 	if err != nil || len(instances) != 0 {
 		t.Fatalf("remaining composite identities=%#v err=%v", instances, err)
 	}
 	var configs, commands int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instance_configs WHERE machine_code=?`,machine).Scan(&configs); err != nil { t.Fatal(err) }
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instance_commands WHERE machine_code=?`,machine).Scan(&commands); err != nil { t.Fatal(err) }
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instance_configs WHERE machine_code=?`, machine).Scan(&configs); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM agent_instance_commands WHERE machine_code=?`, machine).Scan(&commands); err != nil {
+		t.Fatal(err)
+	}
 	if configs != 0 || commands != 0 {
 		t.Fatalf("cascade left configs=%d commands=%d", configs, commands)
 	}
 	if _, err := store.GetSetting("agent_machine_"+machine); err != sql.ErrNoRows {
-		t.Fatalf("legacy binding remains after revoke: err=%v",err)
+		t.Fatalf("legacy binding remains after revoke: err=%v", err)
 	}
 }
