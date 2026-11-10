@@ -17,8 +17,8 @@ on:
 
 # Keep stable main/tag publications serialized so the mutable latest tag cannot race.
 concurrency:
-  group: s5m-master-${{ github.ref == 'refs/heads/dev' && 'dev' || 'stable' }}
-  cancel-in-progress: false
+  group: s5m-master-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || (github.ref == 'refs/heads/dev' && 'dev' || 'stable') }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
