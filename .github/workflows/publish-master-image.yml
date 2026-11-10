@@ -61,6 +61,20 @@ jobs:
         run: go vet ./...
       - name: Build server
         run: go build -trimpath -ldflags="-s -w" -o /tmp/S5M-Server .
+      - name: Test multi-platform manifest matcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest="$(cat <<'EOF'
+          Name: ghcr.io/tony855/s5m-master@sha256:example
+            Name: ghcr.io/tony855/s5m-master@sha256:amd64
+            Platform:    linux/amd64
+            Name: ghcr.io/tony855/s5m-master@sha256:arm64
+            Platform:    linux/arm64
+          EOF
+          )"
+          grep -Eq 'Platform:[[:space:]]+linux/amd64([[:space:]]|$)' <<< "$manifest"
+          grep -Eq 'Platform:[[:space:]]+linux/arm64([[:space:]]|$)' <<< "$manifest"
 
   image-test:
     name: Build and smoke-test AMD64 image
@@ -302,8 +316,8 @@ jobs:
         run: |
           set -euo pipefail
           docker buildx imagetools inspect "${IMAGE_NAME}@${IMAGE_DIGEST}" | tee /tmp/s5m-master-manifest.txt
-          grep -Fq "Platform: linux/amd64" /tmp/s5m-master-manifest.txt
-          grep -Fq "Platform: linux/arm64" /tmp/s5m-master-manifest.txt
+          grep -Eq "Platform:[[:space:]]+linux/amd64([[:space:]]|$)" /tmp/s5m-master-manifest.txt
+          grep -Eq "Platform:[[:space:]]+linux/arm64([[:space:]]|$)" /tmp/s5m-master-manifest.txt
           echo "PASS: published manifest contains linux/amd64 and linux/arm64"
       - name: Attest image build provenance
         uses: actions/attest-build-provenance@v3
