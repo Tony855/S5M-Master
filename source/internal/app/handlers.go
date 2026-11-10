@@ -1933,6 +1933,8 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
 		Secret      string `json:"secret"`
+		AgentType   string `json:"agent_type,omitempty"`
+		InstanceID  string `json:"instance_id,omitempty"`
 	}
 	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "参数错误")
@@ -1961,18 +1963,32 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 只允许预先分配的专属 Token 注册对应机器码。
-	machineToken := settings["agent_machine_"+in.MachineCode]
-	if strings.TrimSpace(machineToken) == "" ||
-		constantTimeSecretEqual(machineToken, expectedSecret) ||
-		constantTimeSecretEqual(in.Secret, expectedSecret) ||
-		!constantTimeSecretEqual(in.Secret, machineToken) {
-		writeErr(w, 403, "机器码或专属 Token 不匹配")
-		return
+	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent"}
+	if in.AgentType != "" || in.InstanceID != "" {
+		if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+			writeErr(w, http.StatusBadRequest, "Agent 实例身份无效")
+			return
+		}
+		hash, hashErr := a.store.AgentInstanceCredentialHash(in.MachineCode, in.AgentType, in.InstanceID)
+		if hashErr != nil || !constantTimeSecretEqual(hash, fmt.Sprintf("%x", sha256.Sum256([]byte(in.Secret)))) {
+			writeErr(w, http.StatusForbidden, "机器码、Agent 类型、实例 ID 或专属 Token 不匹配")
+			return
+		}
+		claims["agent_type"] = in.AgentType
+		claims["instance_id"] = in.InstanceID
+		claims["ver"] = hash
+	} else {
+		// Backward-compatible machine-scoped registration for existing Agents.
+		machineToken := settings["agent_machine_"+in.MachineCode]
+		if strings.TrimSpace(machineToken) == "" ||
+			constantTimeSecretEqual(machineToken, expectedSecret) ||
+			constantTimeSecretEqual(in.Secret, expectedSecret) ||
+			!constantTimeSecretEqual(in.Secret, machineToken) {
+			writeErr(w, 403, "机器码或专属 Token 不匹配")
+			return
+		}
+		claims["ver"] = fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
 	}
-
-	version := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
-	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent", "ver": version}
 	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
 	writeJSON(w, 200, map[string]string{"message": "注册成功", "token": token})
 }
@@ -2063,11 +2079,17 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(yml))
 }
 
-// agentMachineFromRequest validates the per-machine JWT and confirms its dedicated token is still active.
-func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
+// agentIdentityFromRequest validates either a legacy machine JWT or a composite Agent-instance JWT.
+type agentRequestIdentity struct {
+	MachineCode string
+	AgentType   string
+	InstanceID  string
+}
+
+func (a *App) agentIdentityFromRequest(r *http.Request) (agentRequestIdentity, error) {
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
-		return "", fmt.Errorf("缺少 Agent Token")
+		return agentRequestIdentity{}, fmt.Errorf("缺少 Agent Token")
 	}
 	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(t *jwt.Token) (interface{}, error) {
 		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
@@ -2076,31 +2098,48 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 		return a.jwtKey, nil
 	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || token == nil || !token.Valid {
-		return "", fmt.Errorf("无效或已过期的 Agent Token")
+		return agentRequestIdentity{}, fmt.Errorf("无效或已过期的 Agent Token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("Agent Token claims 无效")
+		return agentRequestIdentity{}, fmt.Errorf("Agent Token claims 无效")
 	}
 	code, codeOK := claims["sub"].(string)
 	role, roleOK := claims["role"].(string)
 	version, versionOK := claims["ver"].(string)
 	if !codeOK || code == "" || !roleOK || role != "agent" || !versionOK || version == "" {
-		return "", fmt.Errorf("Agent 身份无效")
+		return agentRequestIdentity{}, fmt.Errorf("Agent 身份无效")
+	}
+	if agentType, hasType := claims["agent_type"].(string); hasType {
+		instanceID, hasInstance := claims["instance_id"].(string)
+		if !hasInstance || validateAgentIdentity(code, agentType, instanceID) != nil {
+			return agentRequestIdentity{}, fmt.Errorf("Agent 实例身份无效")
+		}
+		hash, hashErr := a.store.AgentInstanceCredentialHash(code, agentType, instanceID)
+		if hashErr != nil || !constantTimeSecretEqual(hash, version) {
+			return agentRequestIdentity{}, fmt.Errorf("Agent 实例未授权或凭据已失效")
+		}
+		return agentRequestIdentity{MachineCode: code, AgentType: agentType, InstanceID: instanceID}, nil
 	}
 	settings, err := a.store.GetSettings()
 	if err != nil {
-		return "", fmt.Errorf("读取 Agent 授权失败: %w", err)
+		return agentRequestIdentity{}, fmt.Errorf("读取 Agent 授权失败: %w", err)
 	}
 	machineToken := settings["agent_machine_"+code]
-	// A whitespace-only per-Agent token is not an active credential. Keep the
-	// exact token bytes for version verification; only use TrimSpace to reject
-	// blank values so valid credentials are never silently rewritten.
 	if strings.TrimSpace(machineToken) == "" || machineToken == settings["agent_token"] ||
 		version != fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken))) {
-		return "", fmt.Errorf("Agent 未授权或授权已失效")
+		return agentRequestIdentity{}, fmt.Errorf("Agent 未授权或授权已失效")
 	}
-	return code, nil
+	return agentRequestIdentity{MachineCode: code}, nil
+}
+
+// agentMachineFromRequest remains as a compatibility helper for legacy HTTP handlers.
+func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
+	identity, err := a.agentIdentityFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	return identity.MachineCode, nil
 }
 
 // handleAgentMihomoUpdateInfo resolves the official latest stable release for a
