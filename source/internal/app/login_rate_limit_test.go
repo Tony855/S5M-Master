@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 	"net/http"
-	"strings"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +34,9 @@ func TestLoginAttemptLimiterBoundsAttemptsAndResets(t *testing.T) {
 func TestLoginAttemptLimiterExpiresWindowAndBoundsKeys(t *testing.T) {
 	var limiter loginAttemptLimiter
 	now := time.Now()
-	for i := 0; i < loginAttemptLimit; i++ { limiter.allow("198.51.100.1", now) }
+	for i := 0; i < loginAttemptLimit; i++ {
+		limiter.allow("198.51.100.1", now)
+	}
 	if ok, _ := limiter.allow("198.51.100.1", now.Add(loginAttemptWindow)); !ok {
 		t.Fatal("expired login window was not reset")
 	}
@@ -60,7 +62,6 @@ func TestLoginClientKeyTrustsForwardedIPOnlyFromLoopbackProxy(t *testing.T) {
 	}
 }
 
-
 func TestDummyLoginPasswordHashIsValid(t *testing.T) {
 	if len(dummyLoginPasswordHash) == 0 {
 		t.Fatal("dummy bcrypt hash is empty")
@@ -69,7 +70,6 @@ func TestDummyLoginPasswordHashIsValid(t *testing.T) {
 		t.Fatalf("dummy bcrypt hash is invalid: %v", err)
 	}
 }
-
 
 func TestLoginRejectsOversizedRequestBody(t *testing.T) {
 	app := &App{}
