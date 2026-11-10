@@ -47,3 +47,15 @@ The machine-code page uses the existing `s5m_next_token` browser storage key and
 - An administrator can queue a per-Agent Mihomo update with a version tag and SHA-256 of the matching official GitHub release `.gz` asset. Agent downloads only from the official MetaCubeX/Mihomo release URL, verifies the supplied digest, tests the binary and current config, replaces the binary, requests Mihomo restart, and polls the local `/version` API for up to 30 seconds. Because Mihomo can replace its own process with `exec` and close the HTTP connection before a response reaches Agent, a restart-request transport error is not treated as proof of failure: Agent always checks the live version first. It removes the old kernel backup only after the running API reports the requested version; failed health checks trigger restoration of the old binary and a restart attempt. The command result reports success/failure. If the container restarts while an upgrade is incomplete, `entrypoint.sh` detects the leftover `.previous` backup and restores the old kernel before launching Mihomo.
 - The SHA-256 is for the compressed release asset and must match the Agent architecture: amd64 uses `mihomo-linux-amd64-compatible-<version>.gz`; arm64 uses `mihomo-linux-arm64-<version>.gz`. Never use a checksum for another architecture or asset.
 - Kernel update commands require a dedicated Agent JWT and an authenticated controller administrator. Pending commands are acknowledged and retained as the latest result in the controller's Agent list.
+
+
+## Typed Agent heartbeat extension
+
+The Agent WebSocket heartbeat envelope now accepts an optional top-level `agent_type`:
+
+- Omitted or `mihomo`: retain the existing Mihomo/SmartDNS heartbeat schema and behavior for backwards compatibility.
+- `wireguard`: validate a dedicated WireGuard status schema. Required fields are `backend`, `available`, `interface_name`, `interface_up`, `role`, `listen_port`, `peer_count`, `rx_bytes`, `tx_bytes`, `config_sha256`, `desired_revision`, `applied_revision`, and `last_error`.
+
+WireGuard telemetry is persisted with `agent_type=wireguard` and published through the same browser event channel. The existing node list renders WireGuard interface/backend/peer/counter status separately and does not interpret it as Mihomo health. Private keys, PSKs, tokens, RouterOS credentials, and full WireGuard configuration are not accepted as required telemetry fields.
+
+This is the first compatibility stage only. Registration credentials, WebSocket connection generation, config storage, command queues, and revocation are still keyed by machine_code; simultaneous independent Mihomo and WireGuard instances on one physical machine are not yet supported. The WireGuard Agent must not be considered fully integrated until per-instance identity and type-scoped config/command workflows are implemented and tested.

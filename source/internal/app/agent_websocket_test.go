@@ -538,6 +538,92 @@ func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestValidateWireGuardWSStatus(t *testing.T) {
+	valid := func() map[string]any {
+		return map[string]any{
+			"backend": "linux-kernel", "available": true, "interface_name": "wg0",
+			"interface_up": true, "role": "server", "listen_port": float64(51820),
+			"peer_count": float64(2), "rx_bytes": float64(1024), "tx_bytes": float64(2048),
+			"config_sha256": strings.Repeat("a", 64), "desired_revision": "rev-2",
+			"applied_revision": "rev-2", "last_error": "",
+		}
+	}
+	if err := validateWireGuardWSStatus(valid()); err != nil {
+		t.Fatalf("valid WireGuard status rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{name: "unknown backend", mutate: func(s map[string]any) { s["backend"] = "shell" }},
+		{name: "invalid interface", mutate: func(s map[string]any) { s["interface_name"] = "wg0; reboot" }},
+		{name: "wrong interface state type", mutate: func(s map[string]any) { s["interface_up"] = "yes" }},
+		{name: "invalid role", mutate: func(s map[string]any) { s["role"] = "router" }},
+		{name: "invalid port", mutate: func(s map[string]any) { s["listen_port"] = float64(65536) }},
+		{name: "negative peer count", mutate: func(s map[string]any) { s["peer_count"] = float64(-1) }},
+		{name: "fractional byte counter", mutate: func(s map[string]any) { s["rx_bytes"] = float64(1.5) }},
+		{name: "invalid hash", mutate: func(s map[string]any) { s["config_sha256"] = "not-a-hash" }},
+		{name: "missing revision", mutate: func(s map[string]any) { delete(s, "applied_revision") }},
+		{name: "oversized error", mutate: func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }},
+		{name: "private key field", mutate: func(s map[string]any) { s["private_key"] = "must-not-be-accepted" }},
+		{name: "preshared key field", mutate: func(s map[string]any) { s["preshared_key"] = "must-not-be-accepted" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status := valid()
+			tt.mutate(status)
+			if err := validateWireGuardWSStatus(status); err == nil {
+				t.Fatal("expected invalid WireGuard status to be rejected")
+			}
+		})
+	}
+}
+
+func TestAgentWebSocketAcceptsWireGuardHeartbeatWithoutMihomoFields(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial authenticated WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	status := map[string]any{
+		"backend": "linux-kernel", "available": true, "interface_name": "wg0",
+		"interface_up": true, "role": "server", "listen_port": float64(51820),
+		"peer_count": float64(1), "rx_bytes": float64(1024), "tx_bytes": float64(2048),
+		"config_sha256": strings.Repeat("b", 64), "desired_revision": "r1",
+		"applied_revision": "r1", "last_error": "",
+	}
+	if err := conn.WriteJSON(map[string]any{"type": "heartbeat", "agent_type": "wireguard", "id": "wg-hb-1", "status": status}); err != nil {
+		t.Fatalf("send WireGuard heartbeat: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" || ack["id"] != "wg-hb-1" || ack["ok"] != true {
+		t.Fatalf("unexpected ACK: %#v", ack)
+	}
+	settings, err := app.store.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal([]byte(settings["agent_status_"+code]), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["agent_type"] != "wireguard" || saved["mihomo_healthy"] != nil || saved["interface_name"] != "wg0" {
+		t.Fatalf("WireGuard status was misclassified or polluted with Mihomo fields: %#v", saved)
+	}
+}
 func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
