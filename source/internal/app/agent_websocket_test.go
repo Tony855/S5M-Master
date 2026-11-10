@@ -538,7 +538,6 @@ func TestValidateAgentWSStatusRejectsInvalidValues(t *testing.T) {
 	}
 }
 
- 
 func TestValidateWireGuardWSStatus(t *testing.T) {
 	valid := func() map[string]any {
 		return map[string]any{
