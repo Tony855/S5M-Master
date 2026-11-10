@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -519,5 +520,113 @@ func TestAgentInstanceStoreRejectsInvalidIdentityAndStatus(t *testing.T) {
 	}
 	if err := store.UpdateAgentInstanceStatus("node-1", "wireguard", "default", json.RawMessage(`{}`), -1); err == nil {
 		t.Fatal("negative last_seen was accepted")
+	}
+}
+
+func TestAgentInstanceConfigAndCommandStorageIsolated(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-config-command.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machine = "router-node-02"
+	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", "mihomo-instance-secret-0123456789"); err != nil {
+		t.Fatalf("provision Mihomo: %v", err)
+	}
+	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-1", "wireguard-instance-secret-0123456789"); err != nil {
+		t.Fatalf("provision WireGuard: %v", err)
+	}
+
+	mihomoYAML := "mixed-port: 7890\nsecret: mihomo-secret\n"
+	wireguardYAML := "interface: wg0\nlisten-port: 51820\n"
+	if err := store.SaveAgentInstanceConfig(machine, "mihomo", "default", mihomoYAML); err != nil {
+		t.Fatalf("save Mihomo config: %v", err)
+	}
+	if err := store.SaveAgentInstanceConfig(machine, "wireguard", "routeros-1", wireguardYAML); err != nil {
+		t.Fatalf("save WireGuard config: %v", err)
+	}
+	gotMihomo, err := store.GetAgentInstanceConfig(machine, "mihomo", "default")
+	if err != nil || gotMihomo == nil {
+		t.Fatalf("get Mihomo config: item=%#v err=%v", gotMihomo, err)
+	}
+	gotWireGuard, err := store.GetAgentInstanceConfig(machine, "wireguard", "routeros-1")
+	if err != nil || gotWireGuard == nil {
+		t.Fatalf("get WireGuard config: item=%#v err=%v", gotWireGuard, err)
+	}
+	if gotMihomo.YAML != mihomoYAML || gotMihomo.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(mihomoYAML))) {
+		t.Fatalf("Mihomo config or SHA-256 mismatch: %#v", gotMihomo)
+	}
+	if gotWireGuard.YAML != wireguardYAML || gotWireGuard.SHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(wireguardYAML))) {
+		t.Fatalf("WireGuard config or SHA-256 mismatch: %#v", gotWireGuard)
+	}
+
+	mihomoCommand := json.RawMessage(`{"id":"mihomo-restart-1","type":"restart_mihomo"}`)
+	wireguardCommand := json.RawMessage(`{"id":"wg-reload-1","type":"reload_wireguard"}`)
+	if err := store.QueueAgentInstanceCommand(machine, "mihomo", "default", "mihomo-restart-1", mihomoCommand); err != nil {
+		t.Fatalf("queue Mihomo command: %v", err)
+	}
+	if err := store.QueueAgentInstanceCommand(machine, "wireguard", "routeros-1", "wg-reload-1", wireguardCommand); err != nil {
+		t.Fatalf("queue WireGuard command: %v", err)
+	}
+	if err := store.QueueAgentInstanceCommand(machine, "mihomo", "default", "mihomo-restart-2", json.RawMessage(`{"id":"mihomo-restart-2","type":"restart_mihomo"}`)); err == nil {
+		t.Fatal("second pending command for one instance was accepted")
+	}
+	pendingMihomo, err := store.GetPendingAgentInstanceCommand(machine, "mihomo", "default")
+	if err != nil || pendingMihomo == nil || pendingMihomo.CommandID != "mihomo-restart-1" {
+		t.Fatalf("get pending Mihomo command: item=%#v err=%v", pendingMihomo, err)
+	}
+	pendingWireGuard, err := store.GetPendingAgentInstanceCommand(machine, "wireguard", "routeros-1")
+	if err != nil || pendingWireGuard == nil || pendingWireGuard.CommandID != "wg-reload-1" {
+		t.Fatalf("get pending WireGuard command: item=%#v err=%v", pendingWireGuard, err)
+	}
+	if err := store.AckAgentInstanceCommand(machine, "mihomo", "default", "mihomo-restart-1", "success", "restarted"); err != nil {
+		t.Fatalf("ack Mihomo command: %v", err)
+	}
+	if got, err := store.GetPendingAgentInstanceCommand(machine, "mihomo", "default"); err != nil || got != nil {
+		t.Fatalf("acknowledged command remains pending: item=%#v err=%v", got, err)
+	}
+	if got, err := store.GetPendingAgentInstanceCommand(machine, "wireguard", "routeros-1"); err != nil || got == nil || got.CommandID != "wg-reload-1" {
+		t.Fatalf("Mihomo ACK affected WireGuard queue: item=%#v err=%v", got, err)
+	}
+
+	// Removing one instance cascades only its own config and command history.
+	if err := store.DeleteAgentInstance(machine, "wireguard", "routeros-1"); err != nil {
+		t.Fatalf("delete WireGuard instance: %v", err)
+	}
+	if got, err := store.GetAgentInstanceConfig(machine, "wireguard", "routeros-1"); err != nil || got != nil {
+		t.Fatalf("deleted WireGuard config remains: item=%#v err=%v", got, err)
+	}
+	if got, err := store.GetPendingAgentInstanceCommand(machine, "wireguard", "routeros-1"); err != nil || got != nil {
+		t.Fatalf("deleted WireGuard command remains: item=%#v err=%v", got, err)
+	}
+	if got, err := store.GetAgentInstanceConfig(machine, "mihomo", "default"); err != nil || got == nil {
+		t.Fatalf("deleting WireGuard removed Mihomo config: item=%#v err=%v", got, err)
+	}
+}
+
+func TestAgentInstanceConfigAndCommandStorageRejectInvalidPayloads(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-invalid-payload.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	if err := store.ProvisionAgentInstance("node-3", "mihomo", "default", "mihomo-instance-secret-0123456789"); err != nil {
+		t.Fatalf("provision instance: %v", err)
+	}
+	if err := store.SaveAgentInstanceConfig("node-3", "mihomo", "default", "  "); err == nil {
+		t.Fatal("empty config was accepted")
+	}
+	if err := store.QueueAgentInstanceCommand("node-3", "mihomo", "default", "../bad", json.RawMessage(`{"id":"../bad"}`)); err == nil {
+		t.Fatal("path-like command ID was accepted")
+	}
+	if err := store.QueueAgentInstanceCommand("node-3", "mihomo", "default", "cmd-1", json.RawMessage(`{"id":"different"}`)); err == nil {
+		t.Fatal("mismatched command ID was accepted")
+	}
+	if err := store.QueueAgentInstanceCommand("node-3", "mihomo", "default", "cmd-1", json.RawMessage(`[]`)); err == nil {
+		t.Fatal("non-object command payload was accepted")
+	}
+	if err := store.AckAgentInstanceCommand("node-3", "mihomo", "default", "cmd-1", "pending", ""); err == nil {
+		t.Fatal("invalid command ACK status was accepted")
 	}
 }
