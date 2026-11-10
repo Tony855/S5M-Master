@@ -862,7 +862,6 @@ func (s *Store) DeleteAgentInstance(machineCode, agentType, instanceID string) e
 	return err
 }
 
-
 // AgentInstanceConfig is the desired configuration for one independent Agent runtime.
 type AgentInstanceConfig struct {
 	MachineCode string `json:"machine_code"`
