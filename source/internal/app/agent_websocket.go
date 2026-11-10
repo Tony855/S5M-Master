@@ -132,7 +132,9 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 	_ = client.writeJSON(map[string]any{"type": "connected", "at": time.Now().Unix()})
 	// WebSocket is the primary live control channel. HTTP remains the
 	// authentication/ticket, initial snapshot, health, and recovery path.
-	conn.SetReadLimit(16 << 10)
+	// Browser RPC carries instance YAML snapshots; keep a strict bound that
+	// accommodates the 2 MiB config API limit plus JSON framing overhead.
+	conn.SetReadLimit(agentInstanceConfigMaxBytes + (32 << 10))
 	if err := conn.SetReadDeadline(time.Now().Add(90 * time.Second)); err != nil {
 		fmt.Printf("browser_ws: set read deadline user=%q: %v\n", client.username, err)
 		return
