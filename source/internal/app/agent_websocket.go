@@ -530,32 +530,65 @@ func validateAgentWSStatus(status map[string]any) error {
 // validateWireGuardWSStatus validates WireGuard telemetry independently from Mihomo.
 // A WireGuard Agent must never spoof Mihomo health fields.
 func validateWireGuardWSStatus(status map[string]any) error {
-	required := []string{"backend", "available", "interface_name", "interface_up", "role", "listen_port", "peer_count", "rx_bytes", "tx_bytes", "config_sha256", "desired_revision", "applied_revision", "last_error"}
+	required := []string{
+		"backend", "available", "interface_name", "interface_up", "role",
+		"listen_port", "peer_count", "rx_bytes", "tx_bytes", "config_sha256",
+		"desired_revision", "applied_revision", "last_error",
+	}
 	for _, key := range required {
-		if _, ok := status[key]; !ok { return fmt.Errorf("WireGuard 心跳缺少必需字段: %s", key) }
+		if _, ok := status[key]; !ok {
+			return fmt.Errorf("WireGuard 心跳缺少必需字段: %s", key)
+		}
 	}
 	backend, ok := status["backend"].(string)
-	if !ok || (backend != "linux-kernel" && backend != "routeros-native" && backend != "wireguard-go-experimental") { return fmt.Errorf("WireGuard backend 无效") }
-	if _, ok := status["available"].(bool); !ok { return fmt.Errorf("WireGuard available 必须是布尔值") }
+	if !ok || (backend != "linux-kernel" && backend != "routeros-native" && backend != "wireguard-go-experimental") {
+		return fmt.Errorf("WireGuard backend 无效")
+	}
+	if _, ok := status["available"].(bool); !ok {
+		return fmt.Errorf("WireGuard available 必须是布尔值")
+	}
 	name, ok := status["interface_name"].(string)
-	if !ok || len(name) == 0 || len(name) > 15 || !regexp.MustCompile("^[A-Za-z0-9_.-]+$").MatchString(name) { return fmt.Errorf("WireGuard interface_name 无效") }
-	if _, ok := status["interface_up"].(bool); !ok { return fmt.Errorf("WireGuard interface_up 必须是布尔值") }
+	if !ok || len(name) == 0 || len(name) > 15 || !regexp.MustCompile("^[A-Za-z0-9_.-]+$").MatchString(name) {
+		return fmt.Errorf("WireGuard interface_name 无效")
+	}
+	if _, ok := status["interface_up"].(bool); !ok {
+		return fmt.Errorf("WireGuard interface_up 必须是布尔值")
+	}
 	role, ok := status["role"].(string)
-	if !ok || (role != "client" && role != "server") { return fmt.Errorf("WireGuard role 必须是 client 或 server") }
-	if value, ok := status["listen_port"].(float64); !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 65535 || math.Trunc(value) != value { return fmt.Errorf("WireGuard listen_port 无效") }
+	if !ok || (role != "client" && role != "server") {
+		return fmt.Errorf("WireGuard role 必须是 client 或 server")
+	}
+	if value, ok := status["listen_port"].(float64); !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 65535 || math.Trunc(value) != value {
+		return fmt.Errorf("WireGuard listen_port 无效")
+	}
 	for _, key := range []string{"peer_count", "rx_bytes", "tx_bytes"} {
 		value, ok := status[key].(float64)
-		if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 9.0e15 || math.Trunc(value) != value { return fmt.Errorf("WireGuard %s 必须是有限的非负整数", key) }
+		if !ok || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 9.0e15 || math.Trunc(value) != value {
+			return fmt.Errorf("WireGuard %s 必须是有限的非负整数", key)
+		}
 	}
 	hash, ok := status["config_sha256"].(string)
-	if !ok { return fmt.Errorf("WireGuard config_sha256 必须是字符串") }
-	if hash != "" { decoded, err := hex.DecodeString(hash); if err != nil || len(decoded) != 32 { return fmt.Errorf("WireGuard config_sha256 必须为空或 64 位十六进制 SHA-256") } }
-	for _, key := range []string{"desired_revision", "applied_revision"} { value, ok := status[key].(string); if !ok || len(value) > 128 { return fmt.Errorf("WireGuard %s 必须是长度不超过 128 字节的字符串", key) } }
+	if !ok {
+		return fmt.Errorf("WireGuard config_sha256 必须是字符串")
+	}
+	if hash != "" {
+		decoded, err := hex.DecodeString(hash)
+		if err != nil || len(decoded) != 32 {
+			return fmt.Errorf("WireGuard config_sha256 必须为空或 64 位十六进制 SHA-256")
+		}
+	}
+	for _, key := range []string{"desired_revision", "applied_revision"} {
+		value, ok := status[key].(string)
+		if !ok || len(value) > 128 {
+			return fmt.Errorf("WireGuard %s 必须是长度不超过 128 字节的字符串", key)
+		}
+	}
 	lastError, ok := status["last_error"].(string)
-	if !ok || len(lastError) > agentWSMaxErrorBytes { return fmt.Errorf("WireGuard last_error 长度无效") }
+	if !ok || len(lastError) > agentWSMaxErrorBytes {
+		return fmt.Errorf("WireGuard last_error 长度无效")
+	}
 	return nil
 }
-
 func (a *App) queueAgentMihomoUpdate(machineCode, version, sha256sum string) error {
 	machineCode = strings.TrimSpace(machineCode)
 	version = strings.TrimSpace(version)
@@ -751,20 +784,24 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{"type": "error", "id": msg.ID, "message": "不支持的 WebSocket 消息类型"})
 			continue
 		}
-				agentType := strings.TrimSpace(msg.AgentType)
-		if agentType == "" { agentType = "mihomo" } // Backward compatibility for existing Agents.
+		agentType := strings.TrimSpace(msg.AgentType)
+		if agentType == "" {
+			agentType = "mihomo" // Backward compatibility for existing Agents.
+		}
 		var statusErr error
 		switch agentType {
-		case "mihomo": statusErr = validateAgentWSStatus(msg.Status)
-		case "wireguard": statusErr = validateWireGuardWSStatus(msg.Status)
-		default: statusErr = fmt.Errorf("不支持的 Agent 类型")
+		case "mihomo":
+			statusErr = validateAgentWSStatus(msg.Status)
+		case "wireguard":
+			statusErr = validateWireGuardWSStatus(msg.Status)
+		default:
+			statusErr = fmt.Errorf("不支持的 Agent 类型")
 		}
 		if statusErr != nil {
-			err := statusErr
 			_ = writeAgentWSJSON(conn, machineCode, map[string]string{
 				"type":    "error",
 				"id":      msg.ID,
-				"message": err.Error(),
+				"message": statusErr.Error(),
 			})
 			continue
 		}
