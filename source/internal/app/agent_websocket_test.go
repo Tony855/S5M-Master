@@ -553,19 +553,19 @@ func TestValidateWireGuardWSStatus(t *testing.T) {
 		t.Fatalf("valid WireGuard status rejected: %v", err)
 	}
 	tests := []struct {
-		name string
+		name   string
 		mutate func(map[string]any)
 	}{
-		{"unknown backend", func(s map[string]any) { s["backend"] = "shell" }},
-		{"invalid interface", func(s map[string]any) { s["interface_name"] = "wg0; reboot" }},
-		{"wrong interface state type", func(s map[string]any) { s["interface_up"] = "yes" }},
-		{"invalid role", func(s map[string]any) { s["role"] = "router" }},
-		{"invalid port", func(s map[string]any) { s["listen_port"] = float64(65536) }},
-		{"negative peer count", func(s map[string]any) { s["peer_count"] = float64(-1) }},
-		{"fractional byte counter", func(s map[string]any) { s["rx_bytes"] = float64(1.5) }},
-		{"invalid hash", func(s map[string]any) { s["config_sha256"] = "not-a-hash" }},
-		{"missing revision", func(s map[string]any) { delete(s, "applied_revision") }},
-		{"oversized error", func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }},
+		{name: "unknown backend", mutate: func(s map[string]any) { s["backend"] = "shell" }},
+		{name: "invalid interface", mutate: func(s map[string]any) { s["interface_name"] = "wg0; reboot" }},
+		{name: "wrong interface state type", mutate: func(s map[string]any) { s["interface_up"] = "yes" }},
+		{name: "invalid role", mutate: func(s map[string]any) { s["role"] = "router" }},
+		{name: "invalid port", mutate: func(s map[string]any) { s["listen_port"] = float64(65536) }},
+		{name: "negative peer count", mutate: func(s map[string]any) { s["peer_count"] = float64(-1) }},
+		{name: "fractional byte counter", mutate: func(s map[string]any) { s["rx_bytes"] = float64(1.5) }},
+		{name: "invalid hash", mutate: func(s map[string]any) { s["config_sha256"] = "not-a-hash" }},
+		{name: "missing revision", mutate: func(s map[string]any) { delete(s, "applied_revision") }},
+		{name: "oversized error", mutate: func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -623,7 +623,6 @@ func TestAgentWebSocketAcceptsWireGuardHeartbeatWithoutMihomoFields(t *testing.T
 		t.Fatalf("WireGuard status was misclassified or polluted with Mihomo fields: %#v", saved)
 	}
 }
-
 func TestAgentWebSocketDoesNotPersistInvalidStatus(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
