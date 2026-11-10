@@ -395,6 +395,9 @@ createApp({
                 lastCommandAt: Number(message.at) || Math.floor(Date.now() / 1000)
               });
             }
+            // Re-read the authoritative composite instance snapshot so pending
+            // and completed command states use the same scoped source as reloads.
+            loadAgentsData();
           }
         };
         socket.onerror = () => { try { socket.close(); } catch (_) {} };
