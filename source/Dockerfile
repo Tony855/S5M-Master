@@ -1,13 +1,15 @@
 # Multi-stage build: keep the runtime image small and run as non-root.
-FROM golang:1.23-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine3.24 AS builder
 RUN apk add --no-cache ca-certificates tzdata
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags='-s -w' -o /out/S5M-Server .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags='-s -w' -o /out/S5M-Server .
 
-FROM alpine:3.21
+FROM alpine:3.24.4
 RUN apk add --no-cache ca-certificates tzdata && addgroup -S s5m && adduser -S -G s5m -h /app s5m \
  && mkdir -p /data/s5m-server && chown -R s5m:s5m /data
 WORKDIR /app
