@@ -1420,6 +1420,24 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 		app.Router(nil).ServeHTTP(rec, req)
 		return rec
 	}
+	if err := store.CreateUser("instance-viewer", "test-hash", "user"); err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	viewer, err := store.UserByUsername("instance-viewer")
+	if err != nil {
+		t.Fatalf("load viewer: %v", err)
+	}
+	viewerToken, err := app.signToken(viewer)
+	if err != nil {
+		t.Fatalf("sign viewer token: %v", err)
+	}
+	viewerReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil)
+	viewerReq.Header.Set("Authorization", "Bearer "+viewerToken)
+	viewerRec := httptest.NewRecorder()
+	app.Router(nil).ServeHTTP(viewerRec, viewerReq)
+	if viewerRec.Code != http.StatusForbidden {
+		t.Fatalf("non-admin instance list status=%d body=%s, want 403", viewerRec.Code, viewerRec.Body.String())
+	}
 	configBody := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"default","config_yaml":"mixed-port: 7890\nmode: rule\n"}`
 	if rec := request(http.MethodPut, "/api/v1/agents/instances/config", configBody); rec.Code != http.StatusOK {
 		t.Fatalf("save instance config status=%d body=%s", rec.Code, rec.Body.String())
