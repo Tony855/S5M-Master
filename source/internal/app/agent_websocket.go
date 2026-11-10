@@ -194,6 +194,13 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgents, httptest.NewRequest(http.MethodGet, "/api/v1/agents", nil))
 		case "agents.instances.list.get":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleListAgentInstances, httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances", nil))
+		case "agent.instance.config.get":
+			query := url.Values{}
+			query.Set("machine_code", message.MachineCode)
+			query.Set("agent_type", message.AgentType)
+			query.Set("instance_id", message.InstanceID)
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/agents/instances/config?"+query.Encode(), nil)
+			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgentInstanceConfig, req)
 		case "agent.instance.config.save":
 			body, _ := json.Marshal(map[string]string{
 				"machine_code": message.MachineCode, "agent_type": message.AgentType,
