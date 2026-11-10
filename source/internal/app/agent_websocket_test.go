@@ -1676,7 +1676,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		if rec.Code != http.StatusOK {
 			t.Fatalf("register %s: status=%d body=%s", agentType, rec.Code, rec.Body.String())
 		}
-		var response struct { Token string `json:"token"` }
+		var response struct {
+			Token string `json:"token"`
+		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response.Token == "" {
 			t.Fatalf("decode %s token: %v", agentType, err)
 		}
@@ -1712,8 +1714,8 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	var mihomoConfig map[string]any
 	if err := mihomoConn.ReadJSON(&mihomoConfig); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if mihomoConfig["type"] != "config.sync" || mihomoConfig["yaml"] != mihomoYAML {
 		t.Fatalf("Mihomo config response crossed identity or was malformed: %#v", mihomoConfig)
 	}
@@ -1723,8 +1725,8 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	var unchanged map[string]any
 	if err := mihomoConn.ReadJSON(&unchanged); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if unchanged["type"] != "config.unchanged" || unchanged["sha256"] != mihomoHash {
 		t.Fatalf("same config hash should return unchanged: %#v", unchanged)
 	}
@@ -1734,8 +1736,8 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	var noMihomoCommand map[string]any
 	if err := mihomoConn.ReadJSON(&noMihomoCommand); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if noMihomoCommand["type"] != "command.none" {
 		t.Fatalf("Mihomo received another instance command: %#v", noMihomoCommand)
 	}
@@ -1744,8 +1746,8 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	var delivered map[string]any
 	if err := wireguardConn.ReadJSON(&delivered); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if delivered["type"] != "command.deliver" {
 		t.Fatalf("WireGuard command not delivered: %#v", delivered)
 	}
@@ -1755,11 +1757,13 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}
 	if err := wireguardConn.WriteJSON(map[string]any{
 		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "restarted",
-	}); err != nil { t.Fatal(err) }
+	}); err != nil {
+		t.Fatal(err)
+	}
 	var ack map[string]any
 	if err := wireguardConn.ReadJSON(&ack); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if ack["type"] != "command.acknowledged" || ack["id"] != "wg-restart-1" || ack["ok"] != true {
 		t.Fatalf("WireGuard command ACK rejected: %#v", ack)
 	}
@@ -1772,8 +1776,8 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	}); err != nil { t.Fatal(err) }
 	var duplicate map[string]any
 	if err := wireguardConn.ReadJSON(&duplicate); err != nil {
-			t.Fatal(err)
-		}
+		t.Fatal(err)
+	}
 	if duplicate["type"] != "error" {
 		t.Fatalf("duplicate ACK must not be acknowledged as a new command: %#v", duplicate)
 	}
