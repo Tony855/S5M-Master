@@ -1531,3 +1531,97 @@ func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testin
 		t.Fatalf("unexpected WebSocket close error: %v", err)
 	}
 }
+
+
+func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
+	app, machineCode, _ := websocketTestApp(t)
+	mihomoSecret := "mihomo-ws-instance-secret-123456789"
+	wireguardSecret := "wireguard-ws-instance-secret-123456789"
+	if err := app.store.ProvisionAgentInstance(machineCode, "mihomo", "default", mihomoSecret); err != nil {
+		t.Fatalf("provision Mihomo: %v", err)
+	}
+	if err := app.store.ProvisionAgentInstance(machineCode, "wireguard", "routeros-1", wireguardSecret); err != nil {
+		t.Fatalf("provision WireGuard: %v", err)
+	}
+	register := func(agentType, instanceID, secret string) string {
+		t.Helper()
+		body, _ := json.Marshal(map[string]string{
+			"machine_code":machineCode, "agent_type":agentType,
+			"instance_id":instanceID, "secret":secret,
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		app.handleAgentRegister(rec, req)
+		if rec.Code != http.StatusOK { t.Fatalf("register %s: status=%d body=%s", agentType, rec.Code, rec.Body.String()) }
+		var response struct { Token string `json:"token"` }
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response.Token == "" {
+			t.Fatalf("decode %s token: %v", agentType, err)
+		}
+		return response.Token
+	}
+	mihomoToken := register("mihomo", "default", mihomoSecret)
+	wireguardToken := register("wireguard", "routeros-1", wireguardSecret)
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	dial := func(token string) *websocket.Conn {
+		t.Helper()
+		header := http.Header{}
+		header.Set("Authorization", "Bearer "+token)
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil { t.Fatalf("dial composite Agent: %v", err) }
+		_ = conn.SetReadDeadline(time.Now().Add(3*time.Second))
+		var welcome map[string]any
+		if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
+			conn.Close()
+			t.Fatalf("read welcome: %#v err=%v", welcome, err)
+		}
+		return conn
+	}
+	mihomoConn := dial(mihomoToken)
+	defer mihomoConn.Close()
+	wireguardConn := dial(wireguardToken)
+	defer wireguardConn.Close()
+
+	mihomoStatus := map[string]any{
+		"mihomo_version":"v1.19.33", "mihomo_healthy":true,
+		"upload_total":int64(10), "download_total":int64(20),
+		"upload_speed":int64(1), "download_speed":int64(2), "connections":int64(3),
+		"config_sha256":strings.Repeat("a",64), "last_error":"",
+	}
+	wireguardStatus := map[string]any{
+		"backend":"linux-kernel", "available":true, "interface_name":"wg0",
+		"interface_up":true, "role":"server", "listen_port":51820,
+		"peer_count":1, "rx_bytes":1024, "tx_bytes":2048,
+		"config_sha256":strings.Repeat("b",64), "desired_revision":"r1",
+		"applied_revision":"r1", "last_error":"",
+	}
+	if err := mihomoConn.WriteJSON(map[string]any{"type":"heartbeat","agent_type":"mihomo","id":"mihomo-hb","status":mihomoStatus}); err != nil {
+		t.Fatalf("send Mihomo heartbeat: %v", err)
+	}
+	if err := wireguardConn.WriteJSON(map[string]any{"type":"heartbeat","agent_type":"wireguard","id":"wg-hb","status":wireguardStatus}); err != nil {
+		t.Fatalf("send WireGuard heartbeat: %v", err)
+	}
+	for name, conn := range map[string]*websocket.Conn{"Mihomo":mihomoConn,"WireGuard":wireguardConn} {
+		var ack map[string]any
+		if err := conn.ReadJSON(&ack); err != nil || ack["type"] != "heartbeat.ack" {
+			t.Fatalf("%s heartbeat ACK = %#v err=%v", name, ack, err)
+		}
+	}
+	mihomo, err := app.store.GetAgentInstance(machineCode,"mihomo","default")
+	if err != nil || mihomo == nil { t.Fatalf("read Mihomo instance: %#v err=%v",mihomo,err) }
+	wireguard, err := app.store.GetAgentInstance(machineCode,"wireguard","routeros-1")
+	if err != nil || wireguard == nil { t.Fatalf("read WireGuard instance: %#v err=%v",wireguard,err) }
+	var gotMihomo, gotWireGuard map[string]any
+	if err := json.Unmarshal(mihomo.StatusJSON,&gotMihomo); err != nil { t.Fatal(err) }
+	if err := json.Unmarshal(wireguard.StatusJSON,&gotWireGuard); err != nil { t.Fatal(err) }
+	if gotMihomo["mihomo_version"] != "v1.19.33" || gotMihomo["interface_name"] != nil {
+		t.Fatalf("Mihomo instance status contaminated: %#v",gotMihomo)
+	}
+	if gotWireGuard["interface_name"] != "wg0" || gotWireGuard["mihomo_version"] != nil {
+		t.Fatalf("WireGuard instance status contaminated: %#v",gotWireGuard)
+	}
+	if gotMihomo["received_at"] == nil || gotWireGuard["received_at"] == nil {
+		t.Fatal("one or both instance heartbeats were not timestamped")
+	}
+}
