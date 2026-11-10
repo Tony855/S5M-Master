@@ -230,8 +230,16 @@ func (s *Store) migrateLegacyAgentInstances() error {
 	for _, agent := range agents {
 		sum := sha256.Sum256([]byte(agent.secret))
 		status := settings["agent_status_"+agent.machineCode]
+		agentType := "mihomo"
 		if !json.Valid([]byte(status)) {
 			status = "{}"
+		} else {
+			var telemetry map[string]any
+			if json.Unmarshal([]byte(status), &telemetry) == nil {
+				if reportedType, ok := telemetry["agent_type"].(string); ok && reportedType == "wireguard" {
+					agentType = "wireguard"
+				}
+			}
 		}
 		lastSeen, parseErr := strconv.ParseInt(strings.TrimSpace(settings["agent_lastseen_"+agent.machineCode]), 10, 64)
 		if parseErr != nil || lastSeen < 0 {
@@ -240,9 +248,13 @@ func (s *Store) migrateLegacyAgentInstances() error {
 		_, err := tx.Exec(`INSERT INTO agent_instances(
 			machine_code, agent_type, instance_id, credential_sha256,
 			status_json, last_seen, created_at, updated_at
-		) VALUES(?, 'mihomo', 'default', ?, ?, ?, ?, ?)
-		ON CONFLICT(machine_code, agent_type, instance_id) DO NOTHING`,
-			agent.machineCode, hex.EncodeToString(sum[:]), status, lastSeen, now, now)
+		) VALUES(?, ?, 'default', ?, ?, ?, ?, ?)
+		ON CONFLICT(machine_code, agent_type, instance_id) DO UPDATE SET
+			credential_sha256=excluded.credential_sha256,
+			status_json=excluded.status_json,
+			last_seen=excluded.last_seen,
+			updated_at=excluded.updated_at`,
+			agent.machineCode, agentType, hex.EncodeToString(sum[:]), status, lastSeen, now, now)
 		if err != nil {
 			return fmt.Errorf("迁移机器 %q 的旧 Agent 身份失败: %w", agent.machineCode, err)
 		}
