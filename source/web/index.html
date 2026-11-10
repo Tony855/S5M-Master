@@ -323,7 +323,15 @@
                   <span>实时上传：<strong>{{ fmtSpeed(item.uploadSpeed || 0) }}</strong></span>
                   <span>实时下载：<strong>{{ fmtSpeed(item.downloadSpeed || 0) }}</strong></span>
                   <span>最后上报：<strong>{{ item.updated_at || '暂无记录' }}</strong></span>
-                  <div class="instance-mihomo-status">
+                  <div v-if="item.agentType === 'wireguard'" class="instance-mihomo-status">
+                     <div class="instance-mihomo-runtime">
+                       <strong class="instance-mihomo-label">WireGuard 运行状态</strong>
+                       <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.wireguardRunning ? 'is-running' : 'is-stopped')">{{ !item.online ? '状态未知（Agent 离线）' : (item.wireguardRunning ? '隧道接口运行中' : '接口未运行/异常') }}</span>
+                       <strong class="instance-mihomo-version">{{ item.wireguardBackend || '后端未知' }} · {{ item.wireguardInterface || '接口未知' }} · {{ item.wireguardRole || '角色未知' }}</strong>
+                       <span class="instance-mihomo-version is-unknown">已应用配置版本：{{ item.wireguardRevision || '未知' }}</span>
+                     </div>
+                   </div>
+                   <div v-else class="instance-mihomo-status">
                     <div class="instance-mihomo-runtime">
                       <strong class="instance-mihomo-label">Mihomo 运行状态</strong>
                       <span class="instance-summary-mihomo" :class="!item.online ? 'is-unknown' : (item.mihomoRunning ? 'is-running' : (item.runtimeReported ? 'is-stopped' : 'is-unknown'))">
