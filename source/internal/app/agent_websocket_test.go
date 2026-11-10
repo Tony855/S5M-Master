@@ -565,6 +565,8 @@ func TestValidateWireGuardWSStatus(t *testing.T) {
 		{name: "invalid hash", mutate: func(s map[string]any) { s["config_sha256"] = "not-a-hash" }},
 		{name: "missing revision", mutate: func(s map[string]any) { delete(s, "applied_revision") }},
 		{name: "oversized error", mutate: func(s map[string]any) { s["last_error"] = strings.Repeat("x", agentWSMaxErrorBytes+1) }},
+		{name: "private key field", mutate: func(s map[string]any) { s["private_key"] = "must-not-be-accepted" }},
+		{name: "preshared key field", mutate: func(s map[string]any) { s["preshared_key"] = "must-not-be-accepted" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
