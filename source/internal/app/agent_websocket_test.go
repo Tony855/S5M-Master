@@ -1640,7 +1640,6 @@ func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
 	}
 }
 
-
 func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.T) {
 	app, machineCode, _ := websocketTestApp(t)
 	mihomoSecret := "mihomo-ws-config-secret-123456789"
@@ -1692,7 +1691,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		header := http.Header{}
 		header.Set("Authorization", "Bearer "+token)
 		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
-		if err != nil { t.Fatalf("dial composite Agent: %v", err) }
+		if err != nil {
+			t.Fatalf("dial composite Agent: %v", err)
+		}
 		_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 		var welcome map[string]any
 		if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
@@ -1710,7 +1711,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		t.Fatal(err)
 	}
 	var mihomoConfig map[string]any
-	if err := mihomoConn.ReadJSON(&mihomoConfig); err != nil { t.Fatal(err) }
+	if err := mihomoConn.ReadJSON(&mihomoConfig); err != nil {
+			t.Fatal(err)
+		}
 	if mihomoConfig["type"] != "config.sync" || mihomoConfig["yaml"] != mihomoYAML {
 		t.Fatalf("Mihomo config response crossed identity or was malformed: %#v", mihomoConfig)
 	}
@@ -1719,7 +1722,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		t.Fatal(err)
 	}
 	var unchanged map[string]any
-	if err := mihomoConn.ReadJSON(&unchanged); err != nil { t.Fatal(err) }
+	if err := mihomoConn.ReadJSON(&unchanged); err != nil {
+			t.Fatal(err)
+		}
 	if unchanged["type"] != "config.unchanged" || unchanged["sha256"] != mihomoHash {
 		t.Fatalf("same config hash should return unchanged: %#v", unchanged)
 	}
@@ -1728,7 +1733,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		t.Fatal(err)
 	}
 	var noMihomoCommand map[string]any
-	if err := mihomoConn.ReadJSON(&noMihomoCommand); err != nil { t.Fatal(err) }
+	if err := mihomoConn.ReadJSON(&noMihomoCommand); err != nil {
+			t.Fatal(err)
+		}
 	if noMihomoCommand["type"] != "command.none" {
 		t.Fatalf("Mihomo received another instance command: %#v", noMihomoCommand)
 	}
@@ -1736,7 +1743,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		t.Fatal(err)
 	}
 	var delivered map[string]any
-	if err := wireguardConn.ReadJSON(&delivered); err != nil { t.Fatal(err) }
+	if err := wireguardConn.ReadJSON(&delivered); err != nil {
+			t.Fatal(err)
+		}
 	if delivered["type"] != "command.deliver" {
 		t.Fatalf("WireGuard command not delivered: %#v", delivered)
 	}
@@ -1748,7 +1757,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "restarted",
 	}); err != nil { t.Fatal(err) }
 	var ack map[string]any
-	if err := wireguardConn.ReadJSON(&ack); err != nil { t.Fatal(err) }
+	if err := wireguardConn.ReadJSON(&ack); err != nil {
+			t.Fatal(err)
+		}
 	if ack["type"] != "command.acknowledged" || ack["id"] != "wg-restart-1" || ack["ok"] != true {
 		t.Fatalf("WireGuard command ACK rejected: %#v", ack)
 	}
@@ -1760,7 +1771,9 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "duplicate",
 	}); err != nil { t.Fatal(err) }
 	var duplicate map[string]any
-	if err := wireguardConn.ReadJSON(&duplicate); err != nil { t.Fatal(err) }
+	if err := wireguardConn.ReadJSON(&duplicate); err != nil {
+			t.Fatal(err)
+		}
 	if duplicate["type"] != "error" {
 		t.Fatalf("duplicate ACK must not be acknowledged as a new command: %#v", duplicate)
 	}
