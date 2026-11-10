@@ -2483,6 +2483,144 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 
 // 返回所有已注册的机器码 -> Token 映射
 // 依赖 store 里 settings 表的 agent_machine_<code> 键
+
+
+// handleListAgentInstances exposes composite Agent identities without credentials.
+func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
+	machineCode := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	if machineCode == "" {
+		writeErr(w, http.StatusBadRequest, "缺少机器码")
+		return
+	}
+	instances, err := a.store.ListAgentInstances(machineCode)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "读取 Agent 实例失败")
+		return
+	}
+	type instanceView struct {
+		MachineCode string          `json:"machine_code"`
+		AgentType string             `json:"agent_type"`
+		InstanceID string            `json:"instance_id"`
+		Status json.RawMessage       `json:"status"`
+		LastSeen int64               `json:"last_seen"`
+		ConfigSHA256 string          `json:"config_sha256,omitempty"`
+		PendingCommand *AgentInstanceCommand `json:"pending_command,omitempty"`
+	}
+	result := make([]instanceView, 0, len(instances))
+	for _, instance := range instances {
+		item := instanceView{
+			MachineCode: instance.MachineCode, AgentType: instance.AgentType,
+			InstanceID: instance.InstanceID, Status: instance.StatusJSON, LastSeen: instance.LastSeen,
+		}
+		config, configErr := a.store.GetAgentInstanceConfig(machineCode, instance.AgentType, instance.InstanceID)
+		if configErr != nil {
+			writeErr(w, http.StatusInternalServerError, "读取实例配置摘要失败")
+			return
+		}
+		if config != nil {
+			item.ConfigSHA256 = config.SHA256
+		}
+		pending, commandErr := a.store.GetPendingAgentInstanceCommand(machineCode, instance.AgentType, instance.InstanceID)
+		if commandErr != nil {
+			writeErr(w, http.StatusInternalServerError, "读取实例待执行命令失败")
+			return
+		}
+		item.PendingCommand = pending
+		result = append(result, item)
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleGetAgentInstanceConfig returns the exact desired config for one instance.
+func (a *App) handleGetAgentInstanceConfig(w http.ResponseWriter, r *http.Request) {
+	machineCode := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	agentType := strings.TrimSpace(r.URL.Query().Get("agent_type"))
+	instanceID := strings.TrimSpace(r.URL.Query().Get("instance_id"))
+	config, err := a.store.GetAgentInstanceConfig(machineCode, agentType, instanceID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "实例身份参数无效")
+		return
+	}
+	if config == nil {
+		writeErr(w, http.StatusNotFound, "该 Agent 实例尚未分配配置")
+		return
+	}
+	writeJSON(w, http.StatusOK, config)
+}
+
+// handleSaveAgentInstanceConfig stores an exact YAML snapshot for one instance.
+func (a *App) handleSaveAgentInstanceConfig(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		AgentType string `json:"agent_type"`
+		InstanceID string `json:"instance_id"`
+		ConfigYAML string `json:"config_yaml"`
+	}
+	if err := decodeLimited(r, agentInstanceConfigMaxBytes+(16<<10), "2 MiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "配置请求 JSON 无效或超过 2 MiB")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.AgentType = strings.TrimSpace(in.AgentType)
+	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	instance, err := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID)
+	if err != nil || instance == nil {
+		writeErr(w, http.StatusNotFound, "目标 Agent 实例不存在")
+		return
+	}
+	if err := a.store.SaveAgentInstanceConfig(in.MachineCode, in.AgentType, in.InstanceID, in.ConfigYAML); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	config, err := a.store.GetAgentInstanceConfig(in.MachineCode, in.AgentType, in.InstanceID)
+	if err != nil || config == nil {
+		writeErr(w, http.StatusInternalServerError, "配置已保存但读取摘要失败")
+		return
+	}
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.instance.config.updated", "machine_code": in.MachineCode,
+		"agent_type": in.AgentType, "instance_id": in.InstanceID,
+		"sha256": config.SHA256, "updated_at": config.UpdatedAt,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"sha256": config.SHA256, "updated_at": config.UpdatedAt})
+}
+
+// handleQueueAgentInstanceCommand queues a bounded JSON command for one instance.
+func (a *App) handleQueueAgentInstanceCommand(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		AgentType string `json:"agent_type"`
+		InstanceID string `json:"instance_id"`
+		CommandID string `json:"command_id"`
+		Command json.RawMessage `json:"command"`
+	}
+	if err := decodeLimited(r, agentInstanceCommandMaxBytes+(8<<10), "72 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "命令请求 JSON 无效或超过 72 KiB")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.AgentType = strings.TrimSpace(in.AgentType)
+	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	instance, err := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID)
+	if err != nil || instance == nil {
+		writeErr(w, http.StatusNotFound, "目标 Agent 实例不存在")
+		return
+	}
+	if err := a.store.QueueAgentInstanceCommand(in.MachineCode, in.AgentType, in.InstanceID, in.CommandID, in.Command); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
+			writeErr(w, http.StatusConflict, "该 Agent 实例已有待执行命令")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.command.queued", "machine_code": in.MachineCode,
+		"agent_type": in.AgentType, "instance_id": in.InstanceID, "command_id": in.CommandID,
+	})
+	writeJSON(w, http.StatusAccepted, map[string]string{"command_id": in.CommandID, "status": "pending"})
+}
+
 func (a *App) handleGetAgents(w http.ResponseWriter, r *http.Request) {
 	settings, err := a.store.GetSettings()
 	if err != nil {
