@@ -465,10 +465,15 @@ checks["composite Agent cards use stable composite identity and independent revo
     and '"type": "agent.instance.revoked"' in handlers
 )
 
-checks["composite Mihomo cards cannot accidentally invoke machine-scoped config or update actions"] = (
-    "实例级配置编辑与内核更新入口将在后续批次接入" in html
-    and 'v-if="item.instanceId"' in html
+composite_action_start = instance_card_section.index('<template v-if="item.instanceId">')
+composite_action_end = instance_card_section.index("</template>", composite_action_start)
+composite_action_section = instance_card_section[composite_action_start:composite_action_end]
+
+checks["composite Mihomo cards expose only the instance-scoped config action, never machine-scoped config or update actions"] = (
+    'openAgentInstanceConfig(item)' in composite_action_section
     and "agentMachineEntries" in app_js
+    and "openNodeConfigForMachine(item.code)" not in composite_action_section
+    and "openAgentKernelUpdate(item.code)" not in composite_action_section
 )
 
 
@@ -485,6 +490,22 @@ checks["per-instance revoke is serialized with registration and invalidates only
     and '"type": "agent.instance.revoked"' in handlers
 )
 
+
+checks["composite instance YAML editor reads and saves only through authenticated browser WebSocket"] = (
+    'case "agent.instance.config.get":' in Path("source/internal/app/agent_websocket.go").read_text(encoding="utf-8")
+    and "type: 'agent.instance.config.get'" in app_js
+    and "type: 'agent.instance.config.save'" in app_js
+    and "openAgentInstanceConfig" in app_js
+    and "saveAgentInstanceConfig" in app_js
+    and "实例配置" in html
+)
+
+checks["instance YAML editor enforces 2 MiB and verifies exact saved bytes plus SHA-256 by readback"] = (
+    "2 * 1024 * 1024" in app_js
+    and "new TextEncoder().encode(yamlText).length" in app_js
+    and "保存后回读校验失败" in app_js
+    and "String(actual.config_yaml || '') !== yamlText" in app_js
+)
 
 failed = [name for name, ok in checks.items() if not ok]
 for name, ok in checks.items():

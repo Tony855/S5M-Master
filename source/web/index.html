@@ -78,6 +78,25 @@
           <el-button type="primary" :loading="queueingKernelUpdate" :disabled="kernelUpdateInfoLoading || !kernelUpdateInfo || !!kernelUpdateInfo.error || !kernelUpdateSHA256" @click="queueAgentKernelUpdate">一键更新</el-button>
         </template>
       </el-dialog>
+      <el-dialog v-model="instanceConfigDialog" title="Agent 实例独立配置" width="min(900px, 96vw)" :close-on-click-modal="false">
+        <div v-if="instanceConfigTarget" class="import-note">
+          目标实例：<strong>{{ instanceConfigTarget.code }} / {{ instanceConfigTarget.agentType }} / {{ instanceConfigTarget.instanceId }}</strong>
+        </div>
+        <div v-if="instanceConfigLoading" class="empty-state">正在通过实时 WebSocket 读取实例配置…</div>
+        <div v-else>
+          <p v-if="instanceConfigError" class="section-hint">{{ instanceConfigError }}</p>
+          <div class="instance-link-summary">
+            <span>期望配置 SHA-256：<strong>{{ instanceConfigSHA256 || '尚未保存' }}</strong></span>
+            <span>更新时间：<strong>{{ instanceConfigUpdatedAt || '暂无' }}</strong></span>
+          </div>
+          <el-input v-model="instanceConfigYaml" type="textarea" :rows="20" resize="vertical" spellcheck="false" placeholder="在此粘贴完整 Mihomo YAML（最大 2 MiB）" />
+          <p class="section-hint">保存后主控会按此实例身份存储原始 YAML，并回读校验 SHA-256 与原文。Agent 通过自身 WebSocket 配置同步流程获取期望配置；不会修改同机器的其他实例。</p>
+        </div>
+        <template #footer>
+          <el-button @click="instanceConfigDialog = false">关闭</el-button>
+          <el-button type="primary" :loading="instanceConfigSaving" :disabled="instanceConfigLoading || !instanceConfigTarget" @click="saveAgentInstanceConfig">保存并校验</el-button>
+        </template>
+      </el-dialog>
       <div v-if="page === 'dashboard'">
         <div class="grid-cards">
           <div class="stat-card"><div class="stat-title">Agent 在线节点</div><div class="stat-value">{{ overview.remote_online || 0 }} <span class="stat-total">/ {{ overview.remote_node_total || 0 }}</span></div><div class="section-hint">已连接的远程实例</div></div>
@@ -369,7 +388,7 @@
               </div>
               <div v-else class="instance-actions">
                 <template v-if="item.instanceId">
-                  <span class="instance-summary-error">实例身份已隔离；实例级配置编辑与内核更新入口将在后续批次接入，暂不调用机器级配置或命令。</span>
+                  <el-button size="small" type="primary" plain @click="openAgentInstanceConfig(item)">实例配置</el-button>
                   <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销此实例</el-button>
                 </template>
                 <template v-else>
