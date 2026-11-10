@@ -780,18 +780,20 @@ func (s *Store) GetAgentInstance(machineCode, agentType, instanceID string) (*Ag
 		return nil, err
 	}
 	item := &AgentIdentity{}
+	var statusJSON []byte
 	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, credential_sha256,
 		status_json, last_seen, created_at, updated_at FROM agent_instances
 		WHERE machine_code=? AND agent_type=? AND instance_id=?`,
 		machineCode, agentType, instanceID).Scan(
 		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.CredentialSHA256,
-		&item.StatusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt)
+		&statusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	item.StatusJSON = json.RawMessage(statusJSON)
 	return item, nil
 }
 
@@ -809,10 +811,12 @@ func (s *Store) ListAgentInstances(machineCode string) ([]AgentIdentity, error) 
 	var out []AgentIdentity
 	for rows.Next() {
 		var item AgentIdentity
+		var statusJSON []byte
 		if err := rows.Scan(&item.MachineCode, &item.AgentType, &item.InstanceID,
-			&item.StatusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			&statusJSON, &item.LastSeen, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
+		item.StatusJSON = json.RawMessage(statusJSON)
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
