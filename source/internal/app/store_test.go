@@ -708,3 +708,26 @@ func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *test
 		t.Fatalf("cross-instance command leak: %#v err=%v", other, err)
 	}
 }
+
+func TestAgentInstanceCommandPolicyAndAckReplaySurviveRestart(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "agent-command-recovery.db")
+	store, err := OpenStore(dbPath)
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err := store.ProvisionAgentInstance("recovery-node", "mihomo", "default", "recovery-secret-0123456789abcdef"); err != nil { t.Fatal(err) }
+	if err := store.ProvisionAgentInstance("recovery-node", "wireguard", "routeros-1", "wireguard-secret-0123456789abcdef"); err != nil { t.Fatal(err) }
+	command := json.RawMessage(`{"id":"recover-1","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+	if err := store.QueueAgentInstanceCommand("recovery-node", "wireguard", "routeros-1", "recover-1", command); err == nil { t.Fatal("WireGuard command unexpectedly accepted") }
+	if err := store.QueueAgentInstanceCommand("recovery-node", "mihomo", "default", "recover-1", json.RawMessage(`{"id":"recover-1","type":"restart","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)); err == nil { t.Fatal("unsupported Mihomo command type unexpectedly accepted") }
+	if err := store.QueueAgentInstanceCommand("recovery-node", "mihomo", "default", "recover-1", command); err != nil { t.Fatalf("queue command: %v", err) }
+	if err := store.db.Close(); err != nil { t.Fatal(err) }
+	store, err = OpenStore(dbPath)
+	if err != nil { t.Fatalf("reopen store after master restart: %v", err) }
+	defer store.db.Close()
+	pending, err := store.GetPendingAgentInstanceCommand("recovery-node", "mihomo", "default")
+	if err != nil || pending == nil || pending.CommandID != "recover-1" { t.Fatalf("pending command not recovered: %#v err=%v", pending, err) }
+	if err := store.AckAgentInstanceCommand("recovery-node", "mihomo", "default", "recover-1", "success", "installed"); err != nil { t.Fatalf("first ACK: %v", err) }
+	if err := store.AckAgentInstanceCommand("recovery-node", "mihomo", "default", "recover-1", "success", "installed"); err != nil { t.Fatalf("identical ACK replay should be idempotent: %v", err) }
+	if err := store.AckAgentInstanceCommand("recovery-node", "mihomo", "default", "recover-1", "failed", "different result"); err == nil { t.Fatal("conflicting ACK replay unexpectedly accepted") }
+	latest, err := store.GetLatestAgentInstanceCommand("recovery-node", "mihomo", "default")
+	if err != nil || latest == nil || latest.Status != "success" || latest.Result != "installed" { t.Fatalf("durable ACK result changed: %#v err=%v", latest, err) }
+}
