@@ -1,0 +1,44 @@
+name: Agent instance WebSocket load test
+
+on:
+  workflow_dispatch:
+    inputs:
+      instances:
+        description: "Concurrent isolated Agent instances (1-500)"
+        required: true
+        type: number
+        default: 100
+
+permissions:
+  contents: read
+
+jobs:
+  load-test:
+    name: Concurrent instance isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      S5M_AGENT_WS_LOAD_INSTANCES: ${{ inputs.instances }}
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.x'
+          cache: true
+          cache-dependency-path: source/go.sum
+      - name: Validate requested load
+        run: |
+          case "$S5M_AGENT_WS_LOAD_INSTANCES" in
+            ''|*[!0-9]*) echo "instances must be an integer from 1 to 500"; exit 1 ;;
+          esac
+          if [ "$S5M_AGENT_WS_LOAD_INSTANCES" -lt 1 ] || [ "$S5M_AGENT_WS_LOAD_INSTANCES" -gt 500 ]; then
+            echo "instances must be between 1 and 500"
+            exit 1
+          fi
+      - name: Run concurrent WebSocket command isolation test
+        run: go test -race -count=1 ./internal/app -run '^TestAgentInstanceConcurrentWebSocketCommandIsolation$' -v
