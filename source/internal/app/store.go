@@ -804,8 +804,7 @@ func (s *Store) UpdateAgentInstanceStatus(machineCode, agentType, instanceID str
 	if n == 1 {
 		return nil
 	}
-	// ACK delivery is at-least-once: if the response was lost after commit,
-	// accept an exact replay without changing the durable result or timestamp.
+	// ACK delivery is at-least-once: accept an exact replay after a lost response.
 	var existingStatus, existingMessage string
 	err = s.db.QueryRow(`SELECT status, result_message FROM agent_instance_commands
 		WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=?`,
@@ -997,7 +996,7 @@ func validateAgentInstanceCommand(agentType, commandID string, command json.RawM
 	if payload.ID != commandID || payload.Type != "update_mihomo" {
 		return fmt.Errorf("Mihomo 命令 ID 或类型无效")
 	}
-	if !regexp.MustCompile(`^v[0-9]+\\.[0-9]+\\.[0-9]+package app
+	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+package app
 
 import (
 	"crypto/rand"
@@ -2923,7 +2922,6 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	}
 	return nil
 }
-
 // QueueAgentInstanceCommand allows at most one pending command per Agent instance.
 func (s *Store) QueueAgentInstanceCommand(machineCode, agentType, instanceID, commandID string, command json.RawMessage) error {
 	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
@@ -3916,7 +3914,7 @@ func validateAgentInstanceCommand(agentType, commandID string, command json.RawM
 	if payload.ID != commandID || payload.Type != "update_mihomo" {
 		return fmt.Errorf("Mihomo 命令 ID 或类型无效")
 	}
-	if !regexp.MustCompile(`^v[0-9]+\\.[0-9]+\\.[0-9]+package app
+	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+package app
 
 import (
 	"crypto/rand"
@@ -5842,7 +5840,6 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	}
 	return nil
 }
-
 // QueueAgentInstanceCommand allows at most one pending command per Agent instance.
 func (s *Store) QueueAgentInstanceCommand(machineCode, agentType, instanceID, commandID string, command json.RawMessage) error {
 	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
