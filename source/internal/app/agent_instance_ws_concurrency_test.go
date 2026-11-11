@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +17,14 @@ import (
 
 func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 	app, machineCode, _ := websocketTestApp(t)
-	const count = 24
+	count := 24
+	if configured := strings.TrimSpace(os.Getenv("S5M_AGENT_WS_LOAD_INSTANCES")); configured != "" {
+		parsed, err := strconv.Atoi(configured)
+		if err != nil || parsed < 1 || parsed > 500 {
+			t.Fatalf("S5M_AGENT_WS_LOAD_INSTANCES must be an integer from 1 to 500, got %q", configured)
+		}
+		count = parsed
+	}
 	type fixture struct {
 		id, token, commandID string
 	}
@@ -28,7 +37,7 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 		}
 		body, _ := json.Marshal(map[string]string{"machine_code": machineCode, "agent_type": "mihomo", "instance_id": id, "secret": secret})
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
-		req.RemoteAddr = fmt.Sprintf("203.0.113.%d:1234", i+1)
+		req.RemoteAddr = fmt.Sprintf("198.18.%d.%d:1234", i/250, i%250+1)
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		app.handleAgentRegister(rec, req)
@@ -64,7 +73,7 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 				return
 			}
 			defer conn.Close()
-			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 			var welcome map[string]any
 			if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
 				errs <- fmt.Errorf("%s welcome invalid: %#v (%v)", f.id, welcome, err)
