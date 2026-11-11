@@ -7,12 +7,16 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 	app, machineCode, _ := websocketTestApp(t)
 	const count = 24
-	type fixture struct{ id, token, commandID string }
+	type fixture struct {
+		id, token, commandID string
+	}
 	fixtures := make([]fixture, count)
 	for i := range fixtures {
 		id := fmt.Sprintf("parallel-%02d", i)
@@ -26,7 +30,7 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 		if err := app.store.QueueAgentInstanceCommand(machineCode, "mihomo", id, commandID, payload); err != nil {
 			t.Fatalf("queue %s: %v", id, err)
 		}
-		fixtures[i] = fixture{id, token, commandID}
+		fixtures[i] = fixture{id: id, token: token, commandID: commandID}
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
@@ -38,12 +42,13 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], authHeader(f.token))
+			conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], instanceConcurrencyAuthHeader(f.token))
 			if err != nil {
 				errs <- fmt.Errorf("%s dial: %w", f.id, err)
 				return
 			}
 			defer conn.Close()
+			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			var welcome map[string]any
 			if err := conn.ReadJSON(&welcome); err != nil || welcome["type"] != "welcome" {
 				errs <- fmt.Errorf("%s welcome invalid: %#v (%v)", f.id, welcome, err)
@@ -95,7 +100,7 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 	}
 }
 
-func authHeader(token string) http.Header {
+func instanceConcurrencyAuthHeader(token string) http.Header {
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+token)
 	return header
