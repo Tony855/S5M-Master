@@ -1453,7 +1453,11 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if configRec.Code != http.StatusOK || !strings.Contains(configRec.Body.String(), `"sha256"`) {
 		t.Fatalf("get instance config status=%d body=%s", configRec.Code, configRec.Body.String())
 	}
-	commandBody := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1","command_id":"wg-up-1","command":{"id":"wg-up-1","type":"restart"}}`
+	wireguardCommand := `{"machine_code":"admin-instance-node","agent_type":"wireguard","instance_id":"routeros-1","command_id":"wg-up-1","command":{"id":"wg-up-1","type":"restart"}}`
+	if rec := request(http.MethodPost, "/api/v1/agents/instances/commands", wireguardCommand); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unsupported WireGuard command status=%d body=%s, want 400", rec.Code, rec.Body.String())
+	}
+	commandBody := `{"machine_code":"admin-instance-node","agent_type":"mihomo","instance_id":"default","command_id":"mihomo-up-1","command":{"id":"mihomo-up-1","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}`
 	if rec := request(http.MethodPost, "/api/v1/agents/instances/commands", commandBody); rec.Code != http.StatusAccepted {
 		t.Fatalf("queue instance command status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -1468,12 +1472,12 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	if duplicate.Code != http.StatusConflict {
 		t.Fatalf("second pending command status=%d body=%s, want 409", duplicate.Code, duplicate.Body.String())
 	}
-	if err := store.AckAgentInstanceCommand(machine, "wireguard", "routeros-1", "wg-up-1", "failed", "test failure result"); err != nil {
+	if err := store.AckAgentInstanceCommand(machine, "mihomo", "default", "mihomo-up-1", "failed", "test failure result"); err != nil {
 		t.Fatalf("ack test command: %v", err)
 	}
 	withResult := request(http.MethodGet, "/api/v1/agents/instances", "")
 	if withResult.Code != http.StatusOK || !strings.Contains(withResult.Body.String(), `"latest_command"`) ||
-		!strings.Contains(withResult.Body.String(), `"command_id":"wg-up-1"`) ||
+		!strings.Contains(withResult.Body.String(), `"command_id":"mihomo-up-1"`) ||
 		!strings.Contains(withResult.Body.String(), `"message":"test failure result"`) {
 		t.Fatalf("latest command result missing: status=%d body=%s", withResult.Code, withResult.Body.String())
 	}
