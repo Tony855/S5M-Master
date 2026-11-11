@@ -1030,7 +1030,7 @@ func (a *App) ackAgentWSInstanceCommand(identity agentRequestIdentity, commandID
 		return fmt.Errorf("命令 ID、状态或结果消息无效")
 	}
 	message = sanitizeAgentWebSocketText(message)
-	if err := a.store.AckAgentInstanceCommand(identity.MachineCode, identity.AgentType, identity.InstanceID, commandID, status, message); err != nil {
+	if err := a.store.AckAgentInstanceCommandIdempotent(identity.MachineCode, identity.AgentType, identity.InstanceID, commandID, status, message); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("命令已被替换、已确认或不存在")
 		}

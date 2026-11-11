@@ -2704,6 +2704,10 @@ func (a *App) handleQueueAgentInstanceCommand(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusNotFound, "目标 Agent 实例不存在")
 		return
 	}
+	if err := validateAgentInstanceCommandPayload(in.AgentType, in.CommandID, in.Command); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := a.store.QueueAgentInstanceCommand(in.MachineCode, in.AgentType, in.InstanceID, in.CommandID, in.Command); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") || strings.Contains(err.Error(), "unique") {
 			writeErr(w, http.StatusConflict, "该 Agent 实例已有待执行命令")
