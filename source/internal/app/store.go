@@ -801,20 +801,12 @@ func (s *Store) UpdateAgentInstanceStatus(machineCode, agentType, instanceID str
 	if err != nil {
 		return err
 	}
-	if n == 1 {
-		return nil
-	}
+	if n == 1 { return nil }
 	// ACK delivery is at-least-once: accept an exact replay after a lost response.
 	var existingStatus, existingMessage string
-	err = s.db.QueryRow(`SELECT status, result_message FROM agent_instance_commands
-		WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=?`,
-		machineCode, agentType, instanceID, commandID).Scan(&existingStatus, &existingMessage)
-	if err == nil && existingStatus == status && existingMessage == resultMessage {
-		return nil
-	}
-	if err != nil && err != sql.ErrNoRows {
-		return err
-	}
+	err = s.db.QueryRow(`SELECT status, result_message FROM agent_instance_commands WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=?`, machineCode, agentType, instanceID, commandID).Scan(&existingStatus, &existingMessage)
+	if err == nil && existingStatus == status && existingMessage == resultMessage { return nil }
+	if err != nil && err != sql.ErrNoRows { return err }
 	return sql.ErrNoRows
 }
 
@@ -972,30 +964,18 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 // validateAgentInstanceCommand enforces the currently implemented Agent command contract.
 // WireGuard command execution is intentionally disabled until its Agent runtime ships handlers.
 func validateAgentInstanceCommand(agentType, commandID string, command json.RawMessage) error {
-	if agentType != "mihomo" {
-		return fmt.Errorf("当前 Agent 类型暂不支持远程命令")
-	}
+	if agentType != "mihomo" { return fmt.Errorf("当前 Agent 类型暂不支持远程命令") }
 	var payload struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
+		ID string `json:"id"`
+		Type string `json:"type"`
 		Version string `json:"version"`
-		SHA256  string `json:"sha256"`
+		SHA256 string `json:"sha256"`
 	}
-	if err := json.Unmarshal(command, &payload); err != nil {
-		return fmt.Errorf("Agent 命令 JSON 无效")
-	}
+	if err := json.Unmarshal(command, &payload); err != nil { return fmt.Errorf("Agent 命令 JSON 无效") }
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(command, &fields); err != nil || len(fields) != 4 {
-		return fmt.Errorf("Mihomo 更新命令字段不符合协议")
-	}
-	for key := range fields {
-		if key != "id" && key != "type" && key != "version" && key != "sha256" {
-			return fmt.Errorf("Mihomo 更新命令包含不支持的字段")
-		}
-	}
-	if payload.ID != commandID || payload.Type != "update_mihomo" {
-		return fmt.Errorf("Mihomo 命令 ID 或类型无效")
-	}
+	if err := json.Unmarshal(command, &fields); err != nil || len(fields) != 4 { return fmt.Errorf("Mihomo 更新命令字段不符合协议") }
+	for key := range fields { if key != "id" && key != "type" && key != "version" && key != "sha256" { return fmt.Errorf("Mihomo 更新命令包含不支持的字段") } }
+	if payload.ID != commandID || payload.Type != "update_mihomo" { return fmt.Errorf("Mihomo 命令 ID 或类型无效") }
 	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+package app
 
 import (
@@ -1956,8 +1936,7 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	return item, nil
 }
 
-).MatchString(strings.TrimSpace(payload.Version)) ||
-		!regexp.MustCompile(`^[a-fA-F0-9]{64}package app
+).MatchString(strings.TrimSpace(payload.Version)) || !regexp.MustCompile(`^[a-fA-F0-9]{64}package app
 
 import (
 	"crypto/rand"
@@ -2917,9 +2896,7 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	return item, nil
 }
 
-).MatchString(strings.TrimSpace(payload.SHA256)) {
-		return fmt.Errorf("Mihomo 更新版本或 SHA-256 无效")
-	}
+).MatchString(strings.TrimSpace(payload.SHA256)) { return fmt.Errorf("Mihomo 更新版本或 SHA-256 无效") }
 	return nil
 }
 // QueueAgentInstanceCommand allows at most one pending command per Agent instance.
@@ -3890,30 +3867,18 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 // validateAgentInstanceCommand enforces the currently implemented Agent command contract.
 // WireGuard command execution is intentionally disabled until its Agent runtime ships handlers.
 func validateAgentInstanceCommand(agentType, commandID string, command json.RawMessage) error {
-	if agentType != "mihomo" {
-		return fmt.Errorf("当前 Agent 类型暂不支持远程命令")
-	}
+	if agentType != "mihomo" { return fmt.Errorf("当前 Agent 类型暂不支持远程命令") }
 	var payload struct {
-		ID      string `json:"id"`
-		Type    string `json:"type"`
+		ID string `json:"id"`
+		Type string `json:"type"`
 		Version string `json:"version"`
-		SHA256  string `json:"sha256"`
+		SHA256 string `json:"sha256"`
 	}
-	if err := json.Unmarshal(command, &payload); err != nil {
-		return fmt.Errorf("Agent 命令 JSON 无效")
-	}
+	if err := json.Unmarshal(command, &payload); err != nil { return fmt.Errorf("Agent 命令 JSON 无效") }
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(command, &fields); err != nil || len(fields) != 4 {
-		return fmt.Errorf("Mihomo 更新命令字段不符合协议")
-	}
-	for key := range fields {
-		if key != "id" && key != "type" && key != "version" && key != "sha256" {
-			return fmt.Errorf("Mihomo 更新命令包含不支持的字段")
-		}
-	}
-	if payload.ID != commandID || payload.Type != "update_mihomo" {
-		return fmt.Errorf("Mihomo 命令 ID 或类型无效")
-	}
+	if err := json.Unmarshal(command, &fields); err != nil || len(fields) != 4 { return fmt.Errorf("Mihomo 更新命令字段不符合协议") }
+	for key := range fields { if key != "id" && key != "type" && key != "version" && key != "sha256" { return fmt.Errorf("Mihomo 更新命令包含不支持的字段") } }
+	if payload.ID != commandID || payload.Type != "update_mihomo" { return fmt.Errorf("Mihomo 命令 ID 或类型无效") }
 	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+package app
 
 import (
@@ -4874,8 +4839,7 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	return item, nil
 }
 
-).MatchString(strings.TrimSpace(payload.Version)) ||
-		!regexp.MustCompile(`^[a-fA-F0-9]{64}package app
+).MatchString(strings.TrimSpace(payload.Version)) || !regexp.MustCompile(`^[a-fA-F0-9]{64}package app
 
 import (
 	"crypto/rand"
@@ -5835,9 +5799,7 @@ func (s *Store) GetAgentInstanceConfig(machineCode, agentType, instanceID string
 	return item, nil
 }
 
-).MatchString(strings.TrimSpace(payload.SHA256)) {
-		return fmt.Errorf("Mihomo 更新版本或 SHA-256 无效")
-	}
+).MatchString(strings.TrimSpace(payload.SHA256)) { return fmt.Errorf("Mihomo 更新版本或 SHA-256 无效") }
 	return nil
 }
 // QueueAgentInstanceCommand allows at most one pending command per Agent instance.
@@ -5849,9 +5811,7 @@ func (s *Store) QueueAgentInstanceCommand(machineCode, agentType, instanceID, co
 		len(command) == 0 || len(command) > agentInstanceCommandMaxBytes || !json.Valid(command) {
 		return fmt.Errorf("Agent 实例命令 ID 或 JSON 数据无效")
 	}
-	if err := validateAgentInstanceCommand(agentType, commandID, command); err != nil {
-		return err
-	}
+	if err := validateAgentInstanceCommand(agentType, commandID, command); err != nil { return err }
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	_, err := s.db.Exec(`INSERT INTO agent_instance_commands(
 		machine_code, agent_type, instance_id, command_id, command_json, status, result_message, created_at, updated_at
