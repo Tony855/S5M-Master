@@ -8,19 +8,31 @@ import (
 
 func TestValidateAgentInstanceCommandPayloadAllowlist(t *testing.T) {
 	valid := json.RawMessage(`{"id":"update-1","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
-	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", valid); err != nil { t.Fatalf("valid Mihomo update rejected: %v", err) }
-	if err := validateAgentInstanceCommandPayload("wireguard", "update-1", valid); err == nil { t.Fatal("WireGuard command accepted before runtime support exists") }
+	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", valid); err != nil {
+		t.Fatalf("valid Mihomo update rejected: %v", err)
+	}
+	if err := validateAgentInstanceCommandPayload("wireguard", "update-1", valid); err == nil {
+		t.Fatal("WireGuard command accepted before runtime support exists")
+	}
 	unsupported := json.RawMessage(`{"id":"update-1","type":"restart","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)
-	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", unsupported); err == nil { t.Fatal("unsupported command type accepted") }
+	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", unsupported); err == nil {
+		t.Fatal("unsupported command type accepted")
+	}
 	extra := json.RawMessage(`{"id":"update-1","type":"update_mihomo","version":"v1.2.3","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","shell":"touch /tmp/pwned"}`)
-	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", extra); err == nil { t.Fatal("unexpected command field accepted") }
-	if err := validateAgentInstanceCommandPayload("mihomo", "other-id", valid); err == nil { t.Fatal("mismatched command ID accepted") }
+	if err := validateAgentInstanceCommandPayload("mihomo", "update-1", extra); err == nil {
+		t.Fatal("unexpected command field accepted")
+	}
+	if err := validateAgentInstanceCommandPayload("mihomo", "other-id", valid); err == nil {
+		t.Fatal("mismatched command ID accepted")
+	}
 }
 
 func TestAgentInstanceCommandRedeliveryAndAckReplaySurviveStoreRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "agent-command-recovery.db")
 	store, err := OpenStore(dbPath)
-	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
 	if err := store.ProvisionAgentInstance("recovery-node", "mihomo", "default", "recovery-secret-0123456789abcdef"); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +66,9 @@ func TestAgentInstanceCommandRedeliveryAndAckReplaySurviveStoreRestart(t *testin
 	if err := store.AckAgentInstanceCommandIdempotent("recovery-node", "mihomo", "default", "recover-1", "success", "installed"); err != nil {
 		t.Fatalf("identical ACK replay should succeed: %v", err)
 	}
-	if err := store.AckAgentInstanceCommandIdempotent("recovery-node", "mihomo", "default", "recover-1", "failed", "conflicting result"); err == nil { t.Fatal("conflicting ACK replay unexpectedly accepted") }
+	if err := store.AckAgentInstanceCommandIdempotent("recovery-node", "mihomo", "default", "recover-1", "failed", "conflicting result"); err == nil {
+		t.Fatal("conflicting ACK replay unexpectedly accepted")
+	}
 	if pending, err := store.GetPendingAgentInstanceCommand("recovery-node", "mihomo", "default"); err != nil || pending != nil {
 		t.Fatalf("ACK did not clear pending command: %#v err=%v", pending, err)
 	}
