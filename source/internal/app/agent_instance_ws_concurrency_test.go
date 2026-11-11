@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,13 +26,27 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 		if err := app.store.ProvisionAgentInstance(machineCode, "mihomo", id, secret); err != nil {
 			t.Fatalf("provision %s: %v", id, err)
 		}
-		token := registerInstanceWebSocketTestToken(t, app, machineCode, "mihomo", id, secret)
+		body, _ := json.Marshal(map[string]string{"machine_code": machineCode, "agent_type": "mihomo", "instance_id": id, "secret": secret})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(body)))
+		req.RemoteAddr = fmt.Sprintf("203.0.113.%d:1234", i+1)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		app.handleAgentRegister(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("register %s status=%d body=%s", id, rec.Code, rec.Body.String())
+		}
+		var registered struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &registered); err != nil || registered.Token == "" {
+			t.Fatalf("decode %s token: token=%q err=%v", id, registered.Token, err)
+		}
 		commandID := fmt.Sprintf("parallel-command-%02d", i)
 		payload := json.RawMessage(fmt.Sprintf(`{"id":%q,"type":"update_mihomo","version":"v1.2.3","sha256":"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}`, commandID))
 		if err := app.store.QueueAgentInstanceCommand(machineCode, "mihomo", id, commandID, payload); err != nil {
 			t.Fatalf("queue %s: %v", id, err)
 		}
-		fixtures[i] = fixture{id: id, token: token, commandID: commandID}
+		fixtures[i] = fixture{id: id, token: registered.Token, commandID: commandID}
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
