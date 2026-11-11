@@ -676,3 +676,35 @@ func TestDeleteAgentBindingRevokesAllCompositeInstancesAndCascadesData(t *testin
 		t.Fatalf("legacy binding remains after revoke: err=%v", err)
 	}
 }
+
+func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "latest-agent-command.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+	if err := store.ProvisionAgentInstance("latest-node", "mihomo", "default", "latest-command-secret-0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ProvisionAgentInstance("latest-node", "wireguard", "routeros-1", "latest-wireguard-secret-0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueueAgentInstanceCommand("latest-node", "mihomo", "default", "mihomo-cmd", json.RawMessage(`{"id":"mihomo-cmd","type":"update_mihomo","version":"v1.2.3"}`)); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.GetLatestAgentInstanceCommand("latest-node", "mihomo", "default")
+	if err != nil || pending == nil || pending.Status != "pending" || pending.CommandID != "mihomo-cmd" {
+		t.Fatalf("pending latest=%#v err=%v", pending, err)
+	}
+	if err := store.AckAgentInstanceCommand("latest-node", "mihomo", "default", "mihomo-cmd", "success", "updated"); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := store.GetLatestAgentInstanceCommand("latest-node", "mihomo", "default")
+	if err != nil || latest == nil || latest.Status != "success" || latest.Result != "updated" {
+		t.Fatalf("acknowledged latest=%#v err=%v", latest, err)
+	}
+	other, err := store.GetLatestAgentInstanceCommand("latest-node", "wireguard", "routeros-1")
+	if err != nil || other != nil {
+		t.Fatalf("cross-instance command leak: %#v err=%v", other, err)
+	}
+}

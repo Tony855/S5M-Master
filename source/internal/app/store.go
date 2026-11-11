@@ -1012,6 +1012,30 @@ func (s *Store) GetPendingAgentInstanceCommand(machineCode, agentType, instanceI
 	return item, nil
 }
 
+// GetLatestAgentInstanceCommand returns the most recent command state for one exact instance.
+func (s *Store) GetLatestAgentInstanceCommand(machineCode, agentType, instanceID string) (*AgentInstanceCommand, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return nil, err
+	}
+	item := &AgentInstanceCommand{}
+	var commandJSON []byte
+	err := s.db.QueryRow(`SELECT machine_code, agent_type, instance_id, command_id, command_json,
+		status, result_message, created_at, updated_at FROM agent_instance_commands
+		WHERE machine_code=? AND agent_type=? AND instance_id=?
+		ORDER BY updated_at DESC, created_at DESC, command_id DESC LIMIT 1`,
+		machineCode, agentType, instanceID).Scan(
+		&item.MachineCode, &item.AgentType, &item.InstanceID, &item.CommandID, &commandJSON,
+		&item.Status, &item.Result, &item.CreatedAt, &item.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.CommandJSON = json.RawMessage(commandJSON)
+	return item, nil
+}
+
 // AckAgentInstanceCommand atomically acknowledges exactly one pending command.
 func (s *Store) AckAgentInstanceCommand(machineCode, agentType, instanceID, commandID, status, resultMessage string) error {
 	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
