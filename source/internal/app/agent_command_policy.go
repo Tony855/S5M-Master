@@ -16,10 +16,10 @@ func validateAgentInstanceCommandPayload(agentType, commandID string, raw json.R
 		return fmt.Errorf("当前 Agent 类型暂不支持远程命令")
 	}
 	var payload struct {
-		ID string `json:"id"`
-		Type string `json:"type"`
+		ID      string `json:"id"`
+		Type    string `json:"type"`
 		Version string `json:"version"`
-		SHA256 string `json:"sha256"`
+		SHA256  string `json:"sha256"`
 	}
 	if len(raw) == 0 || !json.Valid(raw) || json.Unmarshal(raw, &payload) != nil {
 		return fmt.Errorf("Agent 命令 JSON 无效")
@@ -56,15 +56,23 @@ func (s *Store) AckAgentInstanceCommandIdempotent(machineCode, agentType, instan
 	res, err := s.db.Exec(`UPDATE agent_instance_commands SET status=?, result_message=?, updated_at=?
 		WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=? AND status='pending'`,
 		status, resultMessage, now, machineCode, agentType, instanceID, commandID)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	n, err := res.RowsAffected()
 	if err != nil { return err }
-	if n == 1 { return nil }
+	if n == 1 {
+		return nil
+	}
 	var existingStatus, existingMessage string
 	err = s.db.QueryRow(`SELECT status, result_message FROM agent_instance_commands
 		WHERE machine_code=? AND agent_type=? AND instance_id=? AND command_id=?`,
 		machineCode, agentType, instanceID, commandID).Scan(&existingStatus, &existingMessage)
-	if err == nil && existingStatus == status && existingMessage == resultMessage { return nil }
-	if err != nil && err != sql.ErrNoRows { return err }
+	if err == nil && existingStatus == status && existingMessage == resultMessage {
+		return nil
+	}
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
 	return sql.ErrNoRows
 }
