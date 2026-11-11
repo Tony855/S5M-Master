@@ -13,7 +13,7 @@ func TestAgentInstanceLatestCommandUsesCompositeOrderingIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.db.Close()
-	if err := store.ProvisionAgentInstance("index-node", "wireguard", "routeros-1", "index-secret-0123456789abcdef"); err != nil {
+	if err := store.ProvisionAgentInstance("index-node", "wireguard", "routeros-1", "index-secret-0123456789abcdef-0123456789"); err != nil {
 		t.Fatal(err)
 	}
 	first := json.RawMessage(`{"id":"first","type":"wireguard_status","interface":"wg0"}`)
