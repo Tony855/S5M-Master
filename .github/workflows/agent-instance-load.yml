@@ -1,6 +1,9 @@
 name: Agent instance WebSocket load test
 
 on:
+  push:
+    branches:
+      - test/run-500-agent-load
   workflow_dispatch:
     inputs:
       instances:
@@ -18,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      S5M_AGENT_WS_LOAD_INSTANCES: ${{ inputs.instances }}
+      S5M_AGENT_WS_LOAD_INSTANCES: ${{ inputs.instances || '500' }}
     defaults:
       run:
         working-directory: source
