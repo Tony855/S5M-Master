@@ -6,7 +6,7 @@ This document records the currently implemented controller/Agent contract and di
 
 - Controller UI API uses `Authorization: Bearer <user JWT>`.
 - `POST /api/v1/agent/register` is the Agent registration endpoint.
-- `GET /api/v1/agents` is an authenticated controller endpoint. It returns a map keyed by machine code. Each value contains `authorized` (boolean) and `last_seen` (Unix seconds). It must not return raw Agent credentials.
+- `GET /api/v1/agents` is the legacy machine-level overview. Instance-aware management uses the authenticated `GET /api/v1/agents/instances` endpoint and returns records scoped by `machine_code`, `agent_type`, and `instance_id`. Neither endpoint returns raw Agent credentials.
 
 ## Agent control-plane transport
 
@@ -14,7 +14,7 @@ This document records the currently implemented controller/Agent contract and di
 - After registration, the Agent performs a lightweight HTTP GET to `/api/v1/health` only to verify controller reachability. The HTTP response body is not used for Agent status, configuration, or commands; a reachable 4xx/5xx response still proves network connectivity.
 - All Agent runtime traffic uses one Agent-initiated, authenticated persistent WebSocket at `GET /api/v1/agent/ws`: status/heartbeat telemetry, configuration hash checks and YAML delivery, command delivery, and command acknowledgements.
 - The Agent must not fall back to HTTP heartbeat, configuration polling, command polling, or HTTP command ACK when WebSocket fails. It reconnects with exponential backoff capped at 60 seconds.
-- The server validates the Agent bearer token at handshake and revalidates authorization for each message. A newer connection supersedes an older connection for the same machine code.
+- The server validates the Agent bearer token at handshake and revalidates authorization for each message. Legacy tokens remain machine-scoped; instance tokens carry `agent_type` and `instance_id` claims and are revalidated against the dedicated instance credential hash. WebSocket connection generation, replacement, heartbeat ordering, config, command queue, ACK and revocation are scoped to the composite instance identity when present; legacy connections retain machine-code scoping.
 - Application messages are versioned JSON envelopes with request/command IDs. The server stores command results before clearing pending work; duplicate ACKs for the same completed command are idempotent.
 - HTTP Mihomo API requests to `127.0.0.1:8088` are local core operations, not Agent-to-controller transport. Never expose that local API beyond loopback.
 
@@ -58,4 +58,4 @@ The Agent WebSocket heartbeat envelope now accepts an optional top-level `agent_
 
 WireGuard telemetry is persisted with `agent_type=wireguard` and published through the same browser event channel. The existing node list renders WireGuard interface/backend/peer/counter status separately and does not interpret it as Mihomo health. Private keys, PSKs, tokens, RouterOS credentials, and full WireGuard configuration are not accepted as required telemetry fields.
 
-This is the first compatibility stage only. Registration credentials, WebSocket connection generation, config storage, command queues, and revocation are still keyed by machine_code; simultaneous independent Mihomo and WireGuard instances on one physical machine are not yet supported. The WireGuard Agent must not be considered fully integrated until per-instance identity and type-scoped config/command workflows are implemented and tested.
+Instance-aware registration, credential hashing, WebSocket session generation/replacement, heartbeat ordering, config storage, command queue, ACK and revocation are implemented using the composite `(machine_code, agent_type, instance_id)` identity. Legacy machine-scoped Agents remain supported for backwards compatibility. This enables independent Mihomo and WireGuard identities on one physical machine. However, WireGuard remote commands remain explicitly denied by the Master command allowlist until the WireGuard Agent implements and tests its own typed dispatcher; do not infer that command execution is enabled merely because instance-scoped config/heartbeat plumbing exists.
