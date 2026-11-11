@@ -2545,16 +2545,6 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "读取 Agent 实例失败")
 		return
 	}
-	type instanceView struct {
-		MachineCode    string               `json:"machine_code"`
-		AgentType      string               `json:"agent_type"`
-		InstanceID     string               `json:"instance_id"`
-		Status         json.RawMessage      `json:"status"`
-		LastSeen       int64                `json:"last_seen"`
-		ConfigSHA256   string               `json:"config_sha256,omitempty"`
-		PendingCommand *instanceCommandView `json:"pending_command,omitempty"`
-		LatestCommand  *instanceCommandView `json:"latest_command,omitempty"`
-	}
 	type instanceCommandView struct {
 		Command   map[string]string `json:"command,omitempty"`
 		CommandID string            `json:"command_id"`
@@ -2564,6 +2554,16 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 		Message   string            `json:"message,omitempty"`
 		CreatedAt string            `json:"created_at"`
 		UpdatedAt string            `json:"updated_at"`
+	}
+	type instanceView struct {
+		MachineCode    string               `json:"machine_code"`
+		AgentType      string               `json:"agent_type"`
+		InstanceID     string               `json:"instance_id"`
+		Status         json.RawMessage      `json:"status"`
+		LastSeen       int64                `json:"last_seen"`
+		ConfigSHA256   string               `json:"config_sha256,omitempty"`
+		PendingCommand *instanceCommandView `json:"pending_command,omitempty"`
+		LatestCommand  *instanceCommandView `json:"latest_command,omitempty"`
 	}
 	result := make([]instanceView, 0, len(instances))
 	for _, instance := range instances {
