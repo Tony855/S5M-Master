@@ -21,7 +21,7 @@ func TestAgentInstanceConcurrentWebSocketCommandIsolation(t *testing.T) {
 	fixtures := make([]fixture, count)
 	for i := range fixtures {
 		id := fmt.Sprintf("parallel-%02d", i)
-		secret := fmt.Sprintf("parallel-secret-%02d-0123456789", i)
+		secret := fmt.Sprintf("parallel-instance-secret-%02d-0123456789abcdef", i)
 		if err := app.store.ProvisionAgentInstance(machineCode, "mihomo", id, secret); err != nil {
 			t.Fatalf("provision %s: %v", id, err)
 		}
