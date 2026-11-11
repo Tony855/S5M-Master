@@ -15,9 +15,9 @@ func registerInstanceWebSocketTestToken(t *testing.T, app *App, machineCode, age
 	t.Helper()
 	body, err := json.Marshal(map[string]string{
 		"machine_code": machineCode,
-		"agent_type": agentType,
-		"instance_id": instanceID,
-		"secret": secret,
+		"agent_type":   agentType,
+		"instance_id":  instanceID,
+		"secret":       secret,
 	})
 	if err != nil {
 		t.Fatal(err)
