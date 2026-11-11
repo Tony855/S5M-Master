@@ -60,7 +60,9 @@ func (s *Store) AckAgentInstanceCommandIdempotent(machineCode, agentType, instan
 		return err
 	}
 	n, err := res.RowsAffected()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	if n == 1 {
 		return nil
 	}
