@@ -27,6 +27,17 @@ func TestValidateAgentInstanceCommandPayloadAllowlist(t *testing.T) {
 	}
 }
 
+func TestWireGuardRuntimeCommandsRemainDeniedUntilSafeReconcileExists(t *testing.T) {
+	for _, commandType := range []string{"apply", "stop", "status"} {
+		t.Run(commandType, func(t *testing.T) {
+			payload := json.RawMessage(`{"id":"wg-command-1","type":"` + commandType + `","deadline":"2026-11-11T09:00:00Z","revision":"rev-1","payload_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","payload":{"interface":"wg0"}}`)
+			if err := validateAgentInstanceCommandPayload("wireguard", "wg-command-1", payload); err == nil {
+				t.Fatalf("WireGuard %s command accepted before safe runtime reconcile is enabled", commandType)
+			}
+		})
+	}
+}
+
 func TestAgentInstanceCommandRedeliveryAndAckReplaySurviveStoreRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "agent-command-recovery.db")
 	store, err := OpenStore(dbPath)
