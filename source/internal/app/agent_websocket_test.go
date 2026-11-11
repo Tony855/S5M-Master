@@ -1640,7 +1640,7 @@ func TestAgentWebSocketIsolatesConcurrentCompositeInstances(t *testing.T) {
 	}
 }
 
-func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.T) {
+func TestCompositeAgentWebSocketConfigIsolatedAndWireGuardCommandsBlocked(t *testing.T) {
 	app, machineCode, _ := websocketTestApp(t)
 	mihomoSecret := "mihomo-ws-config-secret-123456789"
 	wireguardSecret := "wireguard-ws-config-secret-123456789"
@@ -1741,46 +1741,20 @@ func TestCompositeAgentWebSocketConfigCommandAndACKAreInstanceScoped(t *testing.
 	if noMihomoCommand["type"] != "command.none" {
 		t.Fatalf("Mihomo received another instance command: %#v", noMihomoCommand)
 	}
+	// Even if a stale or directly inserted record exists, an Agent type without
+	// a reviewed dispatcher must never receive it over the control channel.
 	if err := wireguardConn.WriteJSON(map[string]any{"type": "command.request", "id": "wg-command"}); err != nil {
 		t.Fatal(err)
 	}
-	var delivered map[string]any
-	if err := wireguardConn.ReadJSON(&delivered); err != nil {
+	var blocked map[string]any
+	if err := wireguardConn.ReadJSON(&blocked); err != nil {
 		t.Fatal(err)
 	}
-	if delivered["type"] != "command.deliver" {
-		t.Fatalf("WireGuard command not delivered: %#v", delivered)
-	}
-	command, ok := delivered["command"].(map[string]any)
-	if !ok || command["id"] != "wg-restart-1" {
-		t.Fatalf("WireGuard received wrong command: %#v", delivered)
-	}
-	if err := wireguardConn.WriteJSON(map[string]any{
-		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "restarted",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var ack map[string]any
-	if err := wireguardConn.ReadJSON(&ack); err != nil {
-		t.Fatal(err)
-	}
-	if ack["type"] != "command.acknowledged" || ack["id"] != "wg-restart-1" || ack["ok"] != true {
-		t.Fatalf("WireGuard command ACK rejected: %#v", ack)
+	if blocked["type"] != "error" || blocked["id"] != "wg-command" {
+		t.Fatalf("WireGuard command was not blocked at delivery: %#v", blocked)
 	}
 	pending, err := app.store.GetPendingAgentInstanceCommand(machineCode, "wireguard", "routeros-1")
-	if err != nil || pending != nil {
-		t.Fatalf("acknowledged WireGuard command remains pending: %#v err=%v", pending, err)
-	}
-	if err := wireguardConn.WriteJSON(map[string]any{
-		"type": "command.ack", "id": "wg-restart-1", "command_status": "success", "message": "duplicate",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	var duplicate map[string]any
-	if err := wireguardConn.ReadJSON(&duplicate); err != nil {
-		t.Fatal(err)
-	}
-	if duplicate["type"] != "error" {
-		t.Fatalf("duplicate ACK must not be acknowledged as a new command: %#v", duplicate)
+	if err != nil || pending == nil || pending.CommandID != "wg-restart-1" {
+		t.Fatalf("blocked WireGuard command must remain pending for operator visibility: %#v err=%v", pending, err)
 	}
 }

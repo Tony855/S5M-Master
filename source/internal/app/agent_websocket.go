@@ -1003,6 +1003,12 @@ func (a *App) sendAgentWSInstanceConfig(conn *websocket.Conn, identity agentRequ
 // sendAgentWSInstanceCommand redelivers the pending command for exactly one
 // composite identity until its matching ACK is durably recorded.
 func (a *App) sendAgentWSInstanceCommand(conn *websocket.Conn, identity agentRequestIdentity, requestID string) error {
+	// The controller must enforce the Agent-type command boundary at delivery
+	// as well as at queue time. This is defense in depth against stale or
+	// directly inserted queue records while the WireGuard dispatcher is absent.
+	if identity.AgentType != "mihomo" {
+		return fmt.Errorf("当前 Agent 类型暂不支持远程命令")
+	}
 	command, err := a.store.GetPendingAgentInstanceCommand(identity.MachineCode, identity.AgentType, identity.InstanceID)
 	if err != nil {
 		return err
