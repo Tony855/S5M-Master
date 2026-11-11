@@ -162,6 +162,8 @@ CREATE TABLE IF NOT EXISTS agent_instance_commands(
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_instance_one_pending_command
  ON agent_instance_commands(machine_code, agent_type, instance_id) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS idx_agent_instance_command_latest
+ ON agent_instance_commands(machine_code, agent_type, instance_id, updated_at DESC, created_at DESC, command_id DESC);
 CREATE INDEX IF NOT EXISTS idx_agent_instances_machine ON agent_instances(machine_code);
 CREATE INDEX IF NOT EXISTS idx_cv_version ON config_versions(version DESC);
 `
