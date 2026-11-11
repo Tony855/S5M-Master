@@ -2602,10 +2602,15 @@ func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		latest, latestErr := a.store.GetLatestAgentInstanceCommand(instance.MachineCode, instance.AgentType, instance.InstanceID)
-		if latestErr != nil { writeErr(w, http.StatusInternalServerError, "读取实例最近命令结果失败")
-			return }
+		if latestErr != nil {
+			writeErr(w, http.StatusInternalServerError, "读取实例最近命令结果失败")
+			return
+		}
 		if latest != nil {
-			var meta struct { Type string `json:"type"`; Version string `json:"version"` }
+			var meta struct {
+				Type    string `json:"type"`
+				Version string `json:"version"`
+			}
 			if err := json.Unmarshal(latest.CommandJSON, &meta); err != nil {
 				writeErr(w, http.StatusInternalServerError, "读取实例命令摘要失败")
 				return
