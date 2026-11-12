@@ -1833,7 +1833,7 @@ func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
-	machineCode, authErr := a.agentMachineFromRequest(r)
+	machineCode, authErr := a.agentLegacyMihomoMachineFromRequest(r)
 	if authErr != nil {
 		status := http.StatusUnauthorized
 		if strings.HasPrefix(authErr.Error(), "读取 Agent 授权失败:") {
@@ -1849,7 +1849,7 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	// after its binding has been removed.
 	a.agentWSMu.Lock()
 	defer a.agentWSMu.Unlock()
-	currentCode, currentAuthErr := a.agentMachineFromRequest(r)
+	currentCode, currentAuthErr := a.agentLegacyMihomoMachineFromRequest(r)
 	if currentAuthErr != nil || currentCode != machineCode {
 		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
 		return
@@ -1986,6 +1986,17 @@ func agentIdentitySessionKey(identity AgentIdentity) string {
 		return identity.MachineCode // Preserve legacy session-key behavior.
 	}
 	return identity.MachineCode + "|" + identity.AgentType + "|" + identity.InstanceID
+}
+
+func (a *App) agentLegacyMihomoMachineFromRequest(r *http.Request) (string, error) {
+	identity, err := a.agentIdentityFromRequest(r)
+	if err != nil {
+		return "", err
+	}
+	if identity.AgentType != "mihomo" || identity.InstanceID != "default" {
+		return "", fmt.Errorf("此 Agent 实例尚未启用独立配置与命令队列")
+	}
+	return identity.MachineCode, nil
 }
 
 // handleAgentMihomoUpdateInfo resolves the official latest stable release for a
@@ -2138,7 +2149,7 @@ func (a *App) handleQueueMihomoUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
-	code, err := a.agentMachineFromRequest(r)
+	code, err := a.agentLegacyMihomoMachineFromRequest(r)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, err.Error())
 		return
@@ -2149,7 +2160,7 @@ func (a *App) handleAgentCommand(w http.ResponseWriter, r *http.Request) {
 	// and reading the pending command.
 	a.agentWSMu.Lock()
 	defer a.agentWSMu.Unlock()
-	currentCode, authErr := a.agentMachineFromRequest(r)
+	currentCode, authErr := a.agentLegacyMihomoMachineFromRequest(r)
 	if authErr != nil || currentCode != code {
 		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
 		return
@@ -2220,18 +2231,11 @@ func (a *App) handleAgentCommandAck(w http.ResponseWriter, r *http.Request) {
 // handleAgentHeartbeat stores authenticated per-Agent runtime telemetry.
 func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var in map[string]any
-	if err := decodeLimited(r, 16<<10, "16 KiB", &in); err != nil {
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
 		writeErr(w, decodeErrorStatus(err), "心跳 JSON 格式错误")
 		return
-	} else if in == nil {
-		writeErr(w, http.StatusBadRequest, "心跳 JSON 格式错误")
-		return
 	}
-	if err := validateAgentWSStatus(in); err != nil {
-		writeErr(w, http.StatusBadRequest, "心跳数据无效: "+err.Error())
-		return
-	}
-	code, authErr := a.agentMachineFromRequest(r)
+	identity, authErr := a.agentIdentityFromRequest(r)
 	if authErr != nil {
 		status := http.StatusUnauthorized
 		if strings.HasPrefix(authErr.Error(), "读取 Agent 授权失败:") {
@@ -2240,6 +2244,20 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, authErr.Error())
 		return
 	}
+	if identity.AgentType == "mihomo" {
+		authErr = validateAgentWSStatus(in)
+	} else {
+		authErr = validateWireGuardWSStatus(in)
+	}
+	if authErr != nil {
+		writeErr(w, http.StatusBadRequest, "心跳数据无效: "+authErr.Error())
+		return
+	}
+	if declared, ok := in["agent_type"].(string); ok && declared != "" && declared != identity.AgentType {
+		writeErr(w, http.StatusBadRequest, "心跳 Agent 类型与认证身份不一致")
+		return
+	}
+	in["agent_type"] = identity.AgentType
 	receivedAt := time.Now()
 	in["received_at"] = receivedAt.Unix()
 	payload, err := json.Marshal(in)
@@ -2247,11 +2265,10 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "心跳字段无法序列化")
 		return
 	}
+	sessionKey := agentIdentitySessionKey(identity)
 	a.agentWSMu.Lock()
-	// Authorization may have been revoked while this request waited for the
-	// heartbeat lock. Recheck it inside the critical section before persistence.
-	currentCode, currentAuthErr := a.agentMachineFromRequest(r)
-	if currentAuthErr != nil || currentCode != code {
+	currentIdentity, currentAuthErr := a.agentIdentityFromRequest(r)
+	if currentAuthErr != nil || agentIdentitySessionKey(currentIdentity) != sessionKey {
 		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusUnauthorized, "Agent 授权已失效")
 		return
@@ -2259,22 +2276,28 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	if a.agentHeartbeatAt == nil {
 		a.agentHeartbeatAt = make(map[string]int64)
 	}
-	if receivedAt.UnixNano() < a.agentHeartbeatAt[code] {
+	if receivedAt.UnixNano() < a.agentHeartbeatAt[sessionKey] {
 		a.agentWSMu.Unlock()
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "已忽略较旧的 Agent 心跳"})
 		return
 	}
-	if err := a.store.UpdateSettings(map[string]string{
-		"agent_lastseen_" + code: strconv.FormatInt(receivedAt.Unix(), 10),
-		"agent_status_" + code:   string(payload),
-	}); err != nil {
+	var persistErr error
+	if identity.AgentType == "mihomo" && identity.InstanceID == "default" {
+		persistErr = a.store.UpdateSettings(map[string]string{
+			"agent_lastseen_" + identity.MachineCode: strconv.FormatInt(receivedAt.Unix(), 10),
+			"agent_status_" + identity.MachineCode: string(payload),
+		})
+	} else {
+		persistErr = a.store.UpdateAgentInstanceStatus(identity.MachineCode, identity.AgentType, identity.InstanceID, payload, receivedAt.Unix())
+	}
+	if persistErr != nil {
 		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
 		return
 	}
-	a.agentHeartbeatAt[code] = receivedAt.UnixNano()
+	a.agentHeartbeatAt[sessionKey] = receivedAt.UnixNano()
 	a.agentWSMu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "received_at": time.Now().Unix()})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "received_at": receivedAt.Unix()})
 }
 
 // 删除指定的机器码
