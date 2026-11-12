@@ -256,7 +256,11 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
 		case "agent.binding.generate":
-			body, _ := json.Marshal(map[string]string{"machine_code": message.MachineCode})
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode,
+				"agent_type": message.AgentType,
+				"instance_id": message.InstanceID,
+			})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
