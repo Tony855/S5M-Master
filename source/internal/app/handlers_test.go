@@ -1619,3 +1619,43 @@ func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T
 		t.Fatalf("registered JWT identity = %#v", identity)
 	}
 }
+
+
+func TestLegacyAgentHTTPHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-http-secret-0123456789"); err != nil {
+		t.Fatalf("seed migrated default instance: %v", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"mihomo_version": "v1.19.6",
+		"mihomo_healthy": true,
+		"upload_total": float64(11),
+		"download_total": float64(22),
+		"upload_speed": float64(33),
+		"download_speed": float64(44),
+		"connections": float64(5),
+		"config_sha256": strings.Repeat("b", 64),
+		"last_error": "",
+	})
+	if err != nil {
+		t.Fatalf("marshal heartbeat: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("heartbeat status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	instance, err := app.store.GetAgentInstance(code, "mihomo", "default")
+	if err != nil || instance == nil {
+		t.Fatalf("read migrated default instance: item=%#v err=%v", instance, err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(instance.StatusJSON, &saved); err != nil {
+		t.Fatalf("decode mirrored status: %v", err)
+	}
+	if saved["mihomo_version"] != "v1.19.6" || instance.LastSeen == 0 {
+		t.Fatalf("migrated default instance status was not refreshed: %#v", instance)
+	}
+}
