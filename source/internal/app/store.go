@@ -586,6 +586,9 @@ func (s *Store) DeleteAgentBinding(machineCode string) error {
 			return err
 		}
 	}
+	if _, err := tx.Exec(`DELETE FROM agent_instances WHERE machine_code=?`, machineCode); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
