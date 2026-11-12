@@ -736,3 +736,36 @@ func TestCreateAgentInstanceIfAbsentNeverRotatesExistingCredential(t *testing.T)
 		t.Fatal("duplicate create rotated the existing credential")
 	}
 }
+
+
+func TestLegacyAgentHeartbeatMirrorsMigratedDefaultInstance(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "legacy-agent-heartbeat-mirror.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machine = "legacy-node-01"
+	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", "legacy-migrated-secret-0123456789"); err != nil {
+		t.Fatalf("seed migrated instance: %v", err)
+	}
+	status := json.RawMessage(`{"agent_type":"mihomo","mihomo_healthy":true,"received_at":1790000000}`)
+	mirrored, err := store.UpdateLegacyAgentHeartbeat(machine, "mihomo", status, 1790000000)
+	if err != nil || !mirrored {
+		t.Fatalf("legacy heartbeat mirror = (%v,%v), want (true,nil)", mirrored, err)
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("read legacy settings: %v", err)
+	}
+	if settings["agent_status_"+machine] != string(status) || settings["agent_lastseen_"+machine] != "1790000000" {
+		t.Fatalf("legacy settings not updated: %#v", settings)
+	}
+	instance, err := store.GetAgentInstance(machine, "mihomo", "default")
+	if err != nil || instance == nil {
+		t.Fatalf("read mirrored instance: item=%#v err=%v", instance, err)
+	}
+	if string(instance.StatusJSON) != string(status) || instance.LastSeen != 1790000000 {
+		t.Fatalf("migrated instance remained stale: %#v", instance)
+	}
+}
