@@ -770,6 +770,30 @@ func (s *Store) ProvisionAgentInstance(machineCode, agentType, instanceID, secre
 	return err
 }
 
+// CreateAgentInstanceIfAbsent atomically creates an identity without rotating an
+// existing credential. It is used by one-time token issuance paths.
+func (s *Store) CreateAgentInstanceIfAbsent(machineCode, agentType, instanceID, secret string) (bool, error) {
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		return false, err
+	}
+	if len(secret) < 32 || len(secret) > 256 || strings.TrimSpace(secret) != secret {
+		return false, fmt.Errorf("Agent 专属凭据长度或格式无效")
+	}
+	sum := sha256.Sum256([]byte(secret))
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.db.Exec(`INSERT INTO agent_instances(
+		machine_code, agent_type, instance_id, credential_sha256, status_json,
+		last_seen, created_at, updated_at
+	) VALUES(?, ?, ?, ?, '{}', 0, ?, ?)
+	ON CONFLICT(machine_code, agent_type, instance_id) DO NOTHING`,
+		machineCode, agentType, instanceID, hex.EncodeToString(sum[:]), now, now)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
 // AgentInstanceCredentialHash returns the stored credential fingerprint for
 // constant-time comparison by the authentication layer.
 func (s *Store) AgentInstanceCredentialHash(machineCode, agentType, instanceID string) (string, error) {
