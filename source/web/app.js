@@ -1163,8 +1163,8 @@ createApp({
     };
 
     const openAgentInstanceConfig = async (item) => {
-      if (!item || !item.instanceId || item.agentType !== 'mihomo') {
-        showMsg('仅支持编辑 Mihomo Agent 的实例 YAML 配置', 'warning');
+      if (!item || !item.instanceId || !['mihomo', 'wireguard'].includes(item.agentType)) {
+        showMsg('请选择有效的独立 Agent 实例', 'warning');
         return;
       }
       instanceConfigTarget.value = {
