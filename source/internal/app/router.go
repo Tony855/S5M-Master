@@ -94,6 +94,7 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"POST /api/v1/events/ticket":               a.handleCreateBrowserEventsTicket,
 		"GET /api/v1/agents":                       a.handleGetAgents,
 		"POST /api/v1/agents/generate":             a.handleGenerateAgentToken,
+		"POST /api/v1/agents/instances/provision": a.handleProvisionAgentInstance,
 		"GET /api/v1/agents/kernel-update-info":    a.handleAgentMihomoUpdateInfo,
 		"POST /api/v1/agents/kernel-update":        a.handleQueueMihomoUpdate,
 		"DELETE /api/v1/agents":                    a.handleDeleteAgent,
