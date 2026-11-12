@@ -2833,6 +2833,63 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	globalToken := strings.TrimSpace(settings["agent_token"])
+	if (in.AgentType == "") != (in.InstanceID == "") {
+		writeErr(w, http.StatusBadRequest, "Agent 类型和实例 ID 必须同时提供")
+		return
+	}
+	if in.AgentType != "" {
+		if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+			writeErr(w, http.StatusBadRequest, "Agent 实例身份无效")
+			return
+		}
+		existing, err := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, "检查 Agent 实例失败")
+			return
+		}
+		if existing != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "该 Agent 实例已经分配凭据；为避免意外轮换，本操作不会覆盖",
+				"machine_code": in.MachineCode, "agent_type": in.AgentType, "instance_id": in.InstanceID,
+			})
+			return
+		}
+		var instanceToken string
+		for attempt := 0; attempt < 3; attempt++ {
+			buf := make([]byte, 32)
+			if _, err := rand.Read(buf); err != nil {
+				writeErr(w, http.StatusInternalServerError, "生成实例 Token 失败")
+				return
+			}
+			instanceToken = fmt.Sprintf("s5m-%x", buf)
+			if instanceToken != globalToken {
+				break
+			}
+			instanceToken = ""
+		}
+		if instanceToken == "" {
+			writeErr(w, http.StatusInternalServerError, "无法生成有效的实例 Token")
+			return
+		}
+		if err := a.store.ProvisionAgentInstance(in.MachineCode, in.AgentType, in.InstanceID, instanceToken); err != nil {
+			writeErr(w, http.StatusInternalServerError, "保存 Agent 实例凭据失败")
+			return
+		}
+		hash, err := a.store.AgentInstanceCredentialHash(in.MachineCode, in.AgentType, in.InstanceID)
+		if err != nil || !constantTimeSecretEqual(hash, fmt.Sprintf("%x", sha256.Sum256([]byte(instanceToken)))) {
+			writeErr(w, http.StatusInternalServerError, "实例 Token 保存校验失败")
+			return
+		}
+		a.publishBrowserEvent(map[string]any{
+			"type": "agent.binding.updated", "machine_code": in.MachineCode,
+			"agent_type": in.AgentType, "instance_id": in.InstanceID, "authorized": true, "at": time.Now().Unix(),
+		})
+		writeJSON(w, http.StatusOK, map[string]string{
+			"message": "实例 Token 生成成功", "machine_code": in.MachineCode,
+			"agent_type": in.AgentType, "instance_id": in.InstanceID, "token": instanceToken,
+		})
+		return
+	}
 	key := "agent_machine_" + in.MachineCode
 
 	// 不允许用生成接口覆盖已有绑定凭证。
