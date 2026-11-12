@@ -2528,6 +2528,8 @@ func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Reques
 		"type": "agent.instance.provisioned", "machine_code": in.MachineCode,
 		"agent_type": in.AgentType, "instance_id": in.InstanceID, "at": time.Now().Unix(),
 	})
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"machine_code": in.MachineCode, "agent_type": in.AgentType,
 		"instance_id": in.InstanceID, "secret": secret,
