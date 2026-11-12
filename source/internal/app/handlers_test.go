@@ -1527,3 +1527,48 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 		t.Fatalf("oversized config status=%d, want 413", rec.Code)
 	}
 }
+
+func TestProvisionAgentInstanceIsAdminOnlyAndDoesNotRotateExistingCredentials(t *testing.T) {
+	app, machineCode, _ := websocketTestApp(t)
+	request := func(role string) *httptest.ResponseRecorder {
+		body := strings.NewReader(`{"machine_code":"` + machineCode + `","agent_type":"wireguard","instance_id":"routeros-01"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/instances/provision", body)
+		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role: role}))
+		rec := httptest.NewRecorder()
+		app.handleProvisionAgentInstance(rec, req)
+		return rec
+	}
+	if rec := request("viewer"); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer provision status=%d body=%s; want 403", rec.Code, rec.Body.String())
+	}
+	rec := request("admin")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("admin provision status=%d body=%s; want 201", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		MachineCode string `json:"machine_code"`
+		AgentType string `json:"agent_type"`
+		InstanceID string `json:"instance_id"`
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode provision response: %v", err)
+	}
+	if response.MachineCode != machineCode || response.AgentType != "wireguard" || response.InstanceID != "routeros-01" || len(response.Secret) != 64 {
+		t.Fatalf("unexpected provision response: %#v", response)
+	}
+	stored, err := app.store.GetAgentInstance(machineCode, "wireguard", "routeros-01")
+	if err != nil || stored == nil {
+		t.Fatalf("provisioned instance missing: item=%#v err=%v", stored, err)
+	}
+	if stored.CredentialSHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(response.Secret))) {
+		t.Fatal("stored credential fingerprint does not match one-time secret")
+	}
+	if duplicate := request("admin"); duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate provision status=%d body=%s; want 409", duplicate.Code, duplicate.Body.String())
+	}
+	storedAfter, err := app.store.GetAgentInstance(machineCode, "wireguard", "routeros-01")
+	if err != nil || storedAfter == nil || storedAfter.CredentialSHA256 != stored.CredentialSHA256 {
+		t.Fatalf("duplicate provision rotated credential: before=%#v after=%#v err=%v", stored, storedAfter, err)
+	}
+}
