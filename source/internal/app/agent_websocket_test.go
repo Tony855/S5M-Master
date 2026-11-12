@@ -1531,3 +1531,73 @@ func TestAgentWebSocketIsClosedImmediatelyAfterAuthorizationRevocation(t *testin
 		t.Fatalf("unexpected WebSocket close error: %v", err)
 	}
 }
+
+
+func TestWireGuardAgentInstancesKeepIndependentWebSocketSessionsAndStatus(t *testing.T) {
+	app, code, _ := websocketTestApp(t)
+	const secretA = "wireguard-routeros-a-secret-012345"
+	const secretB = "wireguard-routeros-b-secret-012345"
+	if err := app.store.ProvisionAgentInstance(code, "wireguard", "routeros-a", secretA); err != nil {
+		t.Fatalf("provision routeros-a: %v", err)
+	}
+	if err := app.store.ProvisionAgentInstance(code, "wireguard", "routeros-b", secretB); err != nil {
+		t.Fatalf("provision routeros-b: %v", err)
+	}
+	sign := func(instanceID, secret string) string {
+		sum := sha256.Sum256([]byte(secret))
+		token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"sub":code, "role":"agent", "ver":hex.EncodeToString(sum[:]),
+			"agent_type":"wireguard", "instance_id":instanceID,
+		}).SignedString(app.jwtKey)
+		if err != nil { t.Fatalf("sign %s token: %v", instanceID, err) }
+		return token
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+	dial := func(instanceID, secret string) *websocket.Conn {
+		header := http.Header{}
+		header.Set("Authorization", "Bearer "+sign(instanceID, secret))
+		conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+		if err != nil { t.Fatalf("dial %s: %v", instanceID, err) }
+		return conn
+	}
+	connA := dial("routeros-a", secretA)
+	defer connA.Close()
+	connB := dial("routeros-b", secretB)
+	defer connB.Close()
+
+	for _, item := range []struct{ conn *websocket.Conn; id string }{{connA,"routeros-a"},{connB,"routeros-b"}} {
+		_ = item.conn.SetReadDeadline(time.Now().Add(2*time.Second))
+		var welcome map[string]any
+		if err := item.conn.ReadJSON(&welcome); err != nil { t.Fatalf("read %s welcome: %v", item.id, err) }
+		if welcome["agent_type"] != "wireguard" || welcome["instance_id"] != item.id {
+			t.Fatalf("wrong welcome identity for %s: %#v", item.id, welcome)
+		}
+	}
+	sendHeartbeat := func(conn *websocket.Conn, id, iface string, rx float64) {
+		status := map[string]any{
+			"backend":"linux-kernel", "available":true, "interface_name":iface,
+			"interface_up":true, "role":"client", "listen_port":float64(0),
+			"peer_count":float64(1), "rx_bytes":rx, "tx_bytes":float64(9),
+			"config_sha256":"", "desired_revision":"rev-1", "applied_revision":"rev-1",
+			"last_error":"",
+		}
+		if err := conn.WriteJSON(map[string]any{"type":"heartbeat","id":"hb-"+id,"agent_type":"wireguard","status":status}); err != nil {
+			t.Fatalf("send heartbeat %s: %v", id, err)
+		}
+		var ack map[string]any
+		if err := conn.ReadJSON(&ack); err != nil { t.Fatalf("read ACK %s: %v", id, err) }
+		if ack["type"] != "heartbeat.ack" { t.Fatalf("unexpected ACK %s: %#v", id, ack) }
+	}
+	sendHeartbeat(connA, "routeros-a", "wg-a", 101)
+	sendHeartbeat(connB, "routeros-b", "wg-b", 202)
+	for _, item := range []struct{id, iface string; rx int64}{{"routeros-a","wg-a",101},{"routeros-b","wg-b",202}} {
+		got, err := app.store.GetAgentInstance(code, "wireguard", item.id)
+		if err != nil || got == nil { t.Fatalf("read status %s: item=%#v err=%v", item.id, got, err) }
+		var status map[string]any
+		if err := json.Unmarshal(got.StatusJSON, &status); err != nil { t.Fatalf("decode status %s: %v", item.id, err) }
+		if status["interface_name"] != item.iface || status["rx_bytes"] != float64(item.rx) {
+			t.Fatalf("instance %s status crossed streams: %#v", item.id, status)
+		}
+	}
+}
