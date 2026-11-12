@@ -1528,7 +1528,6 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 	}
 }
 
-
 func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-token-lifecycle.db"))
 	if err != nil {
@@ -1619,7 +1618,6 @@ func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T
 		t.Fatalf("registered JWT identity = %#v", identity)
 	}
 }
-
 
 func TestLegacyAgentHTTPHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
 	app, code, token := websocketTestApp(t)
