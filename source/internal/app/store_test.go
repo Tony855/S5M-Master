@@ -708,3 +708,21 @@ func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *test
 		t.Fatalf("cross-instance command leak: %#v err=%v", other, err)
 	}
 }
+
+
+func TestCreateAgentInstanceIfAbsentNeverRotatesExistingCredential(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-create-only.db"))
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	defer store.db.Close()
+	const machine = "same-device"
+	const first = "first-instance-secret-0123456789"
+	const second = "second-instance-secret-0123456789"
+	created, err := store.CreateAgentInstanceIfAbsent(machine, "wireguard", "container-a", first)
+	if err != nil || !created { t.Fatalf("first create = (%v,%v), want (true,nil)", created, err) }
+	created, err = store.CreateAgentInstanceIfAbsent(machine, "wireguard", "container-a", second)
+	if err != nil || created { t.Fatalf("duplicate create = (%v,%v), want (false,nil)", created, err) }
+	hash, err := store.AgentInstanceCredentialHash(machine, "wireguard", "container-a")
+	if err != nil { t.Fatalf("read credential: %v", err) }
+	sum := sha256.Sum256([]byte(first))
+	if hash != hex.EncodeToString(sum[:]) { t.Fatal("duplicate create rotated the existing credential") }
+}
