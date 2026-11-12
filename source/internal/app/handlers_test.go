@@ -1547,9 +1547,9 @@ func TestProvisionAgentInstanceIsAdminOnlyAndDoesNotRotateExistingCredentials(t 
 	}
 	var response struct {
 		MachineCode string `json:"machine_code"`
-		AgentType string `json:"agent_type"`
-		InstanceID string `json:"instance_id"`
-		Secret string `json:"secret"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+		Secret      string `json:"secret"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode provision response: %v", err)
