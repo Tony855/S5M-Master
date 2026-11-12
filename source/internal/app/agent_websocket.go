@@ -203,8 +203,8 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleGetAgentInstanceConfig, req)
 		case "agent.instance.config.save":
 			body, _ := json.Marshal(map[string]string{
-				"machine_code": message.MachineCode, "agent_type":   message.AgentType,
-				"instance_id":  message.InstanceID, "config_yaml": message.ConfigYAML,
+				"machine_code": message.MachineCode, "agent_type": message.AgentType,
+				"instance_id": message.InstanceID, "config_yaml": message.ConfigYAML,
 			})
 			req := httptest.NewRequest(http.MethodPut, "/api/v1/agents/instances/config", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
@@ -258,8 +258,8 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		case "agent.binding.generate":
 			body, _ := json.Marshal(map[string]string{
 				"machine_code": message.MachineCode,
-				"agent_type": message.AgentType,
-				"instance_id": message.InstanceID,
+				"agent_type":   message.AgentType,
+				"instance_id":  message.InstanceID,
 			})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
