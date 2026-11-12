@@ -1621,7 +1621,7 @@ func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T
 
 func TestLegacyAgentHTTPHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
 	app, code, token := websocketTestApp(t)
-	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-http-secret-0123456789"); err != nil {
+	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-http-secret-0123456789x"); err != nil {
 		t.Fatalf("seed migrated default instance: %v", err)
 	}
 	body, err := json.Marshal(map[string]any{
