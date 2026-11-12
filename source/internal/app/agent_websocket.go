@@ -943,13 +943,11 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var persistErr error
+		var mirroredLegacyInstance bool
 		if identity.InstanceID != "" {
 			persistErr = a.store.UpdateAgentInstanceStatus(machineCode, identity.AgentType, identity.InstanceID, json.RawMessage(payload), receivedAt.Unix())
 		} else {
-			persistErr = a.store.UpdateSettings(map[string]string{
-				"agent_lastseen_" + machineCode: now,
-				"agent_status_" + machineCode:   string(payload),
-			})
+			mirroredLegacyInstance, persistErr = a.store.UpdateLegacyAgentHeartbeat(machineCode, agentType, json.RawMessage(payload), receivedAt.Unix())
 		}
 		if persistErr != nil {
 			a.agentWSMu.Unlock()
@@ -965,6 +963,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		event := map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "agent_type": agentType, "last_seen": receivedAt.Unix(), "status": msg.Status}
 		if identity.InstanceID != "" {
 			event["instance_id"] = identity.InstanceID
+		} else if mirroredLegacyInstance {
+			event["instance_id"] = "default"
 		}
 		a.publishBrowserEvent(event)
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))
