@@ -1759,7 +1759,6 @@ func TestCompositeAgentWebSocketConfigIsolatedAndWireGuardCommandsBlocked(t *tes
 	}
 }
 
-
 func TestLegacyAgentWebSocketHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
 	app, code, token := websocketTestApp(t)
 	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-default-secret-0123456789"); err != nil {
@@ -1793,8 +1792,8 @@ func TestLegacyAgentWebSocketHeartbeatRefreshesMigratedDefaultInstance(t *testin
 		"last_error":     "",
 	}
 	if err := conn.WriteJSON(map[string]any{
-		"type": "heartbeat",
-		"id":   "legacy-mirror-1",
+		"type":   "heartbeat",
+		"id":     "legacy-mirror-1",
 		"status": status,
 	}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
