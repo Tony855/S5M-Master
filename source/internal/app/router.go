@@ -95,6 +95,8 @@ func (a *App) Router(static fs.FS) http.Handler {
 		"GET /api/v1/agents":                       a.handleGetAgents,
 		"POST /api/v1/agents/generate":             a.handleGenerateAgentToken,
 		"POST /api/v1/agents/instances/provision": a.handleProvisionAgentInstance,
+		"GET /api/v1/agents/instances": a.handleListAgentInstances,
+		"DELETE /api/v1/agents/instances/{machine_code}/{agent_type}/{instance_id}": a.handleDeleteAgentInstance,
 		"GET /api/v1/agents/kernel-update-info":    a.handleAgentMihomoUpdateInfo,
 		"POST /api/v1/agents/kernel-update":        a.handleQueueMihomoUpdate,
 		"DELETE /api/v1/agents":                    a.handleDeleteAgent,
