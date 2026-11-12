@@ -1795,6 +1795,54 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "注册成功", "token": token})
 }
 
+
+func (a *App) handleListAgentInstances(w http.ResponseWriter, r *http.Request) {
+	machineCode := strings.TrimSpace(r.URL.Query().Get("machine_code"))
+	if err := validateAgentIdentity(machineCode, "mihomo", "default"); err != nil {
+		writeErr(w, http.StatusBadRequest, "机器码格式无效")
+		return
+	}
+	items, err := a.store.ListAgentInstances(machineCode)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 实例列表失败")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"instances": items})
+}
+
+func (a *App) handleDeleteAgentInstance(w http.ResponseWriter, r *http.Request) {
+	machineCode := strings.TrimSpace(r.PathValue("machine_code"))
+	agentType := strings.TrimSpace(r.PathValue("agent_type"))
+	instanceID := strings.TrimSpace(r.PathValue("instance_id"))
+	if err := validateAgentIdentity(machineCode, agentType, instanceID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+	a.agentWSMu.Lock()
+	if err := a.store.DeleteAgentInstance(machineCode, agentType, instanceID); err != nil {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusInternalServerError, "删除 Agent 实例失败")
+		return
+	}
+	identity := AgentIdentity{MachineCode:machineCode, AgentType:agentType, InstanceID:instanceID}
+	key := agentIdentitySessionKey(identity)
+	if a.agentWSGeneration == nil { a.agentWSGeneration = make(map[string]uint64) }
+	a.agentWSGeneration[key]++
+	if session := a.agentWSConnections[key]; session != nil {
+		delete(a.agentWSConnections, key)
+		closeAgentWebSocket(session.conn, "Agent instance authorization revoked")
+	}
+	delete(a.agentHeartbeatAt, key)
+	a.agentWSMu.Unlock()
+	a.publishBrowserEvent(map[string]any{
+		"type":"agent.instance.revoked", "machine_code":machineCode,
+		"agent_type":agentType, "instance_id":instanceID, "at":time.Now().Unix(),
+	})
+	writeJSON(w, http.StatusOK, map[string]bool{"ok":true})
+}
+
 // handleProvisionAgentInstance creates or rotates a dedicated credential for one
 // Agent runtime. The plaintext secret is returned once and is never persisted.
 func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Request) {
@@ -1822,10 +1870,21 @@ func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Reques
 	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
 	agentTokenGenerateMu.Lock()
 	defer agentTokenGenerateMu.Unlock()
+	a.agentWSMu.Lock()
 	if err := a.store.ProvisionAgentInstance(in.MachineCode, in.AgentType, in.InstanceID, secret); err != nil {
+		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "保存 Agent 实例凭据失败")
 		return
 	}
+	sessionKey := agentIdentitySessionKey(AgentIdentity{MachineCode: in.MachineCode, AgentType: in.AgentType, InstanceID: in.InstanceID})
+	if a.agentWSGeneration == nil { a.agentWSGeneration = make(map[string]uint64) }
+	a.agentWSGeneration[sessionKey]++
+	if session := a.agentWSConnections[sessionKey]; session != nil {
+		delete(a.agentWSConnections, sessionKey)
+		closeAgentWebSocket(session.conn, "Agent instance credential rotated")
+	}
+	delete(a.agentHeartbeatAt, sessionKey)
+	a.agentWSMu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"machine_code": in.MachineCode, "agent_type": in.AgentType,
 		"instance_id": in.InstanceID, "secret": secret,
@@ -2317,6 +2376,27 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "删除失败")
 		return
+	}
+	instances, listErr := a.store.ListAgentInstances(code)
+	if listErr != nil {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 实例失败")
+		return
+	}
+	for _, item := range instances {
+		if err := a.store.DeleteAgentInstance(code, item.AgentType, item.InstanceID); err != nil {
+			a.agentWSMu.Unlock()
+			writeErr(w, http.StatusInternalServerError, "撤销 Agent 实例失败")
+			return
+		}
+		key := agentIdentitySessionKey(item)
+		if a.agentWSGeneration == nil { a.agentWSGeneration = make(map[string]uint64) }
+		a.agentWSGeneration[key]++
+		if session := a.agentWSConnections[key]; session != nil {
+			delete(a.agentWSConnections, key)
+			closeAgentWebSocket(session.conn, "Agent authorization revoked")
+		}
+		delete(a.agentHeartbeatAt, key)
 	}
 	if a.agentWSGeneration == nil {
 		a.agentWSGeneration = make(map[string]uint64)
