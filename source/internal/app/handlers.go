@@ -2372,23 +2372,18 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	agentTokenGenerateMu.Lock()
 	defer agentTokenGenerateMu.Unlock()
 	a.agentWSMu.Lock()
-	if err := a.store.DeleteAgentBinding(code); err != nil {
-		a.agentWSMu.Unlock()
-		writeErr(w, http.StatusInternalServerError, "删除失败")
-		return
-	}
 	instances, listErr := a.store.ListAgentInstances(code)
 	if listErr != nil {
 		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "读取 Agent 实例失败")
 		return
 	}
+	if err := a.store.DeleteAgentBinding(code); err != nil {
+		a.agentWSMu.Unlock()
+		writeErr(w, http.StatusInternalServerError, "删除失败")
+		return
+	}
 	for _, item := range instances {
-		if err := a.store.DeleteAgentInstance(code, item.AgentType, item.InstanceID); err != nil {
-			a.agentWSMu.Unlock()
-			writeErr(w, http.StatusInternalServerError, "撤销 Agent 实例失败")
-			return
-		}
 		key := agentIdentitySessionKey(item)
 		if a.agentWSGeneration == nil { a.agentWSGeneration = make(map[string]uint64) }
 		a.agentWSGeneration[key]++
