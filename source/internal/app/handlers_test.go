@@ -1664,23 +1664,41 @@ func TestProvisionAgentInstanceIsAdminOnlyAndDoesNotRotateExistingCredentials(t 
 		body := strings.NewReader(`{"machine_code":"` + machineCode + `","agent_type":"wireguard","instance_id":"routeros-01"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/instances/provision", body)
 		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role: role}))
-		rec := httptest.NewRecorder(); app.handleProvisionAgentInstance(rec, req); return rec
+		rec := httptest.NewRecorder()
+		app.handleProvisionAgentInstance(rec, req)
+		return rec
 	}
-	if rec := request("viewer"); rec.Code != http.StatusForbidden { t.Fatalf("viewer status=%d; want 403", rec.Code) }
+	if rec := request("viewer"); rec.Code != http.StatusForbidden {
+		t.Fatalf("viewer status=%d; want 403", rec.Code)
+	}
 	rec := request("admin")
-	if rec.Code != http.StatusCreated { t.Fatalf("admin status=%d body=%s; want 201", rec.Code, rec.Body.String()) }
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("admin status=%d body=%s; want 201", rec.Code, rec.Body.String())
+	}
 	var response struct {
 		MachineCode string `json:"machine_code"`
 		AgentType   string `json:"agent_type"`
 		InstanceID  string `json:"instance_id"`
 		Secret      string `json:"secret"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil { t.Fatalf("decode response: %v", err) }
-	if response.MachineCode != machineCode || response.AgentType != "wireguard" || response.InstanceID != "routeros-01" || len(response.Secret) != 64 { t.Fatalf("unexpected response: %#v", response) }
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.MachineCode != machineCode || response.AgentType != "wireguard" || response.InstanceID != "routeros-01" || len(response.Secret) != 64 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
 	stored, err := app.store.GetAgentInstance(machineCode, "wireguard", "routeros-01")
-	if err != nil || stored == nil { t.Fatalf("instance missing: %#v err=%v", stored, err) }
-	if stored.CredentialSHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(response.Secret))) { t.Fatal("stored fingerprint does not match one-time secret") }
-	if duplicate := request("admin"); duplicate.Code != http.StatusConflict { t.Fatalf("duplicate status=%d; want 409", duplicate.Code) }
+	if err != nil || stored == nil {
+		t.Fatalf("instance missing: %#v err=%v", stored, err)
+	}
+	if stored.CredentialSHA256 != fmt.Sprintf("%x", sha256.Sum256([]byte(response.Secret))) {
+		t.Fatal("stored fingerprint does not match one-time secret")
+	}
+	if duplicate := request("admin"); duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate status=%d; want 409", duplicate.Code)
+	}
 	storedAfter, err := app.store.GetAgentInstance(machineCode, "wireguard", "routeros-01")
-	if err != nil || storedAfter == nil || storedAfter.CredentialSHA256 != stored.CredentialSHA256 { t.Fatalf("duplicate provision rotated credential: before=%#v after=%#v err=%v", stored, storedAfter, err) }
+	if err != nil || storedAfter == nil || storedAfter.CredentialSHA256 != stored.CredentialSHA256 {
+		t.Fatalf("duplicate provision rotated credential: before=%#v after=%#v err=%v", stored, storedAfter, err)
+	}
 }
