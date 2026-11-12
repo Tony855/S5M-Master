@@ -708,4 +708,3 @@ func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *test
 		t.Fatalf("cross-instance command leak: %#v err=%v", other, err)
 	}
 }
-
