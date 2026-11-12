@@ -2421,10 +2421,7 @@ func (a *App) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": false, "message": "已忽略较旧的 Agent 心跳"})
 		return
 	}
-	if err := a.store.UpdateSettings(map[string]string{
-		"agent_lastseen_" + code: strconv.FormatInt(receivedAt.Unix(), 10),
-		"agent_status_" + code:   string(payload),
-	}); err != nil {
+	if _, err := a.store.UpdateLegacyAgentHeartbeat(code, "mihomo", json.RawMessage(payload), receivedAt.Unix()); err != nil {
 		a.agentWSMu.Unlock()
 		writeErr(w, http.StatusInternalServerError, "保存心跳数据失败")
 		return
