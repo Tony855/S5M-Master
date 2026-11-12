@@ -2873,8 +2873,13 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, "无法生成有效的实例 Token")
 			return
 		}
-		if err := a.store.ProvisionAgentInstance(in.MachineCode, in.AgentType, in.InstanceID, instanceToken); err != nil {
+		created, err := a.store.CreateAgentInstanceIfAbsent(in.MachineCode, in.AgentType, in.InstanceID, instanceToken)
+		if err != nil {
 			writeErr(w, http.StatusInternalServerError, "保存 Agent 实例凭据失败")
+			return
+		}
+		if !created {
+			writeErr(w, http.StatusConflict, "该 Agent 实例已经分配凭据；本次没有覆盖")
 			return
 		}
 		hash, err := a.store.AgentInstanceCredentialHash(in.MachineCode, in.AgentType, in.InstanceID)
