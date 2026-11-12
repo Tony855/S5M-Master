@@ -1386,3 +1386,80 @@ func TestHandleUpdateSettingsRejectsInvalidRoutingMode(t *testing.T) {
 		t.Fatal("invalid routing mode was persisted")
 	}
 }
+
+
+func TestTypedAgentRegistrationBindsJWTToProvisionedInstance(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "typed-agent-register.db"))
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	defer store.db.Close()
+
+	const machine = "shared-router"
+	const secret = "wireguard-instance-secret-0123456789"
+	if err := store.UpdateSettings(map[string]string{"agent_token":"global-secret"}); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+	if err := store.ProvisionAgentInstance(machine, "wireguard", "routeros-a", secret); err != nil {
+		t.Fatalf("provision instance: %v", err)
+	}
+	app := &App{store:store, jwtKey:[]byte("typed-agent-test-key")}
+	body := `{"machine_code":"shared-router","secret":"wireguard-instance-secret-0123456789","agent_type":"wireguard","instance_id":"routeros-a"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	app.handleAgentRegister(rec, req)
+	if rec.Code != http.StatusOK { t.Fatalf("register status=%d body=%s", rec.Code, rec.Body.String()) }
+	var response struct { Token string `json:"token"` }
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil || response.Token == "" {
+		t.Fatalf("decode registration response: token=%q err=%v", response.Token, err)
+	}
+	authReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
+	authReq.Header.Set("Authorization", "Bearer "+response.Token)
+	identity, err := app.agentIdentityFromRequest(authReq)
+	if err != nil { t.Fatalf("validate typed Agent JWT: %v", err) }
+	if identity.MachineCode != machine || identity.AgentType != "wireguard" || identity.InstanceID != "routeros-a" {
+		t.Fatalf("unexpected identity: %#v", identity)
+	}
+
+	// A JWT cannot be replayed against another instance ID, even on the same machine.
+	sum := sha256.Sum256([]byte(secret))
+	crossToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"sub":machine, "role":"agent", "ver":hex.EncodeToString(sum[:]),
+		"agent_type":"wireguard", "instance_id":"routeros-b",
+	}).SignedString(app.jwtKey)
+	if err != nil { t.Fatalf("sign cross-instance JWT: %v", err) }
+	crossReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
+	crossReq.Header.Set("Authorization", "Bearer "+crossToken)
+	if _, err := app.agentIdentityFromRequest(crossReq); err == nil {
+		t.Fatal("JWT for routeros-a was accepted as routeros-b")
+	}
+}
+
+func TestProvisionAgentInstanceReturnsOneTimeSecretAndStoresOnlyHash(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "typed-agent-provision.db"))
+	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	defer store.db.Close()
+	app := &App{store:store}
+	body := `{"machine_code":"node-1","agent_type":"wireguard","instance_id":"container-1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/instances/provision", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	app.handleProvisionAgentInstance(rec, req)
+	if rec.Code != http.StatusCreated { t.Fatalf("provision status=%d body=%s", rec.Code, rec.Body.String()) }
+	var response struct {
+		MachineCode string `json:"machine_code"`
+		AgentType string `json:"agent_type"`
+		InstanceID string `json:"instance_id"`
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil { t.Fatalf("decode response: %v", err) }
+	if response.MachineCode != "node-1" || response.AgentType != "wireguard" || response.InstanceID != "container-1" || len(response.Secret) < 32 {
+		t.Fatalf("invalid provision response: %#v", response)
+	}
+	hash, err := store.AgentInstanceCredentialHash("node-1", "wireguard", "container-1")
+	if err != nil { t.Fatalf("read credential hash: %v", err) }
+	sum := sha256.Sum256([]byte(response.Secret))
+	if hash != hex.EncodeToString(sum[:]) { t.Fatal("database did not store the secret fingerprint") }
+	settings, err := store.GetSettings()
+	if err != nil { t.Fatalf("GetSettings: %v", err) }
+	for _, value := range settings {
+		if value == response.Secret { t.Fatal("plaintext instance secret was persisted in settings") }
+	}
+}
