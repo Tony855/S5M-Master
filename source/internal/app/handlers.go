@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -1724,6 +1725,8 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
 		Secret      string `json:"secret"`
+		AgentType   string `json:"agent_type,omitempty"`
+		InstanceID  string `json:"instance_id,omitempty"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "参数错误")
@@ -1735,9 +1738,13 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, validationError)
 		return
 	}
-	// Serialize registration with dedicated-token allocation and revocation.
-	// Otherwise a registration racing with deletion could receive a freshly
-	// minted JWT for a credential that was revoked while the request was in flight.
+	if in.AgentType == "" { in.AgentType = "mihomo" }
+	if in.InstanceID == "" { in.InstanceID = "default" }
+	if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	agentTokenGenerateMu.Lock()
 	defer agentTokenGenerateMu.Unlock()
 
@@ -1748,24 +1755,81 @@ func (a *App) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	expectedSecret := settings["agent_token"]
 	if expectedSecret == "" {
-		writeErr(w, 500, "主控台未初始化全局 Token")
+		writeErr(w, http.StatusInternalServerError, "主控台未初始化全局 Token")
+		return
+	}
+	if in.Secret == expectedSecret {
+		writeErr(w, http.StatusForbidden, "不得使用主控台全局 Token 注册 Agent")
 		return
 	}
 
-	// 只允许预先分配的专属 Token 注册对应机器码。
-	machineToken := settings["agent_machine_"+in.MachineCode]
-	if strings.TrimSpace(machineToken) == "" ||
-		machineToken == expectedSecret ||
-		in.Secret == expectedSecret ||
-		in.Secret != machineToken {
-		writeErr(w, 403, "机器码或专属 Token 不匹配")
+	version := fmt.Sprintf("%x", sha256.Sum256([]byte(in.Secret)))
+	if in.AgentType == "mihomo" && in.InstanceID == "default" {
+		// Preserve the legacy dedicated-token path for existing Mihomo Agents.
+		machineToken := settings["agent_machine_"+in.MachineCode]
+		if strings.TrimSpace(machineToken) == "" || machineToken == expectedSecret || in.Secret != machineToken {
+			writeErr(w, http.StatusForbidden, "机器码或专属 Token 不匹配")
+			return
+		}
+		version = fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
+	} else {
+		instance, lookupErr := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID)
+		if lookupErr != nil {
+			writeErr(w, http.StatusInternalServerError, "读取 Agent 实例授权失败")
+			return
+		}
+		if instance == nil || subtle.ConstantTimeCompare([]byte(instance.CredentialSHA256), []byte(version)) != 1 {
+			writeErr(w, http.StatusForbidden, "Agent 实例凭据不匹配或尚未分配")
+			return
+		}
+	}
+	claims := jwt.MapClaims{
+		"sub": in.MachineCode, "role": "agent", "ver": version,
+		"agent_type": in.AgentType, "instance_id": in.InstanceID,
+	}
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成 Agent Token 失败")
 		return
 	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "注册成功", "token": token})
+}
 
-	version := fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken)))
-	claims := jwt.MapClaims{"sub": in.MachineCode, "role": "agent", "ver": version}
-	token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(a.jwtKey)
-	writeJSON(w, 200, map[string]string{"message": "注册成功", "token": token})
+// handleProvisionAgentInstance creates or rotates a dedicated credential for one
+// Agent runtime. The plaintext secret is returned once and is never persisted.
+func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+	}
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "实例参数 JSON 无效")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.AgentType = strings.TrimSpace(in.AgentType)
+	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成实例凭据失败")
+		return
+	}
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+	if err := a.store.ProvisionAgentInstance(in.MachineCode, in.AgentType, in.InstanceID, secret); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存 Agent 实例凭据失败")
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"machine_code": in.MachineCode, "agent_type": in.AgentType,
+		"instance_id": in.InstanceID, "secret": secret,
+	})
 }
 
 func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
@@ -1854,11 +1918,11 @@ func (a *App) handleAgentConfig(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(yml))
 }
 
-// agentMachineFromRequest validates the per-machine JWT and confirms its dedicated token is still active.
-func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
+// Agent identity is derived from signed JWT claims, never from heartbeat payloads.
+func (a *App) agentIdentityFromRequest(r *http.Request) (AgentIdentity, error) {
 	header := r.Header.Get("Authorization")
 	if !strings.HasPrefix(header, "Bearer ") {
-		return "", fmt.Errorf("缺少 Agent Token")
+		return AgentIdentity{}, fmt.Errorf("缺少 Agent Token")
 	}
 	token, err := jwt.Parse(strings.TrimPrefix(header, "Bearer "), func(t *jwt.Token) (interface{}, error) {
 		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
@@ -1867,31 +1931,61 @@ func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
 		return a.jwtKey, nil
 	}, jwt.WithValidMethods([]string{"HS256"}))
 	if err != nil || token == nil || !token.Valid {
-		return "", fmt.Errorf("无效或已过期的 Agent Token")
+		return AgentIdentity{}, fmt.Errorf("无效或已过期的 Agent Token")
 	}
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return "", fmt.Errorf("Agent Token claims 无效")
+		return AgentIdentity{}, fmt.Errorf("Agent Token claims 无效")
 	}
 	code, codeOK := claims["sub"].(string)
 	role, roleOK := claims["role"].(string)
 	version, versionOK := claims["ver"].(string)
 	if !codeOK || code == "" || !roleOK || role != "agent" || !versionOK || version == "" {
-		return "", fmt.Errorf("Agent 身份无效")
+		return AgentIdentity{}, fmt.Errorf("Agent 身份无效")
 	}
-	settings, err := a.store.GetSettings()
+	agentType, hasType := claims["agent_type"].(string)
+	instanceID, hasInstance := claims["instance_id"].(string)
+	if !hasType && !hasInstance {
+		agentType, instanceID = "mihomo", "default" // Legacy JWT compatibility.
+	} else if !hasType || !hasInstance {
+		return AgentIdentity{}, fmt.Errorf("Agent 实例身份声明不完整")
+	}
+	if err := validateAgentIdentity(code, agentType, instanceID); err != nil {
+		return AgentIdentity{}, err
+	}
+	if agentType == "mihomo" && instanceID == "default" {
+		settings, err := a.store.GetSettings()
+		if err != nil {
+			return AgentIdentity{}, fmt.Errorf("读取 Agent 授权失败: %w", err)
+		}
+		machineToken := settings["agent_machine_"+code]
+		if strings.TrimSpace(machineToken) == "" || machineToken == settings["agent_token"] ||
+			version != fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken))) {
+			return AgentIdentity{}, fmt.Errorf("Agent 未授权或授权已失效")
+		}
+		return AgentIdentity{MachineCode: code, AgentType: agentType, InstanceID: instanceID}, nil
+	}
+	hash, err := a.store.AgentInstanceCredentialHash(code, agentType, instanceID)
 	if err != nil {
-		return "", fmt.Errorf("读取 Agent 授权失败: %w", err)
+		return AgentIdentity{}, fmt.Errorf("读取 Agent 实例授权失败: %w", err)
 	}
-	machineToken := settings["agent_machine_"+code]
-	// A whitespace-only per-Agent token is not an active credential. Keep the
-	// exact token bytes for version verification; only use TrimSpace to reject
-	// blank values so valid credentials are never silently rewritten.
-	if strings.TrimSpace(machineToken) == "" || machineToken == settings["agent_token"] ||
-		version != fmt.Sprintf("%x", sha256.Sum256([]byte(machineToken))) {
-		return "", fmt.Errorf("Agent 未授权或授权已失效")
+	if subtle.ConstantTimeCompare([]byte(hash), []byte(version)) != 1 {
+		return AgentIdentity{}, fmt.Errorf("Agent 实例未授权或授权已失效")
 	}
-	return code, nil
+	return AgentIdentity{MachineCode: code, AgentType: agentType, InstanceID: instanceID}, nil
+}
+
+func (a *App) agentMachineFromRequest(r *http.Request) (string, error) {
+	identity, err := a.agentIdentityFromRequest(r)
+	if err != nil { return "", err }
+	return identity.MachineCode, nil
+}
+
+func agentIdentitySessionKey(identity AgentIdentity) string {
+	if identity.AgentType == "mihomo" && identity.InstanceID == "default" {
+		return identity.MachineCode // Preserve legacy session-key behavior.
+	}
+	return identity.MachineCode + "|" + identity.AgentType + "|" + identity.InstanceID
 }
 
 // handleAgentMihomoUpdateInfo resolves the official latest stable release for a
