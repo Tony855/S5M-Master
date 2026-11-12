@@ -896,6 +896,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		receivedAt := time.Now()
+		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		msg.Status["agent_type"] = agentType
 		if agentType == "wireguard" {
 			msg.Status["last_error"] = sanitizeAgentWebSocketText(msg.Status["last_error"].(string))
@@ -946,7 +947,19 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if identity.InstanceID != "" {
 			persistErr = a.store.UpdateAgentInstanceStatus(machineCode, identity.AgentType, identity.InstanceID, json.RawMessage(payload), receivedAt.Unix())
 		} else {
-			mirroredLegacyInstance, persistErr = a.store.UpdateLegacyAgentHeartbeat(machineCode, agentType, json.RawMessage(payload), receivedAt.Unix())
+			persistErr = a.store.UpdateSettings(map[string]string{
+				"agent_lastseen_" + machineCode: now,
+				"agent_status_" + machineCode:   string(payload),
+			})
+			if persistErr == nil {
+				legacyInstance, lookupErr := a.store.GetAgentInstance(machineCode, agentType, "default")
+				if lookupErr != nil {
+					persistErr = lookupErr
+				} else if legacyInstance != nil {
+					persistErr = a.store.UpdateAgentInstanceStatus(machineCode, agentType, "default", json.RawMessage(payload), receivedAt.Unix())
+					mirroredLegacyInstance = persistErr == nil
+				}
+			}
 		}
 		if persistErr != nil {
 			a.agentWSMu.Unlock()
