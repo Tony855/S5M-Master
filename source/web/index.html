@@ -89,7 +89,7 @@
             <span>期望配置 SHA-256：<strong>{{ instanceConfigSHA256 || '尚未保存' }}</strong></span>
             <span>更新时间：<strong>{{ instanceConfigUpdatedAt || '暂无' }}</strong></span>
           </div>
-          <el-input v-model="instanceConfigYaml" type="textarea" :rows="20" resize="vertical" spellcheck="false" placeholder="在此粘贴完整 Mihomo YAML（最大 2 MiB）" />
+          <el-input v-model="instanceConfigYaml" type="textarea" :rows="20" resize="vertical" spellcheck="false" :placeholder="instanceConfigTarget && instanceConfigTarget.agentType === 'wireguard' ? '在此粘贴 WireGuard Agent 版本化 YAML；私钥与 PSK 保留在 Agent 本地（最大 2 MiB）' : '在此粘贴完整 Mihomo YAML（最大 2 MiB）'" />
           <p class="section-hint">保存后主控会按此实例身份存储原始 YAML，并回读校验 SHA-256 与原文。Agent 通过自身 WebSocket 配置同步流程获取期望配置；不会修改同机器的其他实例。</p>
         </div>
         <template #footer>
@@ -398,7 +398,7 @@
               </div>
               <div v-else class="instance-actions">
                 <template v-if="item.instanceId">
-                  <el-button v-if="item.agentType === 'mihomo'" size="small" type="primary" plain @click="openAgentInstanceConfig(item)">独立配置</el-button>
+                  <el-button size="small" type="primary" plain @click="openAgentInstanceConfig(item)">独立配置</el-button>
                   <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销此实例</el-button>
                 </template>
                 <template v-else>
