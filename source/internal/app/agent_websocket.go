@@ -905,7 +905,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if marshalErr != nil {
 			return
 		}
-		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		a.agentWSMu.Lock()
 		if a.agentWSGeneration[sessionKey] != generation {
 			a.agentWSMu.Unlock()
