@@ -1531,65 +1531,90 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 
 func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-token-lifecycle.db"))
-	if err != nil { t.Fatalf("OpenStore: %v", err) }
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
 	defer store.db.Close()
+
 	const machineCode = "shared-router-01"
 	const agentType = "wireguard"
 	const instanceID = "routeros-container-1"
 	const globalToken = "global-token-for-instance-test"
-	app := &App{store:store, jwtKey:[]byte("instance-token-test-signing-key")}
-	if err := store.UpdateSettings(map[string]string{"agent_token":globalToken}); err != nil {
+	app := &App{store: store, jwtKey: []byte("instance-token-test-signing-key")}
+	if err := store.UpdateSettings(map[string]string{"agent_token": globalToken}); err != nil {
 		t.Fatalf("seed global token: %v", err)
 	}
+
 	generate := func() *httptest.ResponseRecorder {
 		body := strings.NewReader(`{"machine_code":"shared-router-01","agent_type":"wireguard","instance_id":"routeros-container-1"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", body)
-		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role:"admin"}))
+		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role: "admin"}))
 		rec := httptest.NewRecorder()
 		app.handleGenerateAgentToken(rec, req)
 		return rec
 	}
+
 	issued := generate()
-	if issued.Code != http.StatusOK { t.Fatalf("generate status=%d body=%s", issued.Code, issued.Body.String()) }
-	var generated struct {
-		Token string `json:"token"`
-		MachineCode string `json:"machine_code"`
-		AgentType string `json:"agent_type"`
-		InstanceID string `json:"instance_id"`
+	if issued.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", issued.Code, issued.Body.String())
 	}
-	if err := json.Unmarshal(issued.Body.Bytes(), &generated); err != nil { t.Fatalf("decode generated token: %v", err) }
-	if generated.Token == "" || generated.MachineCode != machineCode || generated.AgentType != agentType || generated.InstanceID != instanceID {
+	var generated struct {
+		Token       string `json:"token"`
+		MachineCode string `json:"machine_code"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+	}
+	if err := json.Unmarshal(issued.Body.Bytes(), &generated); err != nil {
+		t.Fatalf("decode generated token: %v", err)
+	}
+	if generated.Token == "" || generated.MachineCode != machineCode ||
+		generated.AgentType != agentType || generated.InstanceID != instanceID {
 		t.Fatalf("unexpected token response: %#v", generated)
 	}
+
 	hash, err := store.AgentInstanceCredentialHash(machineCode, agentType, instanceID)
-	if err != nil { t.Fatalf("read instance credential: %v", err) }
+	if err != nil {
+		t.Fatalf("read instance credential: %v", err)
+	}
 	sum := sha256.Sum256([]byte(generated.Token))
-	if hash != hex.EncodeToString(sum[:]) { t.Fatal("stored credential is not the generated token fingerprint") }
+	if hash != hex.EncodeToString(sum[:]) {
+		t.Fatal("stored credential is not the generated token fingerprint")
+	}
 	settings, err := store.GetSettings()
-	if err != nil { t.Fatalf("read settings: %v", err) }
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
 	for _, value := range settings {
-		if value == generated.Token { t.Fatal("plaintext composite credential was stored in settings") }
+		if value == generated.Token {
+			t.Fatal("plaintext composite credential was stored in settings")
+		}
 	}
 	if duplicate := generate(); duplicate.Code != http.StatusConflict {
 		t.Fatalf("duplicate generation status=%d, want %d body=%s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
 	}
 
 	registerBody, _ := json.Marshal(map[string]string{
-		"machine_code":machineCode, "secret":generated.Token,
-		"agent_type":agentType, "instance_id":instanceID,
+		"machine_code": machineCode, "secret": generated.Token,
+		"agent_type": agentType, "instance_id": instanceID,
 	})
 	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(registerBody)))
 	registerRec := httptest.NewRecorder()
 	app.handleAgentRegister(registerRec, registerReq)
-	if registerRec.Code != http.StatusOK { t.Fatalf("register status=%d body=%s", registerRec.Code, registerRec.Body.String()) }
-	var registered struct { Token string `json:"token"` }
+	if registerRec.Code != http.StatusOK {
+		t.Fatalf("register status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+	var registered struct {
+		Token string `json:"token"`
+	}
 	if err := json.Unmarshal(registerRec.Body.Bytes(), &registered); err != nil || registered.Token == "" {
 		t.Fatalf("decode registered JWT: token=%q err=%v", registered.Token, err)
 	}
 	authReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
 	authReq.Header.Set("Authorization", "Bearer "+registered.Token)
 	identity, err := app.agentIdentityFromRequest(authReq)
-	if err != nil { t.Fatalf("validate registered JWT: %v", err) }
+	if err != nil {
+		t.Fatalf("validate registered JWT: %v", err)
+	}
 	if identity.MachineCode != machineCode || identity.AgentType != agentType || identity.InstanceID != instanceID {
 		t.Fatalf("registered JWT identity = %#v", identity)
 	}
