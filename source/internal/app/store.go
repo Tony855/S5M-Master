@@ -279,11 +279,7 @@ func (s *Store) migrateLegacyAgentInstances() error {
 			machine_code, agent_type, instance_id, credential_sha256,
 			status_json, last_seen, created_at, updated_at
 		) VALUES(?, ?, 'default', ?, ?, ?, ?, ?)
-		ON CONFLICT(machine_code, agent_type, instance_id) DO UPDATE SET
-			credential_sha256=excluded.credential_sha256,
-			status_json=excluded.status_json,
-			last_seen=excluded.last_seen,
-			updated_at=excluded.updated_at`,
+		ON CONFLICT(machine_code, agent_type, instance_id) DO NOTHING`,
 			agent.machineCode, agentType, hex.EncodeToString(sum[:]), status, lastSeen, now, now)
 		if err != nil {
 			return fmt.Errorf("迁移机器 %q 的旧 Agent 身份失败: %w", agent.machineCode, err)
