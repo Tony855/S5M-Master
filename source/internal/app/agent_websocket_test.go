@@ -1784,15 +1784,19 @@ func TestLegacyAgentWebSocketHeartbeatRefreshesMigratedDefaultInstance(t *testin
 	status := map[string]any{
 		"mihomo_version": "v1.19.5",
 		"mihomo_healthy": true,
-		"upload_total": float64(1),
+		"upload_total":   float64(1),
 		"download_total": float64(2),
-		"upload_speed": float64(3),
+		"upload_speed":   float64(3),
 		"download_speed": float64(4),
-		"connections": float64(5),
-		"config_sha256": strings.Repeat("a", 64),
-		"last_error": "",
+		"connections":    float64(5),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
 	}
-	if err := conn.WriteJSON(map[string]any{"type":"heartbeat","id":"legacy-mirror-1","status":status}); err != nil {
+	if err := conn.WriteJSON(map[string]any{
+		"type": "heartbeat",
+		"id":   "legacy-mirror-1",
+		"status": status,
+	}); err != nil {
 		t.Fatalf("send heartbeat: %v", err)
 	}
 	var ack map[string]any
