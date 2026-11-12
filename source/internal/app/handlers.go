@@ -2851,7 +2851,7 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 		}
 		if existing != nil {
 			writeJSON(w, http.StatusConflict, map[string]string{
-				"error": "该 Agent 实例已经分配凭据；为避免意外轮换，本操作不会覆盖",
+				"error":        "该 Agent 实例已经分配凭据；为避免意外轮换，本操作不会覆盖",
 				"machine_code": in.MachineCode, "agent_type": in.AgentType, "instance_id": in.InstanceID,
 			})
 			return
