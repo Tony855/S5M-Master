@@ -708,3 +708,52 @@ func TestGetLatestAgentInstanceCommandReturnsPendingAndAcknowledgedState(t *test
 		t.Fatalf("cross-instance command leak: %#v err=%v", other, err)
 	}
 }
+
+// TestLegacyAgentMigrationNeverOverwritesProvisionedInstanceOnRestart protects
+// composite credentials and telemetry from the legacy compatibility migration.
+// OpenStore runs migrations on every process start, not only on first install.
+func TestLegacyAgentMigrationNeverOverwritesProvisionedInstanceOnRestart(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-migration-restart.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machine = "restart-node-01"
+	const legacySecret = "legacy-dedicated-secret"
+	if err := store.UpdateSettings(map[string]string{
+		"agent_machine_" + machine: legacySecret,
+		"agent_status_" + machine:  "{\"agent_type\":\"mihomo\",\"legacy\":true}",
+		"agent_lastseen_" + machine: "100",
+	}); err != nil {
+		t.Fatalf("seed legacy settings: %v", err)
+	}
+	if err := store.migrateLegacyAgentInstances(); err != nil {
+		t.Fatalf("initial legacy migration: %v", err)
+	}
+
+	const rotatedSecret = "new-instance-credential-after-migration-012345"
+	if err := store.ProvisionAgentInstance(machine, "mihomo", "default", rotatedSecret); err != nil {
+		t.Fatalf("rotate instance credential: %v", err)
+	}
+	wantStatus := json.RawMessage("{\"agent_type\":\"mihomo\",\"healthy\":true,\"revision\":7}")
+	if err := store.UpdateAgentInstanceStatus(machine, "mihomo", "default", wantStatus, 200); err != nil {
+		t.Fatalf("write fresh instance telemetry: %v", err)
+	}
+
+	// Simulate a subsequent application startup while legacy settings remain.
+	if err := store.migrateLegacyAgentInstances(); err != nil {
+		t.Fatalf("repeat legacy migration: %v", err)
+	}
+	got, err := store.GetAgentInstance(machine, "mihomo", "default")
+	if err != nil || got == nil {
+		t.Fatalf("read instance after repeat migration: item=%#v err=%v", got, err)
+	}
+	sum := sha256.Sum256([]byte(rotatedSecret))
+	if got.CredentialSHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("legacy migration rolled back rotated credential: got=%q", got.CredentialSHA256)
+	}
+	if string(got.StatusJSON) != string(wantStatus) || got.LastSeen != 200 {
+		t.Fatalf("legacy migration rolled back fresh telemetry: status=%s last_seen=%d", got.StatusJSON, got.LastSeen)
+	}
+}
