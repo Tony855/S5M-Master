@@ -291,11 +291,21 @@
         <div class="card-panel token-panel">
           <div class="card-title"><span>生成实例 Token</span><span class="section-hint">用于将 Agent 安全绑定到本控制台</span></div>
           <div class="token-create-row">
-            <el-input v-model="newMachineCode" placeholder="输入实例机器码" clearable></el-input>
+            <el-input v-model="newMachineCode" placeholder="输入物理设备机器码" clearable></el-input>
+            <el-select v-model="newAgentType" style="min-width:190px" aria-label="Agent 类型">
+              <el-option label="旧版 Mihomo（兼容）" value="legacy"></el-option>
+              <el-option label="独立 Mihomo 实例" value="mihomo"></el-option>
+              <el-option label="独立 WireGuard 实例" value="wireguard"></el-option>
+            </el-select>
+            <el-input v-if="newAgentType !== 'legacy'" v-model="newInstanceID" placeholder="独立实例 ID，如 wg-routeros-1" clearable></el-input>
             <el-button type="primary" @click="generateAgentToken" :loading="generating">生成实例 Token</el-button>
           </div>
+          <p class="section-hint">同一物理设备运行多个 Agent 时，为每个 Agent 选择独立类型并填写唯一实例 ID；每个实例使用独立凭据、状态和命令通道。Token 只显示本次生成结果，请立即复制保存。</p>
           <div v-if="generatedToken" class="generated-token-box">
-            <div><div class="token-label">新生成的实例 Token</div><strong class="generated-token-value">{{ generatedToken }}</strong></div>
+            <div>
+              <div class="token-label">新生成的实例 Token · {{ generatedTokenIdentity }}</div>
+              <strong class="generated-token-value">{{ generatedToken }}</strong>
+            </div>
             <el-button type="success" @click="safeCopy(generatedToken)">复制 Token</el-button>
           </div>
         </div>
@@ -388,7 +398,7 @@
               </div>
               <div v-else class="instance-actions">
                 <template v-if="item.instanceId">
-                  <el-button size="small" type="primary" plain @click="openAgentInstanceConfig(item)">实例配置</el-button>
+                  <el-button v-if="item.agentType === 'mihomo'" size="small" type="primary" plain @click="openAgentInstanceConfig(item)">独立配置</el-button>
                   <el-button size="small" type="danger" plain @click="deleteAgent(item)">撤销此实例</el-button>
                 </template>
                 <template v-else>
