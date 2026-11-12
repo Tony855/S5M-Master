@@ -2481,9 +2481,6 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]string{"message": "已删除"})
 }
 
-// 返回所有已注册的机器码 -> Token 映射
-// 依赖 store 里 settings 表的 agent_machine_<code> 键
-
 // handleProvisionAgentInstance creates a one-time, instance-scoped credential.
 // The secret is returned only in this authenticated administrator response.
 func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Request) {
