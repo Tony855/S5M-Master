@@ -2484,6 +2484,59 @@ func (a *App) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
 // 返回所有已注册的机器码 -> Token 映射
 // 依赖 store 里 settings 表的 agent_machine_<code> 键
 
+// handleProvisionAgentInstance creates a one-time, instance-scoped credential.
+// The secret is returned only in this authenticated administrator response.
+func (a *App) handleProvisionAgentInstance(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	if u == nil || u.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "仅管理员可以分配 Agent 实例凭据")
+		return
+	}
+	var in struct {
+		MachineCode string `json:"machine_code"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+	}
+	if err := decodeLimited(r, 8<<10, "8 KiB", &in); err != nil {
+		writeErr(w, decodeErrorStatus(err), "实例身份 JSON 无效")
+		return
+	}
+	in.MachineCode = strings.TrimSpace(in.MachineCode)
+	in.AgentType = strings.TrimSpace(in.AgentType)
+	in.InstanceID = strings.TrimSpace(in.InstanceID)
+	if err := validateAgentIdentity(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		writeErr(w, http.StatusBadRequest, "实例身份参数无效")
+		return
+	}
+	agentTokenGenerateMu.Lock()
+	defer agentTokenGenerateMu.Unlock()
+	if existing, err := a.store.GetAgentInstance(in.MachineCode, in.AgentType, in.InstanceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "读取 Agent 实例失败")
+		return
+	} else if existing != nil {
+		writeErr(w, http.StatusConflict, "该 Agent 实例已存在；如需轮换凭据，请使用明确的轮换流程")
+		return
+	}
+	secretBytes := make([]byte, 32)
+	if _, err := rand.Read(secretBytes); err != nil {
+		writeErr(w, http.StatusInternalServerError, "生成 Agent 实例凭据失败")
+		return
+	}
+	secret := hex.EncodeToString(secretBytes)
+	if err := a.store.ProvisionAgentInstance(in.MachineCode, in.AgentType, in.InstanceID, secret); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存 Agent 实例凭据失败")
+		return
+	}
+	a.publishBrowserEvent(map[string]any{
+		"type": "agent.instance.provisioned", "machine_code": in.MachineCode,
+		"agent_type": in.AgentType, "instance_id": in.InstanceID, "at": time.Now().Unix(),
+	})
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"machine_code": in.MachineCode, "agent_type": in.AgentType,
+		"instance_id": in.InstanceID, "secret": secret,
+	})
+}
+
 func (a *App) handleDeleteAgentInstance(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		MachineCode string `json:"machine_code"`
