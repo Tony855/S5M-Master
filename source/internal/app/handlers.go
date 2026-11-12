@@ -2805,6 +2805,8 @@ func (a *App) handleGenerateAgentToken(w http.ResponseWriter, r *http.Request) {
 
 	var in struct {
 		MachineCode string `json:"machine_code"`
+		AgentType   string `json:"agent_type,omitempty"`
+		InstanceID  string `json:"instance_id,omitempty"`
 	}
 
 	// 限制请求体大小，避免异常大请求占用资源。
