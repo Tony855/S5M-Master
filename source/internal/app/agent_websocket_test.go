@@ -1758,3 +1758,62 @@ func TestCompositeAgentWebSocketConfigIsolatedAndWireGuardCommandsBlocked(t *tes
 		t.Fatalf("blocked WireGuard command must remain pending for operator visibility: %#v err=%v", pending, err)
 	}
 }
+
+func TestLegacyAgentWebSocketHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-default-secret-0123456789"); err != nil {
+		t.Fatalf("seed migrated default instance: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(app.handleAgentWebSocket))
+	defer server.Close()
+
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	conn, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[len("http"):], header)
+	if err != nil {
+		t.Fatalf("dial legacy Agent WebSocket: %v", err)
+	}
+	defer conn.Close()
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
+	var welcome map[string]any
+	if err := conn.ReadJSON(&welcome); err != nil {
+		t.Fatalf("read welcome: %v", err)
+	}
+	status := map[string]any{
+		"mihomo_version": "v1.19.5",
+		"mihomo_healthy": true,
+		"upload_total":   float64(1),
+		"download_total": float64(2),
+		"upload_speed":   float64(3),
+		"download_speed": float64(4),
+		"connections":    float64(5),
+		"config_sha256":  strings.Repeat("a", 64),
+		"last_error":     "",
+	}
+	if err := conn.WriteJSON(map[string]any{
+		"type":   "heartbeat",
+		"id":     "legacy-mirror-1",
+		"status": status,
+	}); err != nil {
+		t.Fatalf("send heartbeat: %v", err)
+	}
+	var ack map[string]any
+	if err := conn.ReadJSON(&ack); err != nil {
+		t.Fatalf("read heartbeat ACK: %v", err)
+	}
+	if ack["type"] != "heartbeat.ack" {
+		t.Fatalf("unexpected heartbeat ACK: %#v", ack)
+	}
+	instance, err := app.store.GetAgentInstance(code, "mihomo", "default")
+	if err != nil || instance == nil {
+		t.Fatalf("read migrated default instance: item=%#v err=%v", instance, err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(instance.StatusJSON, &saved); err != nil {
+		t.Fatalf("decode mirrored status: %v", err)
+	}
+	if saved["mihomo_version"] != "v1.19.5" || instance.LastSeen == 0 {
+		t.Fatalf("migrated default instance status was not refreshed: %#v", instance)
+	}
+}

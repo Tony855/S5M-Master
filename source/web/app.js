@@ -27,7 +27,10 @@ createApp({
     const loadingProxies = ref(false);
 
     const newMachineCode = ref('');
+    const newAgentType = ref('legacy');
+    const newInstanceID = ref('');
     const generatedToken = ref('');
+    const generatedTokenIdentity = ref('');
     const generating = ref(false);
     const agentEntries = ref([]);
     const agentLoadError = ref('');
@@ -1063,16 +1066,37 @@ createApp({
     };
 
     const generateAgentToken = async () => {
-      if (!newMachineCode.value) return showMsg('请输入机器码', 'warning');
+      const machineCode = String(newMachineCode.value || '').trim();
+      const agentType = newAgentType.value === 'legacy' ? '' : String(newAgentType.value || '').trim();
+      const instanceId = agentType ? String(newInstanceID.value || '').trim() : '';
+      if (!machineCode) return showMsg('请输入机器码', 'warning');
+      if (agentType && !instanceId) return showMsg('请输入独立实例 ID', 'warning');
+      if (generating.value) return;
       generating.value = true;
       try {
-        const result = await sendBrowserWSControl({ type: 'agent.binding.generate', machine_code: newMachineCode.value });
+        const result = await sendBrowserWSControl({
+          type: 'agent.binding.generate',
+          machine_code: machineCode,
+          agent_type: agentType,
+          instance_id: instanceId
+        });
         const data = result.data || result;
         if (data.token) {
-          generatedToken.value = data.token; newMachineCode.value = ''; loadAgentsData();
-        } else { showMsg(data.error || data.message || '生成失败', 'error'); }
-      } catch (e) { showMsg(e.message || '网络错误', 'error'); }
-      generating.value = false;
+          generatedToken.value = data.token;
+          generatedTokenIdentity.value = agentType
+            ? (machineCode + ' / ' + agentType + ' / ' + instanceId)
+            : (machineCode + ' / 旧版兼容实例');
+          newMachineCode.value = '';
+          newInstanceID.value = '';
+          await loadAgentsData();
+        } else {
+          showMsg(data.error || data.message || '生成失败', 'error');
+        }
+      } catch (e) {
+        showMsg(e.message || '网络错误', 'error');
+      } finally {
+        generating.value = false;
+      }
     };
 
     const loadAgentKernelUpdateInfo = async () => {
@@ -1139,8 +1163,8 @@ createApp({
     };
 
     const openAgentInstanceConfig = async (item) => {
-      if (!item || !item.instanceId || item.agentType !== 'mihomo') {
-        showMsg('仅支持编辑 Mihomo Agent 的实例 YAML 配置', 'warning');
+      if (!item || !item.instanceId || !['mihomo', 'wireguard'].includes(item.agentType)) {
+        showMsg('请选择有效的独立 Agent 实例', 'warning');
         return;
       }
       instanceConfigTarget.value = {
@@ -1622,7 +1646,7 @@ createApp({
       pwdDialog, pwdSaving, pwdForm, handleLoginEnter, handleUserMenu, resetPwdForm, changeAdminPassword,
       overview, traffic, realtimeStatus, connectBrowserEvents, proxies, loadingProxies, filteredProxies, availableMachineCodes, proxyGroupCodes, activeGroup,
       getUnboundCount, getMachineCount, machineCodeOptionLabel, machineCodeStatus, proxyCountForMachine, nodeConfigState, openProxiesForMachine, openNodeConfigForMachine,
-      newMachineCode, generatedToken, generating, agentEntries, agentMachineEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
+      newMachineCode, newAgentType, newInstanceID, generatedToken, generatedTokenIdentity, generating, agentEntries, agentMachineEntries, agentLoading, agentRefreshing, agentSearch, agentStatusFilter, filteredAgentEntries,
       instanceConfigDialog, instanceConfigTarget, instanceConfigYaml, instanceConfigSHA256, instanceConfigUpdatedAt,
       instanceConfigLoading, instanceConfigSaving, instanceConfigError, openAgentInstanceConfig, saveAgentInstanceConfig,
       retryingNodeConfigSync, retryNodeConfigSync,

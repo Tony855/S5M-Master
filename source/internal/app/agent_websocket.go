@@ -256,7 +256,11 @@ func (a *App) handleBrowserEventsWebSocket(w http.ResponseWriter, r *http.Reques
 		case "nodes.config-sync.retry":
 			a.runBrowserHTTPHandler(client, message.RequestID, a.handleRetryNodeConfigSync, httptest.NewRequest(http.MethodPost, "/api/v1/nodes/config-sync", nil))
 		case "agent.binding.generate":
-			body, _ := json.Marshal(map[string]string{"machine_code": message.MachineCode})
+			body, _ := json.Marshal(map[string]string{
+				"machine_code": message.MachineCode,
+				"agent_type":   message.AgentType,
+				"instance_id":  message.InstanceID,
+			})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", strings.NewReader(string(body)))
 			req.Header.Set("Content-Type", "application/json")
 			req = req.WithContext(context.WithValue(req.Context(), userKey, u))
@@ -892,6 +896,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		receivedAt := time.Now()
+		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		msg.Status["agent_type"] = agentType
 		if agentType == "wireguard" {
 			msg.Status["last_error"] = sanitizeAgentWebSocketText(msg.Status["last_error"].(string))
@@ -901,7 +906,6 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		if marshalErr != nil {
 			return
 		}
-		now := strconv.FormatInt(receivedAt.Unix(), 10)
 		a.agentWSMu.Lock()
 		if a.agentWSGeneration[sessionKey] != generation {
 			a.agentWSMu.Unlock()
@@ -939,6 +943,7 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		var persistErr error
+		var mirroredLegacyInstance bool
 		if identity.InstanceID != "" {
 			persistErr = a.store.UpdateAgentInstanceStatus(machineCode, identity.AgentType, identity.InstanceID, json.RawMessage(payload), receivedAt.Unix())
 		} else {
@@ -946,6 +951,15 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 				"agent_lastseen_" + machineCode: now,
 				"agent_status_" + machineCode:   string(payload),
 			})
+			if persistErr == nil {
+				legacyInstance, lookupErr := a.store.GetAgentInstance(machineCode, agentType, "default")
+				if lookupErr != nil {
+					persistErr = lookupErr
+				} else if legacyInstance != nil {
+					persistErr = a.store.UpdateAgentInstanceStatus(machineCode, agentType, "default", json.RawMessage(payload), receivedAt.Unix())
+					mirroredLegacyInstance = persistErr == nil
+				}
+			}
 		}
 		if persistErr != nil {
 			a.agentWSMu.Unlock()
@@ -961,6 +975,8 @@ func (a *App) handleAgentWebSocket(w http.ResponseWriter, r *http.Request) {
 		event := map[string]any{"type": "agent.status.updated", "machine_code": machineCode, "agent_type": agentType, "last_seen": receivedAt.Unix(), "status": msg.Status}
 		if identity.InstanceID != "" {
 			event["instance_id"] = identity.InstanceID
+		} else if mirroredLegacyInstance {
+			event["instance_id"] = "default"
 		}
 		a.publishBrowserEvent(event)
 		_ = conn.SetReadDeadline(time.Now().Add(agentWSHeartbeatTTL))

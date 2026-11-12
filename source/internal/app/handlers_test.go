@@ -1527,3 +1527,133 @@ func TestAgentInstanceManagementHandlersAreScopedAndBounded(t *testing.T) {
 		t.Fatalf("oversized config status=%d, want 413", rec.Code)
 	}
 }
+
+func TestAgentTokenGenerateAndRegisterLifecycleForCompositeInstance(t *testing.T) {
+	store, err := OpenStore(filepath.Join(t.TempDir(), "agent-instance-token-lifecycle.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer store.db.Close()
+
+	const machineCode = "shared-router-01"
+	const agentType = "wireguard"
+	const instanceID = "routeros-container-1"
+	const globalToken = "global-token-for-instance-test"
+	app := &App{store: store, jwtKey: []byte("instance-token-test-signing-key")}
+	if err := store.UpdateSettings(map[string]string{"agent_token": globalToken}); err != nil {
+		t.Fatalf("seed global token: %v", err)
+	}
+
+	generate := func() *httptest.ResponseRecorder {
+		body := strings.NewReader(`{"machine_code":"shared-router-01","agent_type":"wireguard","instance_id":"routeros-container-1"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/generate", body)
+		req = req.WithContext(context.WithValue(req.Context(), userKey, &User{Role: "admin"}))
+		rec := httptest.NewRecorder()
+		app.handleGenerateAgentToken(rec, req)
+		return rec
+	}
+
+	issued := generate()
+	if issued.Code != http.StatusOK {
+		t.Fatalf("generate status=%d body=%s", issued.Code, issued.Body.String())
+	}
+	var generated struct {
+		Token       string `json:"token"`
+		MachineCode string `json:"machine_code"`
+		AgentType   string `json:"agent_type"`
+		InstanceID  string `json:"instance_id"`
+	}
+	if err := json.Unmarshal(issued.Body.Bytes(), &generated); err != nil {
+		t.Fatalf("decode generated token: %v", err)
+	}
+	if generated.Token == "" || generated.MachineCode != machineCode ||
+		generated.AgentType != agentType || generated.InstanceID != instanceID {
+		t.Fatalf("unexpected token response: %#v", generated)
+	}
+
+	hash, err := store.AgentInstanceCredentialHash(machineCode, agentType, instanceID)
+	if err != nil {
+		t.Fatalf("read instance credential: %v", err)
+	}
+	sum := sha256.Sum256([]byte(generated.Token))
+	if hash != hex.EncodeToString(sum[:]) {
+		t.Fatal("stored credential is not the generated token fingerprint")
+	}
+	settings, err := store.GetSettings()
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	for _, value := range settings {
+		if value == generated.Token {
+			t.Fatal("plaintext composite credential was stored in settings")
+		}
+	}
+	if duplicate := generate(); duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate generation status=%d, want %d body=%s", duplicate.Code, http.StatusConflict, duplicate.Body.String())
+	}
+
+	registerBody, _ := json.Marshal(map[string]string{
+		"machine_code": machineCode, "secret": generated.Token,
+		"agent_type": agentType, "instance_id": instanceID,
+	})
+	registerReq := httptest.NewRequest(http.MethodPost, "/api/v1/agent/register", strings.NewReader(string(registerBody)))
+	registerRec := httptest.NewRecorder()
+	app.handleAgentRegister(registerRec, registerReq)
+	if registerRec.Code != http.StatusOK {
+		t.Fatalf("register status=%d body=%s", registerRec.Code, registerRec.Body.String())
+	}
+	var registered struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(registerRec.Body.Bytes(), &registered); err != nil || registered.Token == "" {
+		t.Fatalf("decode registered JWT: token=%q err=%v", registered.Token, err)
+	}
+	authReq := httptest.NewRequest(http.MethodGet, "/api/v1/agent/ws", nil)
+	authReq.Header.Set("Authorization", "Bearer "+registered.Token)
+	identity, err := app.agentIdentityFromRequest(authReq)
+	if err != nil {
+		t.Fatalf("validate registered JWT: %v", err)
+	}
+	if identity.MachineCode != machineCode || identity.AgentType != agentType || identity.InstanceID != instanceID {
+		t.Fatalf("registered JWT identity = %#v", identity)
+	}
+}
+
+func TestLegacyAgentHTTPHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) {
+	app, code, token := websocketTestApp(t)
+	if err := app.store.ProvisionAgentInstance(code, "mihomo", "default", "migrated-http-secret-0123456789x"); err != nil {
+		t.Fatalf("seed migrated default instance: %v", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"mihomo_version": "v1.19.6",
+		"mihomo_healthy": true,
+		"upload_total":   float64(11),
+		"download_total": float64(22),
+		"upload_speed":   float64(33),
+		"download_speed": float64(44),
+		"connections":    float64(5),
+		"config_sha256":  strings.Repeat("b", 64),
+		"last_error":     "",
+	})
+	if err != nil {
+		t.Fatalf("marshal heartbeat: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", strings.NewReader(string(body)))
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	app.handleAgentHeartbeat(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("heartbeat status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	instance, err := app.store.GetAgentInstance(code, "mihomo", "default")
+	if err != nil || instance == nil {
+		t.Fatalf("read migrated default instance: item=%#v err=%v", instance, err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(instance.StatusJSON, &saved); err != nil {
+		t.Fatalf("decode mirrored status: %v", err)
+	}
+	if saved["mihomo_version"] != "v1.19.6" || instance.LastSeen == 0 {
+		t.Fatalf("migrated default instance status was not refreshed: %#v", instance)
+	}
+}
