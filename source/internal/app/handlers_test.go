@@ -1629,13 +1629,13 @@ func TestLegacyAgentHTTPHeartbeatRefreshesMigratedDefaultInstance(t *testing.T) 
 	body, err := json.Marshal(map[string]any{
 		"mihomo_version": "v1.19.6",
 		"mihomo_healthy": true,
-		"upload_total": float64(11),
+		"upload_total":   float64(11),
 		"download_total": float64(22),
-		"upload_speed": float64(33),
+		"upload_speed":   float64(33),
 		"download_speed": float64(44),
-		"connections": float64(5),
-		"config_sha256": strings.Repeat("b", 64),
-		"last_error": "",
+		"connections":    float64(5),
+		"config_sha256":  strings.Repeat("b", 64),
+		"last_error":     "",
 	})
 	if err != nil {
 		t.Fatalf("marshal heartbeat: %v", err)
